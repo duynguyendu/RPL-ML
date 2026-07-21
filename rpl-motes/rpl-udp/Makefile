@@ -3,5 +3,5 @@ all: $(CONTIKI_PROJECT)
 
 PROJECT_SOURCEFILES += metrics.c
 
-CONTIKI = ~/RPL-TinyML/contiki-ng
+CONTIKI = ../../contiki-ng
 include $(CONTIKI)/Makefile.include

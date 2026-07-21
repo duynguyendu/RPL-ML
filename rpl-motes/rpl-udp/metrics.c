@@ -35,7 +35,7 @@
 /*---------------------------------------------------------------------*/
 /* Internal state */
 static unsigned long last_cpu_ticks = 0;
-static rtimer_clock_t last_total_ticks;
+static clock_time_t last_total_ticks;
 static rtimer_clock_t compute_start_ticks;
 
 PROCESS(metrics_process, "Metrics process");
@@ -50,7 +50,8 @@ metrics_print_etx(void)
     if(parent != NULL) {
       const struct link_stats *stats = rpl_neighbor_get_link_stats(parent);
       if(stats != NULL) {
-        printf("ETX: %u\n", stats->etx / LINK_STATS_ETX_DIVISOR);
+        uint16_t etx_x10 = (stats->etx * 10) / LINK_STATS_ETX_DIVISOR;
+        printf("ETX: %u.%u\n", etx_x10 / 10, etx_x10 % 10);
         return;
       }
     }
@@ -116,13 +117,13 @@ void
 metrics_print_cpu_util(void)
 {
   unsigned long cpu_ticks;
-  rtimer_clock_t now_ticks;
+  clock_time_t now_ticks;
   unsigned long cpu_delta;
-  rtimer_clock_t total_delta;
+  unsigned long total_delta;
 
   energest_flush();
   cpu_ticks = (unsigned long)energest_type_time(ENERGEST_TYPE_CPU);
-  now_ticks = RTIMER_NOW();
+  now_ticks = clock_time();
 
   /* First call: nothing to compare against yet, just seed the state. */
   if(last_total_ticks == 0) {
@@ -133,7 +134,7 @@ metrics_print_cpu_util(void)
   }
 
   cpu_delta = cpu_ticks - last_cpu_ticks;
-  total_delta = now_ticks - last_total_ticks;
+  total_delta = (unsigned long)now_ticks - (unsigned long)last_total_ticks;
 
   if(total_delta > 0) {
     unsigned long permille = (1000UL * cpu_delta) / total_delta;
