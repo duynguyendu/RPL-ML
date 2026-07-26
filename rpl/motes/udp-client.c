@@ -1,11 +1,11 @@
 #include "contiki.h"
+#include "metrics.h"
 #include "net/ipv6/simple-udp.h"
 #include "net/netstack.h"
 #include "net/routing/routing.h"
 #include "random.h"
 #include <inttypes.h>
 #include <stdint.h>
-#include "metrics.h"
 
 #include "sys/log.h"
 #define LOG_MODULE "App"
@@ -31,11 +31,9 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t receiver_port, const uint8_t *data,
                             uint16_t datalen) {
 
+  // TODO: possibly include latency in here
   LOG_INFO("Received response '%.*s' from ", datalen, (char *)data);
   LOG_INFO_6ADDR(sender_addr);
-#if LLSEC802154_CONF_ENABLED
-  LOG_INFO_(" LLSEC LV:%d", uipbuf_get_attr(UIPBUF_ATTR_LLSEC_LEVEL));
-#endif
   LOG_INFO_("\n");
   rx_count++;
 }

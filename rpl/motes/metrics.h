@@ -20,8 +20,6 @@
 #define METRICS_PERIOD 30
 #endif
 
-/* Starts the periodic metrics-printing process. Call this once from your
- * application's init code (e.g. at the top of your PROCESS_THREAD). */
 void metrics_start(void);
 
 /* --- One-shot / periodic metrics -------------------------------------- */
@@ -33,11 +31,8 @@ void metrics_print_etx(void);
  * role (root/node), and preferred parent address (if any). */
 void metrics_print_dodag(void);
 
-/* Prints Energest breakdown (CPU/LPM/TX/RX ticks) and the tick rate. */
-void metrics_print_energest(void);
-
-/* Prints CPU utilization (%) since the last call to this function. */
-void metrics_print_cpu_util(void);
+/* Prints Energest breakdown (CPU/LPM/Deep LPM/TX/RX ticks), the tick rate and CPU util %. */
+void metrics_energest(void);
 
 /* Prints the radio's current Tx power (dBm or raw driver units). */
 void metrics_print_txpower(void);

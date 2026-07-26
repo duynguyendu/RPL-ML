@@ -23,6 +23,7 @@ import re
 import sys
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -55,9 +56,7 @@ RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
 
 RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
 
-RE_RECEIVED = re.compile(
-    r"\[INFO:\s+App\s+\]\s+Received request 'hello (\d+)' from"
-)
+RE_RECEIVED = re.compile(r"\[INFO:\s+App\s+\]\s+Received request 'hello (\d+)' from")
 
 
 def parse_log(log_path):
@@ -86,79 +85,130 @@ def parse_log(log_path):
 
             dm = RE_DODAG_JOINED.match(content)
             if dm:
-                rows_dodag.append({
-                    "time_s": time_s, "node_id": node_id,
-                    "instance": int(dm.group(1)), "version": int(dm.group(2)),
-                    "rank": int(dm.group(3)), "grounded": int(dm.group(4)),
-                    "role": dm.group(5), "dag_id": dm.group(6),
-                    "preferred_parent": dm.group(7),
-                })
+                rows_dodag.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "instance": int(dm.group(1)),
+                        "version": int(dm.group(2)),
+                        "rank": int(dm.group(3)),
+                        "grounded": int(dm.group(4)),
+                        "role": dm.group(5),
+                        "dag_id": dm.group(6),
+                        "preferred_parent": dm.group(7),
+                    }
+                )
                 continue
             if RE_DODAG_NOT.match(content):
-                rows_dodag.append({
-                    "time_s": time_s, "node_id": node_id,
-                    "instance": np.nan, "version": np.nan,
-                    "rank": 65535, "grounded": np.nan,
-                    "role": np.nan, "dag_id": np.nan, "preferred_parent": np.nan,
-                })
+                rows_dodag.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "instance": np.nan,
+                        "version": np.nan,
+                        "rank": 65535,
+                        "grounded": np.nan,
+                        "role": np.nan,
+                        "dag_id": np.nan,
+                        "preferred_parent": np.nan,
+                    }
+                )
                 continue
 
             eg = RE_ENERGEST.match(content)
             if eg:
-                rows_energest.append({
-                    "time_s": time_s, "node_id": node_id,
-                    "cpu_ticks": int(eg.group(1)), "lpm_ticks": int(eg.group(2)),
-                    "tx_ticks": int(eg.group(3)), "rx_ticks": int(eg.group(4)),
-                    "ticks_per_sec": int(eg.group(5)),
-                })
+                rows_energest.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "cpu_ticks": int(eg.group(1)),
+                        "lpm_ticks": int(eg.group(2)),
+                        "tx_ticks": int(eg.group(3)),
+                        "rx_ticks": int(eg.group(4)),
+                        "ticks_per_sec": int(eg.group(5)),
+                    }
+                )
                 continue
 
             cm = RE_CPU_UTIL.match(content)
             if cm:
-                rows_cpu.append({"time_s": time_s, "node_id": node_id, "cpu_pct": float(cm.group(1))})
+                rows_cpu.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "cpu_pct": float(cm.group(1)),
+                    }
+                )
                 continue
             if RE_CPU_NA.match(content):
-                rows_cpu.append({"time_s": time_s, "node_id": node_id, "cpu_pct": np.nan})
+                rows_cpu.append(
+                    {"time_s": time_s, "node_id": node_id, "cpu_pct": np.nan}
+                )
                 continue
 
             tm = RE_TX_POWER.match(content)
             if tm:
-                rows_txpower.append({"time_s": time_s, "node_id": node_id, "tx_power_dbm": int(tm.group(1))})
+                rows_txpower.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "tx_power_dbm": int(tm.group(1)),
+                    }
+                )
                 continue
 
             if node_id == 1:
                 rm = RE_RECEIVED.search(content)
                 if rm:
-                    rows_app.append({
-                        "time_s": time_s, "node_id": node_id,
-                        "event": "received_request",
-                        "tx_count": np.nan, "rx_count": np.nan, "missed_count": np.nan,
-                    })
+                    rows_app.append(
+                        {
+                            "time_s": time_s,
+                            "node_id": node_id,
+                            "event": "received_request",
+                            "tx_count": np.nan,
+                            "rx_count": np.nan,
+                            "missed_count": np.nan,
+                        }
+                    )
                 continue
 
             txrx = RE_TXRX.search(content)
             if txrx:
-                rows_app.append({
-                    "time_s": time_s, "node_id": node_id, "event": "tx_rx_stats",
-                    "tx_count": int(txrx.group(1)), "rx_count": int(txrx.group(2)),
-                    "missed_count": int(txrx.group(3)),
-                })
+                rows_app.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "event": "tx_rx_stats",
+                        "tx_count": int(txrx.group(1)),
+                        "rx_count": int(txrx.group(2)),
+                        "missed_count": int(txrx.group(3)),
+                    }
+                )
                 continue
 
             if RE_NOT_REACHABLE.match(content):
-                rows_app.append({
-                    "time_s": time_s, "node_id": node_id, "event": "not_reachable",
-                    "tx_count": np.nan, "rx_count": np.nan, "missed_count": np.nan,
-                })
+                rows_app.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "event": "not_reachable",
+                        "tx_count": np.nan,
+                        "rx_count": np.nan,
+                        "missed_count": np.nan,
+                    }
+                )
                 continue
 
     def _df(rows):
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     return {
-        "etx": _df(rows_etx), "dodag": _df(rows_dodag),
-        "energest": _df(rows_energest), "cpu_util": _df(rows_cpu),
-        "tx_power": _df(rows_txpower), "app_events": _df(rows_app),
+        "etx": _df(rows_etx),
+        "dodag": _df(rows_dodag),
+        "energest": _df(rows_energest),
+        "cpu_util": _df(rows_cpu),
+        "tx_power": _df(rows_txpower),
+        "app_events": _df(rows_app),
     }
 
 
@@ -183,9 +233,16 @@ def load_data(in_dir):
 
 
 NODE_COLORS = {
-    2: "#e6194b", 3: "#3cb44b", 4: "#4363d8", 5: "#f58231",
-    6: "#911eb4", 7: "#42d4f4", 8: "#f032e6", 9: "#bfef45",
-    10: "#fabed4", 11: "#469990",
+    2: "#e6194b",
+    3: "#3cb44b",
+    4: "#4363d8",
+    5: "#f58231",
+    6: "#911eb4",
+    7: "#42d4f4",
+    8: "#f032e6",
+    9: "#bfef45",
+    10: "#fabed4",
+    11: "#469990",
 }
 
 
@@ -207,8 +264,14 @@ def plot_etx(data, out_dir, dpi):
         sub = df[df["node_id"] == nid].dropna(subset=["etx"])
         if sub.empty:
             continue
-        ax.plot(sub["time_s"], sub["etx"], "o-", label=f"Node {nid}",
-                color=NODE_COLORS.get(nid), markersize=5)
+        ax.plot(
+            sub["time_s"],
+            sub["etx"],
+            "o-",
+            label=f"Node {nid}",
+            color=NODE_COLORS.get(nid),
+            markersize=5,
+        )
     _style_ax(ax, "ETX to Preferred RPL Parent", "Simulated Time (s)", "ETX")
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     ax.legend(fontsize=7, ncol=2, loc="best")
@@ -229,13 +292,23 @@ def plot_rank(data, out_dir, dpi):
         connected = sub["rank"] < 65535
         disconnected = ~connected
         if connected.any():
-            ax.plot(sub.loc[connected, "time_s"], sub.loc[connected, "rank"],
-                    "o-", label=f"Node {nid}",
-                    color=NODE_COLORS.get(nid), markersize=5)
+            ax.plot(
+                sub.loc[connected, "time_s"],
+                sub.loc[connected, "rank"],
+                "o-",
+                label=f"Node {nid}",
+                color=NODE_COLORS.get(nid),
+                markersize=5,
+            )
         if disconnected.any():
-            ax.plot(sub.loc[disconnected, "time_s"],
-                    [np.nan] * disconnected.sum(),
-                    "x--", color=NODE_COLORS.get(nid), markersize=5, alpha=0.4)
+            ax.plot(
+                sub.loc[disconnected, "time_s"],
+                [np.nan] * disconnected.sum(),
+                "x--",
+                color=NODE_COLORS.get(nid),
+                markersize=5,
+                alpha=0.4,
+            )
     _style_ax(ax, "DODAG Rank per Node", "Simulated Time (s)", "Rank")
     ax.legend(fontsize=7, ncol=2, loc="best")
     fig.tight_layout()
@@ -256,8 +329,9 @@ def plot_energest(data, out_dir, dpi):
     nodes = sorted(df["node_id"].unique())
     n_nodes = len(nodes)
 
-    fig, axes = plt.subplots(1, len(cycles), figsize=(6 * len(cycles), 5),
-                             sharey=True, squeeze=False)
+    fig, axes = plt.subplots(
+        1, len(cycles), figsize=(6 * len(cycles), 5), sharey=True, squeeze=False
+    )
     for ci, cycle_t in enumerate(cycles):
         ax = axes[0][ci]
         cycle_df = df[df["time_s"] == cycle_t]
@@ -269,8 +343,16 @@ def plot_energest(data, out_dir, dpi):
                 row = cycle_df[cycle_df["node_id"] == nid]
                 vals.append(row[comp].values[0] if len(row) else 0)
             vals = np.array(vals, dtype=float)
-            ax.bar(x, vals, 0.7, bottom=bottoms, label=label, color=color,
-                   edgecolor="white", linewidth=0.3)
+            ax.bar(
+                x,
+                vals,
+                0.7,
+                bottom=bottoms,
+                label=label,
+                color=color,
+                edgecolor="white",
+                linewidth=0.3,
+            )
             bottoms += vals
         ax.set_xticks(x)
         ax.set_xticklabels([str(n) for n in nodes], fontsize=7)
@@ -280,11 +362,13 @@ def plot_energest(data, out_dir, dpi):
         if ci == 0:
             ax.set_ylabel("Ticks")
             ax.legend(fontsize=7)
-    fig.suptitle("Energest Breakdown per Node per Cycle", fontsize=11,
-                 fontweight="bold", y=1.02)
+    fig.suptitle(
+        "Energest Breakdown per Node per Cycle", fontsize=11, fontweight="bold", y=1.02
+    )
     fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "energest_per_node.png"), dpi=dpi,
-                bbox_inches="tight")
+    fig.savefig(
+        os.path.join(out_dir, "energest_per_node.png"), dpi=dpi, bbox_inches="tight"
+    )
     plt.close(fig)
     print("  Saved energest_per_node.png")
 
@@ -302,17 +386,36 @@ def plot_cpu_util(data, out_dir, dpi):
         overflow = sub["cpu_pct"] > 100
         normal = ~overflow
         if normal.any():
-            ax.plot(sub.loc[normal, "time_s"], sub.loc[normal, "cpu_pct"],
-                    "o-", label=f"Node {nid}",
-                    color=NODE_COLORS.get(nid), markersize=5)
+            ax.plot(
+                sub.loc[normal, "time_s"],
+                sub.loc[normal, "cpu_pct"],
+                "o-",
+                label=f"Node {nid}",
+                color=NODE_COLORS.get(nid),
+                markersize=5,
+            )
         if overflow.any():
-            ax.plot(sub.loc[overflow, "time_s"], sub.loc[overflow, "cpu_pct"],
-                    "x", color=NODE_COLORS.get(nid), markersize=8, markeredgewidth=2)
+            ax.plot(
+                sub.loc[overflow, "time_s"],
+                sub.loc[overflow, "cpu_pct"],
+                "x",
+                color=NODE_COLORS.get(nid),
+                markersize=8,
+                markeredgewidth=2,
+            )
             for _, row in sub[overflow].iterrows():
-                ax.annotate("overflow", (row["time_s"], row["cpu_pct"]),
-                            fontsize=6, color="red", ha="left",
-                            textcoords="offset points", xytext=(4, 0))
-    _style_ax(ax, "CPU Utilization per Node", "Simulated Time (s)", "CPU Utilization (%)")
+                ax.annotate(
+                    "overflow",
+                    (row["time_s"], row["cpu_pct"]),
+                    fontsize=6,
+                    color="red",
+                    ha="left",
+                    textcoords="offset points",
+                    xytext=(4, 0),
+                )
+    _style_ax(
+        ax, "CPU Utilization per Node", "Simulated Time (s)", "CPU Utilization (%)"
+    )
     ax.legend(fontsize=7, ncol=2, loc="best")
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "cpu_util_per_node.png"), dpi=dpi)
@@ -327,12 +430,21 @@ def plot_tx_power(data, out_dir, dpi):
         return
     fig, ax = plt.subplots(figsize=(8, 4))
     last = df.groupby("node_id").last().reset_index()
-    bars = ax.bar([str(n) for n in last["node_id"]], last["tx_power_dbm"],
-                  color=[NODE_COLORS.get(n, "#888") for n in last["node_id"]])
+    bars = ax.bar(
+        [str(n) for n in last["node_id"]],
+        last["tx_power_dbm"],
+        color=[NODE_COLORS.get(n, "#888") for n in last["node_id"]],
+    )
     _style_ax(ax, "TX Power per Node (last reading)", "Node ID", "TX Power (dBm)")
     for bar, val in zip(bars, last["tx_power_dbm"]):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,
-                str(int(val)), ha="center", va="bottom", fontsize=8)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.1,
+            str(int(val)),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "tx_power.png"), dpi=dpi)
     plt.close(fig)
@@ -389,8 +501,9 @@ def plot_connectivity(data, out_dir, dpi):
     for i, nid in enumerate(nodes):
         node_df = df[df["node_id"] == nid]
         for bi in range(n_bins):
-            in_bin = node_df[(node_df["time_s"] >= bins[bi]) &
-                             (node_df["time_s"] < bins[bi + 1])]
+            in_bin = node_df[
+                (node_df["time_s"] >= bins[bi]) & (node_df["time_s"] < bins[bi + 1])
+            ]
             if in_bin.empty:
                 continue
             has_txrx = (in_bin["event"] == "tx_rx_stats").any()
@@ -399,18 +512,29 @@ def plot_connectivity(data, out_dir, dpi):
     fig, ax = plt.subplots(figsize=(12, 4))
     cmap = matplotlib.colors.ListedColormap(["#e6194b", "#3cb44b"])
     cmap.set_bad(color="#dddddd")
-    ax.imshow(matrix, aspect="auto", cmap=cmap, vmin=0, vmax=1,
-              interpolation="nearest",
-              extent=[t_min, t_max, len(nodes) - 0.5, -0.5])
+    ax.imshow(
+        matrix,
+        aspect="auto",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        interpolation="nearest",
+        extent=[t_min, t_max, len(nodes) - 0.5, -0.5],
+    )
     ax.set_yticks(range(len(nodes)))
     ax.set_yticklabels([str(n) for n in nodes])
     _style_ax(ax, "Node Connectivity over Time", "Simulated Time (s)", "Node ID")
     from matplotlib.patches import Patch
-    ax.legend(handles=[
-        Patch(facecolor="#3cb44b", label="Reachable"),
-        Patch(facecolor="#e6194b", label="Not reachable"),
-        Patch(facecolor="#dddddd", label="No data"),
-    ], fontsize=8, loc="upper right")
+
+    ax.legend(
+        handles=[
+            Patch(facecolor="#3cb44b", label="Reachable"),
+            Patch(facecolor="#e6194b", label="Not reachable"),
+            Patch(facecolor="#dddddd", label="No data"),
+        ],
+        fontsize=8,
+        loc="upper right",
+    )
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "connectivity.png"), dpi=dpi)
     plt.close(fig)
@@ -419,15 +543,24 @@ def plot_connectivity(data, out_dir, dpi):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Parse COOJA simulation logs and generate metric plots.")
-    parser.add_argument("--log", default="simulation_logs/COOJA.testlog",
-                        help="Path to COOJA.testlog")
-    parser.add_argument("--df", default=None,
-                        help="Path to directory of pre-parsed CSVs (skip parsing)")
-    parser.add_argument("--outdir", default="plots",
-                        help="Output directory for PNG plots (default: plots/)")
-    parser.add_argument("--parseddir", default="parsed_data",
-                        help="Where to save parsed CSVs (default: parsed_data)")
+        description="Parse COOJA simulation logs and generate metric plots."
+    )
+    parser.add_argument(
+        "--log", default="simulation_logs/COOJA.testlog", help="Path to COOJA.testlog"
+    )
+    parser.add_argument(
+        "--df", default=None, help="Path to directory of pre-parsed CSVs (skip parsing)"
+    )
+    parser.add_argument(
+        "--outdir",
+        default="plots",
+        help="Output directory for PNG plots (default: plots/)",
+    )
+    parser.add_argument(
+        "--parseddir",
+        default="parsed_data",
+        help="Where to save parsed CSVs (default: parsed_data)",
+    )
     parser.add_argument("--dpi", type=int, default=150, help="Image DPI")
     args = parser.parse_args()
 

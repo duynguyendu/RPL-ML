@@ -393,3 +393,8 @@ TSWLatexianTemp*
 venv/
 parsed_data/
 plots/
+
+*.sky
+*.robot
+*.resc
+compile_commands.json
