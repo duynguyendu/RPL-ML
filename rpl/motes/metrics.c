@@ -79,27 +79,24 @@ void metrics_print_dodag(void) {
 }
 
 void metrics_print_energest(void) {
-  unsigned long cpu = ticks_to_seconds(energest_type_time(ENERGEST_TYPE_CPU));
-  unsigned long lpm = ticks_to_seconds(energest_type_time(ENERGEST_TYPE_LPM));
-  unsigned long deep_lpm =
-      ticks_to_seconds(energest_type_time(ENERGEST_TYPE_DEEP_LPM));
-  unsigned long listen =
-      ticks_to_seconds(energest_type_time(ENERGEST_TYPE_LISTEN));
-  unsigned long transmit =
-      ticks_to_seconds(energest_type_time(ENERGEST_TYPE_TRANSMIT));
-  unsigned long total = ticks_to_seconds(ENERGEST_GET_TOTAL_TIME());
+  unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
+  unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
+  unsigned long deep_lpm = energest_type_time(ENERGEST_TYPE_DEEP_LPM);
+  unsigned long listen = energest_type_time(ENERGEST_TYPE_LISTEN);
+  unsigned long transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT);
+  unsigned long total = ENERGEST_GET_TOTAL_TIME();
   unsigned long off =
       total > (listen + transmit) ? total - listen - transmit : 0;
 
-  printf("ENERGEST: CPU=%lus LPM=%lus DEEP_LPM=%lus LISTEN=%lus "
-         "TRANSMIT=%lus OFF=%lus TOTAL=%lus\n",
+  printf("ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu "
+         "TRANSMIT=%lu OFF=%lu TOTAL=%lu\n",
          cpu, lpm, deep_lpm, listen, transmit, off, total);
 }
 
 void metrics_print_cpu_util(void) {
   unsigned long current_cpu_tick =
       (unsigned long)energest_type_time(ENERGEST_TYPE_CPU);
-  clock_time_t current_tick = clock_time();
+  clock_time_t current_tick = ENERGEST_GET_TOTAL_TIME();
 
   /* First call: nothing to compare against yet, just seed the state. */
   if (prev_tick == 0) {
@@ -115,8 +112,8 @@ void metrics_print_cpu_util(void) {
 
   if (tick_delta > 0) {
     // TODO: verify that this is cpu usage
-    unsigned long percent = (100UL * cpu_tick_delta) / tick_delta;
-    printf("CPU_UTIL: %lu.%lu%%\n", percent / 10, percent % 10);
+    unsigned long percent = (1000UL * cpu_tick_delta) / tick_delta;
+    printf("CPU_UTIL: %lu.%lu%% cpu_tick_delta=%lu tick_delta=%lu\n", percent / 10, percent % 10, cpu_tick_delta, tick_delta);
   } else {
     printf("CPU_UTIL: n/a (no elapsed time)\n");
   }
@@ -198,7 +195,6 @@ PROCESS_THREAD(metrics_process, ev, data) {
     metrics_print_etx();
     metrics_print_dodag();
     metrics_energest();
-    metrics_print_cpu_util();
     metrics_print_txpower();
 
     etimer_reset(&metrics_timer);

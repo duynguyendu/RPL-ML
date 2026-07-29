@@ -8,21 +8,20 @@
 #include <stdint.h>
 
 #include "sys/log.h"
-#include "uipopt.h"
 #define LOG_MODULE "App"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
+#define WITH_SERVER_REPLY 1
 #define UDP_CLIENT_PORT 8765
 #define UDP_SERVER_PORT 5678
 
-#define SEND_INTERVAL (10 * CLOCK_SECOND)
+#define SEND_INTERVAL 1
 
 static struct simple_udp_connection udp_conn;
 static uint32_t rx_count = 0;
-static uint32_t sent_timestamp = 0;
 
 /*---------------------------------------------------------------------------*/
-PROCESS(udp_client_process, "UDP client");
+PROCESS(udp_client_process, "Overloading client");
 AUTOSTART_PROCESSES(&udp_client_process);
 /*---------------------------------------------------------------------------*/
 static void udp_rx_callback(struct simple_udp_connection *c,
@@ -32,13 +31,10 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t receiver_port, const uint8_t *data,
                             uint16_t datalen) {
 
-#if SHOULD_LOG
+  // TODO: possibly include latency in here
   LOG_INFO("Received response '%.*s' from ", datalen, (char *)data);
   LOG_INFO_6ADDR(sender_addr);
   LOG_INFO_("\n");
-#endif
-  metrics_log_latency(0, sent_timestamp);
-  metrics_print_hop_count(UIP_TTL);
   rx_count++;
 }
 
@@ -57,7 +53,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT,
                       udp_rx_callback);
 
-  etimer_set(&periodic_timer, random_rand() % SEND_INTERVAL);
+  etimer_set(&periodic_timer, SEND_INTERVAL);
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
@@ -70,13 +66,11 @@ PROCESS_THREAD(udp_client_process, ev, data) {
                  tx_count, rx_count, missed_tx_count);
       }
 
+      /* Send to DAG root */
       LOG_INFO("Sending request %" PRIu32 " to ", tx_count);
       LOG_INFO_6ADDR(&dest_ipaddr);
       LOG_INFO_("\n");
-      snprintf(str, sizeof(str), "hello %" PRIu32 "", tx_count);
-
-      sent_timestamp = metrics_get_timestamp();
-      /* Send to DAG root */
+      snprintf(str, sizeof(str), "overloading %" PRIu32 "", tx_count);
       simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
       tx_count++;
     } else {
@@ -87,8 +81,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
     }
 
     /* Add some jitter */
-    etimer_set(&periodic_timer, SEND_INTERVAL - CLOCK_SECOND +
-                                    (random_rand() % (2 * CLOCK_SECOND)));
+    etimer_set(&periodic_timer, SEND_INTERVAL);
   }
 
   PROCESS_END();

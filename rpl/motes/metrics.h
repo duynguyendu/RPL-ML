@@ -8,16 +8,15 @@
  * metrics.c to your Makefile's CONTIKI_SOURCEFILES (or PROJECT_SOURCEFILES).
  */
 
-#ifndef METRICS_H_
-#define METRICS_H_
+#pragma once
 
-#include <stdint.h>
 #include "sys/rtimer.h"
+#include <stdint.h>
 
 /* Period (in seconds) for the periodic metrics process (ETX, energy, CPU,
  * Tx power). Override in project-conf.h if needed. */
 #ifndef METRICS_PERIOD
-#define METRICS_PERIOD 30
+#define METRICS_PERIOD 10
 #endif
 
 void metrics_start(void);
@@ -31,7 +30,8 @@ void metrics_print_etx(void);
  * role (root/node), and preferred parent address (if any). */
 void metrics_print_dodag(void);
 
-/* Prints Energest breakdown (CPU/LPM/Deep LPM/TX/RX ticks), the tick rate and CPU util %. */
+/* Prints Energest breakdown (CPU/LPM/Deep LPM/TX/RX ticks), the tick rate and
+ * CPU util %. */
 void metrics_energest(void);
 
 /* Prints the radio's current Tx power (dBm or raw driver units). */
@@ -64,5 +64,3 @@ void metrics_time_start(void);
  * prints the elapsed time in rtimer ticks and microseconds, tagged with
  * "label". */
 void metrics_time_end(const char *label);
-
-#endif /* METRICS_H_ */

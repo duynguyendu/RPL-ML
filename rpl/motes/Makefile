@@ -1,4 +1,4 @@
-CONTIKI_PROJECT = udp-client udp-server
+CONTIKI_PROJECT = udp-client overload-client udp-server
 all: $(CONTIKI_PROJECT)
 
 PROJECT_SOURCEFILES += metrics.c
