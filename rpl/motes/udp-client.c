@@ -1,4 +1,3 @@
-#include "contiki.h"
 #include "metrics.h"
 #include "net/ipv6/simple-udp.h"
 #include "net/netstack.h"
@@ -6,9 +5,10 @@
 #include "random.h"
 #include <inttypes.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "sys/log.h"
-#include "uipopt.h"
 #define LOG_MODULE "App"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
@@ -17,9 +17,11 @@
 
 #define SEND_INTERVAL (10 * CLOCK_SECOND)
 
+#define MAX_PENDING 20
+
 static struct simple_udp_connection udp_conn;
 static uint32_t rx_count = 0;
-static uint32_t sent_timestamp = 0;
+static clock_time_t send_times[MAX_PENDING];
 
 /*---------------------------------------------------------------------------*/
 PROCESS(udp_client_process, "UDP client");
@@ -32,12 +34,14 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t receiver_port, const uint8_t *data,
                             uint16_t datalen) {
 
-#if SHOULD_LOG
   LOG_INFO("Received response '%.*s' from ", datalen, (char *)data);
   LOG_INFO_6ADDR(sender_addr);
   LOG_INFO_("\n");
-#endif
-  metrics_log_latency(0, sent_timestamp);
+
+  // Extract seqno from the response data
+  uint32_t seqno = atoi((char *)data);
+  metrics_log_latency(seqno, send_times[seqno % MAX_PENDING]);
+
   metrics_print_hop_count(UIP_TTL);
   rx_count++;
 }
@@ -70,14 +74,15 @@ PROCESS_THREAD(udp_client_process, ev, data) {
                  tx_count, rx_count, missed_tx_count);
       }
 
+      // Prepare the packet to send to root
+      send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
+      snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
+      simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
+
       LOG_INFO("Sending request %" PRIu32 " to ", tx_count);
       LOG_INFO_6ADDR(&dest_ipaddr);
-      LOG_INFO_("\n");
-      snprintf(str, sizeof(str), "hello %" PRIu32 "", tx_count);
+      LOG_INFO("\n");
 
-      sent_timestamp = metrics_get_timestamp();
-      /* Send to DAG root */
-      simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
       tx_count++;
     } else {
       LOG_INFO("Not reachable yet\n");

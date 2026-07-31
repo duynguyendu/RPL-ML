@@ -41,7 +41,6 @@ def make_header(
     seed: int,
     radio: Dict[str, Any],
     platform: PlatformSpec,
-    build_root: str | None = None,
     expected_nodes: int | None = None,
     base_dir: str | None = None,
 ) -> str:
@@ -50,31 +49,23 @@ def make_header(
 
     server_source = (base_dir / platform.server_source_name()).as_posix()
     client_source = (base_dir / platform.client_source_name()).as_posix()
+    overload_client_source = (
+        base_dir / platform.overload_client_source_name()
+    ).as_posix()
 
-    if build_root:
-        build_root_path = Path(build_root)
-        server_fw = (
-            build_root_path / platform.target / platform.server_binary_name()
-        ).as_posix()
-        client_fw = (
-            build_root_path / platform.target / platform.client_binary_name()
-        ).as_posix()
-        extra_vars = f" BUILD_DIR={build_root_path.as_posix()}"
-    else:
-        server_fw = (
-            base_dir / f"build/{platform.target}/{platform.server_binary_name()}"
-        ).as_posix()
-        client_fw = (
-            base_dir / f"build/{platform.target}/{platform.client_binary_name()}"
-        ).as_posix()
-        extra_vars = ""
+    server_fw = (
+        base_dir / f"build/{platform.target}/{platform.server_binary_name()}"
+    ).as_posix()
+    client_fw = (
+        base_dir / f"build/{platform.target}/{platform.client_binary_name()}"
+    ).as_posix()
+    overload_client_fw = (
+        base_dir / f"build/{platform.target}/{platform.overload_client_binary_name()}"
+    ).as_posix()
 
-    defines = ""
-    if expected_nodes is not None and expected_nodes >= 0:
-        defines = f" DEFINES+=EXPECTED_NODES={expected_nodes}"
-
-    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS){extra_vars} {defines} {platform.server_binary_name()} TARGET={platform.target}"
-    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS){extra_vars} {platform.client_binary_name()} TARGET={platform.target}"
+    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.server_binary_name()} TARGET={platform.target}"
+    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.client_binary_name()} TARGET={platform.target}"
+    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.overload_client_binary_name()} TARGET={platform.target}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -112,6 +103,16 @@ def make_header(
       <firmware>{client_fw}</firmware>
 {_join_interfaces(platform.interfaces)}
     </motetype>
+
+    <motetype>
+      {platform.mote_type}
+      <identifier>{platform.name}_overload_client</identifier>
+      <description>RPL Overload Client - {platform.name.upper()}</description>
+      <source>{overload_client_source}</source>
+      <commands>{overload_client_cmd}</commands>
+      <firmware>{overload_client_fw}</firmware>
+{_join_interfaces(platform.interfaces)}
+    </motetype>
 """
 
 
@@ -119,29 +120,13 @@ def make_footer(timeout_ms: int, server_id: int) -> str:
     script_js = """
 // Headless logging for parser compatibility
 TIMEOUT(__TIMEOUT__, log.testOK());
-var ROOT_ID = __ROOT__;
-function formatTime(microseconds) {
-  var totalMs = Math.floor(microseconds / 1000);
-  var minutes = Math.floor(totalMs / 60000);
-  var seconds = Math.floor((totalMs % 60000) / 1000);
-  var millis = totalMs % 1000;
-  var minStr = (minutes < 10 ? "0" : "") + minutes;
-  var secStr = (seconds < 10 ? "0" : "") + seconds;
-  var msStr = ("000" + millis).slice(-3);
-  return minStr + ":" + secStr + "." + msStr;
-}
 while (true) {
   YIELD();
-  if (msg) {
-    var ts = formatTime(time);
-    var module = (id == ROOT_ID) ? "Server" : "Client";
-    log.log(ts + "\tID:" + id + "\t[INFO: " + module + "]\t" + msg + "\\n");
-  }
+  log.log(time + ":" + id + ":" + msg + "\\n");
 }
 """
-    script_js = script_js.replace("__TIMEOUT__", str(timeout_ms)).replace(
-        "__ROOT__", str(server_id)
-    )
+    script_js = script_js.replace("__TIMEOUT__", str(timeout_ms))
+
     return f"""
   </simulation>
   <plugin>
@@ -153,6 +138,20 @@ while (true) {
       <active>true</active>
     </plugin_config>
     <bounds x="0" y="0" height="100" width="100" />
+  </plugin>
+
+  <plugin>
+    org.contikios.cooja.plugins.Visualizer
+    <plugin_config>
+      <moterelations>true</moterelations>
+      <skin>org.contikios.cooja.plugins.skins.IDVisualizerSkin</skin>
+      <skin>org.contikios.cooja.plugins.skins.GridVisualizerSkin</skin>
+      <skin>org.contikios.cooja.plugins.skins.TrafficVisualizerSkin</skin>
+      <skin>org.contikios.cooja.plugins.skins.UDGMVisualizerSkin</skin>
+      <skin>org.contikios.cooja.plugins.skins.MoteTypeVisualizerSkin</skin>
+      <viewport>2.0 0.0 0.0 2.0 204.0 87.0</viewport>
+    </plugin_config>
+    <bounds x="899" y="20" height="512" width="512" />
   </plugin>
 </simconf>"""
 
@@ -180,7 +179,6 @@ def mote_xml(
 def generate_csc_from_dict(
     topo: Dict[str, Any],
     platform_name: str,
-    build_root: str | None = None,
     base_dir: str | None = None,
 ) -> str:
     platform = get_platform(platform_name)
@@ -196,7 +194,6 @@ def generate_csc_from_dict(
         seed=topo.get("seed", 123456),
         radio=radio,
         platform=platform,
-        build_root=build_root,
         expected_nodes=client_count,
         base_dir=base_dir,
     )
@@ -204,9 +201,7 @@ def generate_csc_from_dict(
     motes_xml = []
     for m in topo["motes"]:
         role = str(m.get("role", "client")).lower()
-        motetype = (
-            f"{platform.name}_server" if role == "server" else f"{platform.name}_client"
-        )
+        motetype = f"{platform.name}_{role}"
         motes_xml.append(
             mote_xml(
                 int(m["id"]),
@@ -218,6 +213,7 @@ def generate_csc_from_dict(
         )
 
     duration_s = int(topo.get("timing", {}).get("duration_s", 180))
+
     # Determine server id
     server_id = None
     for m in topo.get("motes", []):
@@ -226,26 +222,25 @@ def generate_csc_from_dict(
             break
     if server_id is None:
         server_id = 1
+
     footer = make_footer(timeout_ms=duration_s * 1000, server_id=server_id)
     return header + "\n".join(motes_xml) + footer
 
 
 def generate_csc(
-    topology_json_path: str,
-    out_csc_path: str,
+    topology_json: str,
+    out_csc: str,
+    base_dir: str,
     platform: str = "sky",
-    build_root: str | None = None,
-    base_dir: str | None = None,
 ) -> None:
-    topo = json.loads(Path(topology_json_path).read_text())
-    csc = generate_csc_from_dict(
-        topo, platform_name=platform, build_root=build_root, base_dir=base_dir
-    )
-    Path(out_csc_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_csc_path).write_text(csc)
+    topo = json.loads(Path(topology_json).read_text())
+    csc = generate_csc_from_dict(topo, platform_name=platform, base_dir=base_dir)
+    Path(out_csc).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_csc).write_text(csc)
+    print(f"Wrote {out_csc}")
 
 
-def main() -> None:
+if __name__ == "__main__":
     ap = argparse.ArgumentParser(
         description="Generate CSC from topology JSON (pluggable platform)"
     )
@@ -260,22 +255,11 @@ def main() -> None:
         required=True,
         help="Base directory for mote directory",
     )
-    ap.add_argument(
-        "--build-root",
-        type=str,
-        default=None,
-        help="Optional build root for per-run artifacts (e.g., <run_dir>/build)",
-    )
     args = ap.parse_args()
+
     generate_csc(
-        args.topology_json,
-        args.out_csc,
-        platform=args.platform,
-        build_root=args.build_root,
+        topology_json=args.topology_json,
+        out_csc=args.out_csc,
         base_dir=args.base_dir,
+        platform=args.platform,
     )
-    print(f"Wrote {args.out_csc}")
-
-
-if __name__ == "__main__":
-    main()

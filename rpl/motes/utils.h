@@ -2,4 +2,4 @@
 
 #include "net/ipv6/uip.h"
 
-void print_ipaddr(const uip_ipaddr_t *addr);
+char *format_ipaddr(const uip_ipaddr_t *addr, char *buf, size_t buflen);

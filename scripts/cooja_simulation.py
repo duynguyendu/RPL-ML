@@ -5,12 +5,14 @@ import argparse
 from pathlib import Path
 
 
-def simulate(
-    csc_file: str, cooja_base: str | None = None, output_dir: str | None = None
-):
+def simulate_csc(csc_file: str, cooja_base: str, output_dir: str | None = None) -> None:
+    csc_file = Path(csc_file).resolve()
+
     original_dir = os.getcwd()
     if output_dir is None:
         output_dir = original_dir
+    else:
+        output_dir = Path(output_dir).resolve()
 
     os.chdir(cooja_base)
     subprocess.run(
@@ -23,8 +25,10 @@ def simulate(
     )
     os.chdir(original_dir)
 
+    print(f"Finish simulating. Wrote to {output_dir}")
 
-def main() -> None:
+
+if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Run simulation in COOJA")
     ap.add_argument("csc", type=str)
     ap.add_argument(
@@ -41,14 +45,4 @@ def main() -> None:
         help="The directory for output file",
     )
     args = ap.parse_args()
-
-    cooja_base = args.cooja_base
-    csc_file = Path(args.csc).resolve()
-    output_dir = args.output_dir
-    simulate(csc_file, cooja_base, output_dir)
-
-    print(f"Finish simulating. Wrote to {output_dir}")
-
-
-if __name__ == "__main__":
-    main()
+    simulate_csc(csc_file=args.csc, cooja_base=args.cooja_base, output_dir=args.output_dir)

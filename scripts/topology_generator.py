@@ -260,6 +260,7 @@ def build_topology(
     branching: int = 2,
     mesh_jitter: float = 0.2,
     sparse_max_attempts: int = 10,
+    add_overloading_client: bool = True,
 ) -> dict:
     assert n >= 2, "Need at least server + 1 client"
     num_clients = n - 1
@@ -296,6 +297,12 @@ def build_topology(
     for i, (x, y) in enumerate(pts, start=2):
         motes.append({"id": i, "role": "client", "x": float(x), "y": float(y)})
 
+    # Add overloading client to overload the parent
+    # in theory, this should overload half of the tree topology
+    print("Overload client", add_overloading_client)
+    if add_overloading_client:
+        motes[-1]["role"] = "overload_client"
+
     topology_id = f"{topo_type}_n{n}_s{int(spacing)}_seed{seed}"
     topo = make_base(topology_id, topo_type, platform, seed, radio, duration_s)
     topo["motes"] = motes
@@ -307,7 +314,53 @@ def build_topology(
     return topo
 
 
-def main():
+def generate_topology(
+    topo_type: str,
+    num_of_nodes: int,
+    spacing: float,
+    out_json: str,
+    platform: str = "sky",
+    seed: int = 123456,
+    tx_range: float = 50.0,
+    interference_range: float = 100.0,
+    success_tx: float = 1.0,
+    success_rx: float = 1.0,
+    duration: int = 180,
+    branching: int = 2,
+    mesh_jitter: float = 0.2,
+    sparse_max_attempts: int = 20,
+    add_overloading_client: bool = True,
+):
+    random.seed(seed)
+
+    radio = RadioConf(
+        tx_range=tx_range,
+        interference_range=interference_range,
+        success_tx=success_tx,
+        success_rx=success_rx,
+    )
+
+    topo = build_topology(
+        topo_type=topo_type,
+        n=num_of_nodes,
+        spacing=spacing,
+        radio=radio,
+        duration_s=duration,
+        platform=platform,
+        seed=seed,
+        branching=branching,
+        mesh_jitter=mesh_jitter * spacing,
+        sparse_max_attempts=sparse_max_attempts,
+        add_overloading_client=add_overloading_client,
+    )
+
+    out_path = Path(out_json)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(topo, indent=2))
+    print(f"Wrote {out_path}")
+
+
+if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Generate topology JSON")
     p.add_argument(
         "type", choices=["ring", "star", "grid", "tree", "line", "mesh", "sparse_grid"]
@@ -323,7 +376,7 @@ def main():
         help="Base spacing between neighbors",
     )
     p.add_argument("-o", "--out", type=str, required=True, help="Output JSON path")
-    p.add_argument("--platform", default="z1")
+    p.add_argument("--platform", default="sky")
     p.add_argument("--seed", type=int, default=123456)
     p.add_argument("--tx-range", type=float, default=50.0)
     p.add_argument("--interference-range", type=float, default=100.0)
@@ -344,35 +397,20 @@ def main():
         help="Max attempts for sparse_grid connectivity",
     )
     args = p.parse_args()
-
-    # Seed global RNG for reproducibility where used
-    random.seed(args.seed)
-
-    radio = RadioConf(
+    generate_topology(
+        topo_type=args.type,
+        num_of_nodes=args.num,
+        spacing=args.spacing,
+        out_json=args.out,
+        platform=args.platform,
+        seed=args.seed,
         tx_range=args.tx_range,
         interference_range=args.interference_range,
         success_tx=args.success_tx,
         success_rx=args.success_rx,
-    )
-
-    topo = build_topology(
-        topo_type=args.type,
-        n=args.num,
-        spacing=args.spacing,
-        radio=radio,
-        duration_s=args.duration,
-        platform=args.platform,
-        seed=args.seed,
+        duration=args.duration,
         branching=args.branching,
-        mesh_jitter=args.mesh_jitter * args.spacing,
+        mesh_jitter=args.mesh_jitter,
         sparse_max_attempts=args.sparse_max_attempts,
+        add_overloading_client=True,
     )
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(topo, indent=2))
-    print(f"Wrote {out_path}")
-
-
-if __name__ == "__main__":
-    main()

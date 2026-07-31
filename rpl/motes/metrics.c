@@ -19,25 +19,39 @@
  */
 
 #include "metrics.h"
-#include "contiki.h"
 #include "net/ipv6/uip.h"
 #include "net/link-stats.h"
-#include "net/linkaddr.h"
-#include "net/netstack.h"
 #include "net/routing/rpl-lite/rpl-dag-root.h"
 #include "net/routing/rpl-lite/rpl.h"
 #include "sys/clock.h"
 #include "sys/energest.h"
-#include "sys/rtimer.h"
 #include "utils.h"
 
+#include <stdint.h>
 #include <stdio.h>
 
-/*---------------------------------------------------------------------*/
-/* Internal state */
+#define METRICS_PERIOD 10 * CLOCK_SECOND
+
+/// -------------------- METRICS LOG -----------------------------------
+
+#define ETX_LOG "ETX: %u.%u\n"
+#define ETX_NOT_FOUND "ETX: no preferred parent\n"
+
+#define DODAG_LOG                                                              \
+  "DODAG: instance=%u version=%u rank=%u grounded=%u role=%s dag_id=%s "       \
+  "preferred_parent=%s\n"
+#define DODAG_NOT_JOIN "DODAG: not joined\n"
+
+#define ENERGEST_LOG                                                           \
+  "ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu TRANSMIT=%lu OFF=%lu "    \
+  "TOTAL=%lu\n"
+
+#define LATENCY_LOG                                                            \
+  "LATENCY: seqno%" PRIu32 " rtt_ticks=%" PRIu32 " rtt_ms=%" PRIu32 "\n"
+/// -------------------- METRICS LOG END -------------------------------
+
 static unsigned long prev_cpu_tick = 0;
 static clock_time_t prev_tick;
-static rtimer_clock_t compute_start_ticks;
 
 PROCESS(metrics_process, "Metrics process");
 
@@ -48,37 +62,34 @@ void metrics_print_etx(void) {
       const struct link_stats *stats = rpl_neighbor_get_link_stats(parent);
       if (stats != NULL) {
         uint16_t etx_x10 = (stats->etx * 10) / LINK_STATS_ETX_DIVISOR;
-        // TODO: maybe print parents as well
-        printf("ETX: %u.%u\n", etx_x10 / 10, etx_x10 % 10);
+        printf(ETX_LOG, etx_x10 / 10, etx_x10 % 10);
         return;
       }
     }
   }
-  printf("ETX: no preferred parent\n");
+  printf(ETX_NOT_FOUND);
 }
 
 void metrics_print_dodag(void) {
   if (!curr_instance.used) {
-    printf("DODAG: not joined\n");
+    printf(DODAG_NOT_JOIN);
     return;
   }
 
-  printf("DODAG: instance=%u version=%u rank=%u grounded=%u role=%s dag_id=",
-         curr_instance.instance_id, curr_instance.dag.version,
-         curr_instance.dag.rank, curr_instance.dag.grounded,
-         rpl_dag_root_is_root() ? "root" : "node");
-  print_ipaddr(&curr_instance.dag.dag_id);
-
+  char dag_id[40];
+  char preferred_parent[40] = "None";
+  format_ipaddr(&curr_instance.dag.dag_id, dag_id, sizeof(dag_id));
   if (curr_instance.dag.preferred_parent != NULL) {
-    printf(" preferred_parent=");
-    print_ipaddr(rpl_neighbor_get_ipaddr(curr_instance.dag.preferred_parent));
-  } else {
-    printf(" preferred_parent=none");
+    format_ipaddr(rpl_neighbor_get_ipaddr(curr_instance.dag.preferred_parent),
+                  preferred_parent, sizeof(preferred_parent));
   }
-  printf("\n");
+  printf(DODAG_LOG, curr_instance.instance_id, curr_instance.dag.version,
+         curr_instance.dag.rank, curr_instance.dag.grounded,
+         rpl_dag_root_is_root() ? "root" : "node", dag_id, preferred_parent);
 }
 
 void metrics_print_energest(void) {
+  energest_flush();
   unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
   unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
   unsigned long deep_lpm = energest_type_time(ENERGEST_TYPE_DEEP_LPM);
@@ -88,73 +99,21 @@ void metrics_print_energest(void) {
   unsigned long off =
       total > (listen + transmit) ? total - listen - transmit : 0;
 
-  printf("ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu "
-         "TRANSMIT=%lu OFF=%lu TOTAL=%lu\n",
-         cpu, lpm, deep_lpm, listen, transmit, off, total);
+  printf(ENERGEST_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total);
 }
 
-void metrics_print_cpu_util(void) {
-  unsigned long current_cpu_tick =
-      (unsigned long)energest_type_time(ENERGEST_TYPE_CPU);
-  clock_time_t current_tick = ENERGEST_GET_TOTAL_TIME();
-
-  /* First call: nothing to compare against yet, just seed the state. */
-  if (prev_tick == 0) {
-    prev_cpu_tick = current_cpu_tick;
-    prev_tick = current_tick;
-    printf("CPU_UTIL: n/a (first sample)\n");
-    return;
-  }
-
-  unsigned long cpu_tick_delta = current_cpu_tick - prev_cpu_tick;
-  unsigned long tick_delta =
-      (unsigned long)current_tick - (unsigned long)prev_tick;
-
-  if (tick_delta > 0) {
-    // TODO: verify that this is cpu usage
-    unsigned long percent = (1000UL * cpu_tick_delta) / tick_delta;
-    printf("CPU_UTIL: %lu.%lu%% cpu_tick_delta=%lu tick_delta=%lu\n", percent / 10, percent % 10, cpu_tick_delta, tick_delta);
-  } else {
-    printf("CPU_UTIL: n/a (no elapsed time)\n");
-  }
-
-  prev_cpu_tick = current_cpu_tick;
-  prev_tick = current_tick;
-}
-
-void metrics_energest(void) {
-  energest_flush();
-
-  // TODO: calculate energy consumption
-  // TODO: what should be the unit of the energy
-
-  metrics_print_energest();
-  metrics_print_cpu_util();
-}
-
-// TODO: double check this metrics
-void metrics_print_txpower(void) {
-  radio_value_t txpower;
-  radio_result_t res = NETSTACK_RADIO.get_value(RADIO_PARAM_TXPOWER, &txpower);
-  if (res == RADIO_RESULT_OK) {
-    printf("TX_POWER: %d\n", (int)txpower);
-  } else {
-    printf("TX_POWER: unavailable\n");
-  }
-}
 
 uint32_t metrics_get_timestamp(void) { return (uint32_t)clock_time(); }
 
-// TODO: call this
-void metrics_log_latency(uint16_t seqno, uint32_t sent_timestamp) {
-  uint32_t now = metrics_get_timestamp();
-  uint32_t latency_ticks = now - sent_timestamp;
-  uint32_t latency_ms = (latency_ticks * 1000UL) / CLOCK_SECOND;
-  printf("LATENCY: seqno=%u ticks=%lu ms=%lu\n", seqno,
-         (unsigned long)latency_ticks, (unsigned long)latency_ms);
+void metrics_log_latency(uint32_t seqno, uint32_t sent_tick) {
+  uint32_t current_tick = metrics_get_timestamp();
+  uint32_t rtt_tick = current_tick - sent_tick;
+  uint32_t rtt_ms = (rtt_tick * 1000UL) / CLOCK_SECOND;
+
+  printf(LATENCY_LOG, seqno, rtt_tick, rtt_ms);
 }
 
-// TODO: what is ttl
+// TODO: make sure that this is correct
 void metrics_print_hop_count(uint8_t initial_ttl) {
   uint8_t ttl = UIP_IP_BUF->ttl;
   if (ttl <= initial_ttl) {
@@ -162,20 +121,6 @@ void metrics_print_hop_count(uint8_t initial_ttl) {
   } else {
     printf("HOP_COUNT: n/a (ttl=%u > initial_ttl=%u)\n", ttl, initial_ttl);
   }
-}
-
-// TODO: probably move to RPL impl
-/*---------------------------------------------------------------------*/
-/* Computing time: simple rtimer-based stopwatch, one measurement at a
- * time (not nestable). Use to check how long to run the AI model */
-void metrics_time_start(void) { compute_start_ticks = RTIMER_NOW(); }
-
-void metrics_time_end(const char *label) {
-  rtimer_clock_t elapsed = RTIMER_NOW() - compute_start_ticks;
-  uint32_t elapsed_us =
-      (uint32_t)(((uint64_t)elapsed * 1000000) / RTIMER_SECOND);
-  printf("COMPUTE_TIME: %s ticks=%lu us=%lu\n", label, (unsigned long)elapsed,
-         (unsigned long)elapsed_us);
 }
 
 PROCESS_THREAD(metrics_process, ev, data) {
@@ -186,7 +131,7 @@ PROCESS_THREAD(metrics_process, ev, data) {
   prev_tick = 0;
   prev_cpu_tick = 0;
 
-  etimer_set(&metrics_timer, CLOCK_SECOND * METRICS_PERIOD);
+  etimer_set(&metrics_timer, METRICS_PERIOD);
 
   // Periodic process: prints ETX, Energest, CPU util and Tx power
   while (1) {
@@ -194,8 +139,7 @@ PROCESS_THREAD(metrics_process, ev, data) {
 
     metrics_print_etx();
     metrics_print_dodag();
-    metrics_energest();
-    metrics_print_txpower();
+    metrics_print_energest();
 
     etimer_reset(&metrics_timer);
   }

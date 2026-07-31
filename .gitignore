@@ -398,3 +398,6 @@ plots/
 *.robot
 *.resc
 compile_commands.json
+runs/
+
+__pycache__/

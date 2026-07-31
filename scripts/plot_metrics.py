@@ -14,215 +14,22 @@ Usage:
 
     # Custom paths
     python3 plot_metrics.py --log simulation_logs/COOJA.testlog \
-                            --outdir plots/ --parseddir parsed_data/ --dpi 200
+                            --output_dir plots/ --parseddir parsed_data/ --dpi 200
 """
 
 import argparse
 import os
-import re
-import sys
 
 import matplotlib
 
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
-
-LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
-
-RE_ETX_NUM = re.compile(r"^ETX:\s+(\d+)\.(\d+)")
-RE_ETX_NONE = re.compile(r"^ETX:\s+no preferred parent")
-
-RE_DODAG_JOINED = re.compile(
-    r"^DODAG:\s+instance=(\d+)\s+version=(\d+)\s+rank=(\d+)\s+"
-    r"grounded=(\d+)\s+role=(\w+)\s+dag_id=([0-9a-f:]+)\s+"
-    r"preferred_parent=([0-9a-f:]+|none)"
-)
-RE_DODAG_NOT = re.compile(r"^DODAG:\s+not joined")
-
-RE_ENERGEST = re.compile(
-    r"^ENERGEST:\s+CPU\s+(\d+)\s+LPM\s+(\d+)\s+TX\s+(\d+)\s+"
-    r"RX\s+(\d+)\s+\(ticks,\s+(\d+)\s+ticks/sec\)"
-)
-
-RE_CPU_UTIL = re.compile(r"^CPU_UTIL:\s+([\d.]+)%")
-RE_CPU_NA = re.compile(r"^CPU_UTIL:\s+n/a")
-
-RE_TX_POWER = re.compile(r"^TX_POWER:\s+(-?\d+)")
-
-RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
-
-RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
-
-RE_RECEIVED = re.compile(r"\[INFO:\s+App\s+\]\s+Received request 'hello (\d+)' from")
-
-
-def parse_log(log_path):
-    rows_etx, rows_dodag, rows_energest = [], [], []
-    rows_cpu, rows_txpower, rows_app = [], [], []
-
-    with open(log_path) as fh:
-        for raw in fh:
-            raw = raw.rstrip("\n")
-            m = LINE_RE.match(raw)
-            if not m:
-                continue
-            time_us = int(m.group(1))
-            node_id = int(m.group(2))
-            content = m.group(3)
-            time_s = time_us / 1_000_000.0
-
-            em = RE_ETX_NUM.match(content)
-            if em:
-                etx_val = int(em.group(1)) + int(em.group(2)) / 10.0
-                rows_etx.append({"time_s": time_s, "node_id": node_id, "etx": etx_val})
-                continue
-            if RE_ETX_NONE.match(content):
-                rows_etx.append({"time_s": time_s, "node_id": node_id, "etx": np.nan})
-                continue
-
-            dm = RE_DODAG_JOINED.match(content)
-            if dm:
-                rows_dodag.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "instance": int(dm.group(1)),
-                        "version": int(dm.group(2)),
-                        "rank": int(dm.group(3)),
-                        "grounded": int(dm.group(4)),
-                        "role": dm.group(5),
-                        "dag_id": dm.group(6),
-                        "preferred_parent": dm.group(7),
-                    }
-                )
-                continue
-            if RE_DODAG_NOT.match(content):
-                rows_dodag.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "instance": np.nan,
-                        "version": np.nan,
-                        "rank": 65535,
-                        "grounded": np.nan,
-                        "role": np.nan,
-                        "dag_id": np.nan,
-                        "preferred_parent": np.nan,
-                    }
-                )
-                continue
-
-            eg = RE_ENERGEST.match(content)
-            if eg:
-                rows_energest.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "cpu_ticks": int(eg.group(1)),
-                        "lpm_ticks": int(eg.group(2)),
-                        "tx_ticks": int(eg.group(3)),
-                        "rx_ticks": int(eg.group(4)),
-                        "ticks_per_sec": int(eg.group(5)),
-                    }
-                )
-                continue
-
-            cm = RE_CPU_UTIL.match(content)
-            if cm:
-                rows_cpu.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "cpu_pct": float(cm.group(1)),
-                    }
-                )
-                continue
-            if RE_CPU_NA.match(content):
-                rows_cpu.append(
-                    {"time_s": time_s, "node_id": node_id, "cpu_pct": np.nan}
-                )
-                continue
-
-            tm = RE_TX_POWER.match(content)
-            if tm:
-                rows_txpower.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "tx_power_dbm": int(tm.group(1)),
-                    }
-                )
-                continue
-
-            if node_id == 1:
-                rm = RE_RECEIVED.search(content)
-                if rm:
-                    rows_app.append(
-                        {
-                            "time_s": time_s,
-                            "node_id": node_id,
-                            "event": "received_request",
-                            "tx_count": np.nan,
-                            "rx_count": np.nan,
-                            "missed_count": np.nan,
-                        }
-                    )
-                continue
-
-            txrx = RE_TXRX.search(content)
-            if txrx:
-                rows_app.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "event": "tx_rx_stats",
-                        "tx_count": int(txrx.group(1)),
-                        "rx_count": int(txrx.group(2)),
-                        "missed_count": int(txrx.group(3)),
-                    }
-                )
-                continue
-
-            if RE_NOT_REACHABLE.match(content):
-                rows_app.append(
-                    {
-                        "time_s": time_s,
-                        "node_id": node_id,
-                        "event": "not_reachable",
-                        "tx_count": np.nan,
-                        "rx_count": np.nan,
-                        "missed_count": np.nan,
-                    }
-                )
-                continue
-
-    def _df(rows):
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-    return {
-        "etx": _df(rows_etx),
-        "dodag": _df(rows_dodag),
-        "energest": _df(rows_energest),
-        "cpu_util": _df(rows_cpu),
-        "tx_power": _df(rows_txpower),
-        "app_events": _df(rows_app),
-    }
-
-
-def save_data(data, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-    for name, df in data.items():
-        path = os.path.join(out_dir, f"{name}.csv")
-        df.to_csv(path, index=False)
-        print(f"  Saved {path} ({len(df)} rows)")
 
 
 def load_data(in_dir):
     data = {}
-    for name in ("etx", "dodag", "energest", "cpu_util", "tx_power", "app_events"):
+    for name in ("etx", "dodag", "energest", "cpu_util", "app_events"):
         path = os.path.join(in_dir, f"{name}.csv")
         if os.path.exists(path):
             data[name] = pd.read_csv(path)
@@ -259,22 +66,25 @@ def plot_etx(data, out_dir, dpi):
     if df.empty:
         print("  Skipping ETX plot (no data)")
         return
+
     fig, ax = plt.subplots(figsize=(10, 5))
-    for nid in sorted(df["node_id"].unique()):
-        sub = df[df["node_id"] == nid].dropna(subset=["etx"])
-        if sub.empty:
+    for node_id in sorted(df["node_id"].unique()):
+        node_etx = df[df["node_id"] == node_id].dropna(subset=["etx"])
+        if node_etx.empty:
+            print(f"  Skipping ETX plot for node {node_id}")
             continue
+
         ax.plot(
-            sub["time_s"],
-            sub["etx"],
+            node_etx["time_s"],
+            node_etx["etx"],
             "o-",
-            label=f"Node {nid}",
-            color=NODE_COLORS.get(nid),
-            markersize=5,
+            label=f"Node {node_id}",
+            color=NODE_COLORS.get(node_id),
+            markersize=2,
         )
     _style_ax(ax, "ETX to Preferred RPL Parent", "Simulated Time (s)", "ETX")
-    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     ax.legend(fontsize=7, ncol=2, loc="best")
+
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "etx_per_node.png"), dpi=dpi)
     plt.close(fig)
@@ -317,102 +127,40 @@ def plot_rank(data, out_dir, dpi):
     print("  Saved rank_per_node.png")
 
 
-def plot_energest(data, out_dir, dpi):
+def plot_cpu_util(data, out_dir, dpi):
     df = data["energest"]
     if df.empty:
         print("  Skipping energest plot (no data)")
         return
-    components = ["cpu_ticks", "lpm_ticks", "tx_ticks", "rx_ticks"]
-    comp_labels = ["CPU", "LPM", "TX", "RX"]
-    comp_colors = ["#e6194b", "#4363d8", "#f58231", "#3cb44b"]
-    cycles = sorted(df["time_s"].unique())
+
     nodes = sorted(df["node_id"].unique())
-    n_nodes = len(nodes)
 
-    fig, axes = plt.subplots(
-        1, len(cycles), figsize=(6 * len(cycles), 5), sharey=True, squeeze=False
-    )
-    for ci, cycle_t in enumerate(cycles):
-        ax = axes[0][ci]
-        cycle_df = df[df["time_s"] == cycle_t]
-        x = np.arange(n_nodes)
-        bottoms = np.zeros(n_nodes)
-        for comp, label, color in zip(components, comp_labels, comp_colors):
-            vals = []
-            for nid in nodes:
-                row = cycle_df[cycle_df["node_id"] == nid]
-                vals.append(row[comp].values[0] if len(row) else 0)
-            vals = np.array(vals, dtype=float)
-            ax.bar(
-                x,
-                vals,
-                0.7,
-                bottom=bottoms,
-                label=label,
-                color=color,
-                edgecolor="white",
-                linewidth=0.3,
-            )
-            bottoms += vals
-        ax.set_xticks(x)
-        ax.set_xticklabels([str(n) for n in nodes], fontsize=7)
-        ax.set_xlabel("Node ID")
-        ax.set_title(f"t \u2248 {cycle_t:.0f}s", fontsize=9)
-        ax.tick_params(labelsize=8)
-        if ci == 0:
-            ax.set_ylabel("Ticks")
-            ax.legend(fontsize=7)
-    fig.suptitle(
-        "Energest Breakdown per Node per Cycle", fontsize=11, fontweight="bold", y=1.02
-    )
-    fig.tight_layout()
-    fig.savefig(
-        os.path.join(out_dir, "energest_per_node.png"), dpi=dpi, bbox_inches="tight"
-    )
-    plt.close(fig)
-    print("  Saved energest_per_node.png")
-
-
-def plot_cpu_util(data, out_dir, dpi):
-    df = data["cpu_util"]
-    if df.empty:
-        print("  Skipping CPU util plot (no data)")
-        return
     fig, ax = plt.subplots(figsize=(10, 5))
-    for nid in sorted(df["node_id"].unique()):
-        sub = df[df["node_id"] == nid].dropna(subset=["cpu_pct"])
-        if sub.empty:
-            continue
-        overflow = sub["cpu_pct"] > 100
-        normal = ~overflow
-        if normal.any():
-            ax.plot(
-                sub.loc[normal, "time_s"],
-                sub.loc[normal, "cpu_pct"],
-                "o-",
-                label=f"Node {nid}",
-                color=NODE_COLORS.get(nid),
-                markersize=5,
-            )
-        if overflow.any():
-            ax.plot(
-                sub.loc[overflow, "time_s"],
-                sub.loc[overflow, "cpu_pct"],
-                "x",
-                color=NODE_COLORS.get(nid),
-                markersize=8,
-                markeredgewidth=2,
-            )
-            for _, row in sub[overflow].iterrows():
-                ax.annotate(
-                    "overflow",
-                    (row["time_s"], row["cpu_pct"]),
-                    fontsize=6,
-                    color="red",
-                    ha="left",
-                    textcoords="offset points",
-                    xytext=(4, 0),
-                )
+    for ni, node_id in enumerate(nodes):
+        node_df = df[df["node_id"] == node_id]
+
+        prev_total_tick = 0
+        prev_comp_total_tick = 0
+        comp_percentage = []
+        for _, row in node_df.iterrows():
+            total_tick_delta = row["total_ticks"] - prev_total_tick
+            comp_tick_delta = row["cpu_ticks"] - prev_comp_total_tick
+            comp_percentage.append(round(comp_tick_delta / total_tick_delta, 2))
+
+            # Update prev_ticks
+            prev_comp_total_tick = row["cpu_ticks"]
+            prev_total_tick = row["total_ticks"]
+        comp_percentage = np.array(comp_percentage)
+
+        ax.plot(
+            node_df["time_s"].values,
+            comp_percentage,
+            "o-",
+            label=f"Node {node_id}",
+            color=NODE_COLORS.get(node_id),
+            markersize=5
+        )
+
     _style_ax(
         ax, "CPU Utilization per Node", "Simulated Time (s)", "CPU Utilization (%)"
     )
@@ -422,33 +170,6 @@ def plot_cpu_util(data, out_dir, dpi):
     plt.close(fig)
     print("  Saved cpu_util_per_node.png")
 
-
-def plot_tx_power(data, out_dir, dpi):
-    df = data["tx_power"]
-    if df.empty:
-        print("  Skipping TX power plot (no data)")
-        return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    last = df.groupby("node_id").last().reset_index()
-    bars = ax.bar(
-        [str(n) for n in last["node_id"]],
-        last["tx_power_dbm"],
-        color=[NODE_COLORS.get(n, "#888") for n in last["node_id"]],
-    )
-    _style_ax(ax, "TX Power per Node (last reading)", "Node ID", "TX Power (dBm)")
-    for bar, val in zip(bars, last["tx_power_dbm"]):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.1,
-            str(int(val)),
-            ha="center",
-            va="bottom",
-            fontsize=8,
-        )
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "tx_power.png"), dpi=dpi)
-    plt.close(fig)
-    print("  Saved tx_power.png")
 
 
 def plot_packet_delivery(data, out_dir, dpi):
@@ -541,60 +262,35 @@ def plot_connectivity(data, out_dir, dpi):
     print("  Saved connectivity.png")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Parse COOJA simulation logs and generate metric plots."
-    )
-    parser.add_argument(
-        "--log", default="simulation_logs/COOJA.testlog", help="Path to COOJA.testlog"
-    )
-    parser.add_argument(
-        "--df", default=None, help="Path to directory of pre-parsed CSVs (skip parsing)"
-    )
-    parser.add_argument(
-        "--outdir",
-        default="plots",
-        help="Output directory for PNG plots (default: plots/)",
-    )
-    parser.add_argument(
-        "--parseddir",
-        default="parsed_data",
-        help="Where to save parsed CSVs (default: parsed_data)",
-    )
-    parser.add_argument("--dpi", type=int, default=150, help="Image DPI")
-    args = parser.parse_args()
+def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
+    data = load_data(df_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
-    if args.df:
-        print(f"Loading pre-parsed data from {args.df}/ ...")
-        data = load_data(args.df)
-    else:
-        if not os.path.exists(args.log):
-            print(f"Error: log file not found: {args.log}", file=sys.stderr)
-            sys.exit(1)
-        print(f"Parsing {args.log} ...")
-        data = parse_log(args.log)
-        print(f"Saving parsed DataFrames to {args.parseddir}/ ...")
-        save_data(data, args.parseddir)
-
-    print("\n--- Data Summary ---")
-    for name, df in data.items():
-        if df.empty:
-            print(f"  {name:12s}: empty")
-        else:
-            n = df["node_id"].nunique() if "node_id" in df.columns else "?"
-            print(f"  {name:12s}: {len(df)} rows, {n} nodes")
-
-    os.makedirs(args.outdir, exist_ok=True)
-    print(f"\nGenerating plots in {args.outdir}/ ...")
-    plot_etx(data, args.outdir, args.dpi)
-    plot_rank(data, args.outdir, args.dpi)
-    plot_energest(data, args.outdir, args.dpi)
-    plot_cpu_util(data, args.outdir, args.dpi)
-    plot_tx_power(data, args.outdir, args.dpi)
-    plot_packet_delivery(data, args.outdir, args.dpi)
-    plot_connectivity(data, args.outdir, args.dpi)
+    print(f"\nGenerating plots in {output_dir}/ ...")
+    # plot_etx(data, output_dir, dpi)
+    # plot_rank(data, output_dir, dpi)
+    plot_cpu_util(data, output_dir, dpi)
+    # plot_packet_delivery(data, output_dir, dpi)
+    # plot_connectivity(data, output_dir, dpi)
     print("\nDone.")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Parse COOJA simulation logs and generate metric plots."
+    )
+
+    parser.add_argument(
+        "--df-dir",
+        default=None,
+        help="Path to directory of pre-parsed CSVs (skip parsing)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="plots",
+        help="Output directory for PNG plots (default: plots/)",
+    )
+    parser.add_argument("--dpi", type=int, default=150, help="Image DPI")
+    args = parser.parse_args()
+
+    plot_metrics(args.df_dir, args.output_dir, args.dpi)

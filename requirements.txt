@@ -10,3 +10,5 @@ pillow==12.3.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 six==1.17.0
+tqdm==4.67.1
+torch==2.8.0
