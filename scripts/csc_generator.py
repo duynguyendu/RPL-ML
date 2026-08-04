@@ -30,6 +30,9 @@ except Exception:  # pragma: no cover
     from platforms import get_platform, PlatformSpec
 
 
+# TODO: should create a global config file to make these passing var simplier
+
+
 def _join_interfaces(interfaces: List[str]) -> str:
     return "\n".join(
         [f"      <moteinterface>{iface}</moteinterface>" for iface in interfaces]
@@ -43,6 +46,7 @@ def make_header(
     platform: PlatformSpec,
     expected_nodes: int | None = None,
     base_dir: str | None = None,
+    buffer_size: int = 4,
 ) -> str:
     # Original repository root that contains src/ and Makefile
     base_dir = Path(base_dir).resolve()
@@ -63,9 +67,10 @@ def make_header(
         base_dir / f"build/{platform.target}/{platform.overload_client_binary_name()}"
     ).as_posix()
 
-    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.server_binary_name()} TARGET={platform.target}"
-    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.client_binary_name()} TARGET={platform.target}"
-    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.overload_client_binary_name()} TARGET={platform.target}"
+    # TODO: document how to pass env var here
+    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.server_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
+    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.client_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
+    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.overload_client_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -180,6 +185,7 @@ def generate_csc_from_dict(
     topo: Dict[str, Any],
     platform_name: str,
     base_dir: str | None = None,
+    buffer_size: int = 4,
 ) -> str:
     platform = get_platform(platform_name)
     radio = topo["radio"]
@@ -196,6 +202,7 @@ def generate_csc_from_dict(
         platform=platform,
         expected_nodes=client_count,
         base_dir=base_dir,
+        buffer_size=buffer_size,
     )
 
     motes_xml = []
@@ -232,9 +239,12 @@ def generate_csc(
     out_csc: str,
     base_dir: str,
     platform: str = "sky",
+    buffer_size: int = 4,
 ) -> None:
     topo = json.loads(Path(topology_json).read_text())
-    csc = generate_csc_from_dict(topo, platform_name=platform, base_dir=base_dir)
+    csc = generate_csc_from_dict(
+        topo, platform_name=platform, base_dir=base_dir, buffer_size=buffer_size
+    )
     Path(out_csc).parent.mkdir(parents=True, exist_ok=True)
     Path(out_csc).write_text(csc)
     print(f"Wrote {out_csc}")
@@ -257,6 +267,7 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
+    # TODO: is it possible to set the send time from environment
     generate_csc(
         topology_json=args.topology_json,
         out_csc=args.out_csc,

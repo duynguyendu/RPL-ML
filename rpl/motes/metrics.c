@@ -47,7 +47,7 @@
   "TOTAL=%lu\n"
 
 #define LATENCY_LOG                                                            \
-  "LATENCY: seqno%" PRIu32 " rtt_ticks=%" PRIu32 " rtt_ms=%" PRIu32 "\n"
+  "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 " rtt_ms=%" PRIu32 "\n"
 /// -------------------- METRICS LOG END -------------------------------
 
 static unsigned long prev_cpu_tick = 0;
@@ -105,9 +105,8 @@ void metrics_print_energest(void) {
 
 uint32_t metrics_get_timestamp(void) { return (uint32_t)clock_time(); }
 
-void metrics_log_latency(uint32_t seqno, uint32_t sent_tick) {
-  uint32_t current_tick = metrics_get_timestamp();
-  uint32_t rtt_tick = current_tick - sent_tick;
+void metrics_log_latency(uint32_t seqno, uint32_t received_tick, uint32_t sent_tick) {
+  uint32_t rtt_tick = received_tick - sent_tick;
   uint32_t rtt_ms = (rtt_tick * 1000UL) / CLOCK_SECOND;
 
   printf(LATENCY_LOG, seqno, rtt_tick, rtt_ms);
@@ -138,7 +137,7 @@ PROCESS_THREAD(metrics_process, ev, data) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&metrics_timer));
 
     metrics_print_etx();
-    metrics_print_dodag();
+    // metrics_print_dodag();
     metrics_print_energest();
 
     etimer_reset(&metrics_timer);

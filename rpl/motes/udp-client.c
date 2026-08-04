@@ -15,7 +15,11 @@
 #define UDP_CLIENT_PORT 8765
 #define UDP_SERVER_PORT 5678
 
-#define SEND_INTERVAL (10 * CLOCK_SECOND)
+#ifndef SEND_RATE
+#define SEND_RATE 30
+#endif
+
+#define SEND_TICK (SEND_RATE * CLOCK_SECOND)
 
 #define MAX_PENDING 20
 
@@ -34,13 +38,14 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t receiver_port, const uint8_t *data,
                             uint16_t datalen) {
 
-  LOG_INFO("Received response '%.*s' from ", datalen, (char *)data);
+  uint32_t received_tick = metrics_get_timestamp();
+  printf("Received response '%.*s' from ", datalen, (char *)data);
   LOG_INFO_6ADDR(sender_addr);
-  LOG_INFO_("\n");
+  printf("\n");
 
   // Extract seqno from the response data
   uint32_t seqno = atoi((char *)data);
-  metrics_log_latency(seqno, send_times[seqno % MAX_PENDING]);
+  metrics_log_latency(seqno, received_tick, send_times[seqno % MAX_PENDING]);
 
   metrics_print_hop_count(UIP_TTL);
   rx_count++;
@@ -61,7 +66,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT,
                       udp_rx_callback);
 
-  etimer_set(&periodic_timer, random_rand() % SEND_INTERVAL);
+  etimer_set(&periodic_timer, random_rand() % SEND_TICK);
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
@@ -70,18 +75,18 @@ PROCESS_THREAD(udp_client_process, ev, data) {
 
       /* Print statistics every 10th TX */
       if (tx_count % 10 == 0) {
-        LOG_INFO("Tx/Rx/MissedTx: %" PRIu32 "/%" PRIu32 "/%" PRIu32 "\n",
-                 tx_count, rx_count, missed_tx_count);
+        printf("Tx/Rx/MissedTx: %" PRIu32 "/%" PRIu32 "/%" PRIu32 "\n",
+               tx_count, rx_count, missed_tx_count);
       }
 
       // Prepare the packet to send to root
-      send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
       snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
+      send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
       simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
 
-      LOG_INFO("Sending request %" PRIu32 " to ", tx_count);
+      printf("Sending request '%" PRIu32 "' to ", tx_count);
       LOG_INFO_6ADDR(&dest_ipaddr);
-      LOG_INFO("\n");
+      printf("\n");
 
       tx_count++;
     } else {
@@ -92,8 +97,9 @@ PROCESS_THREAD(udp_client_process, ev, data) {
     }
 
     /* Add some jitter */
-    etimer_set(&periodic_timer, SEND_INTERVAL - CLOCK_SECOND +
-                                    (random_rand() % (2 * CLOCK_SECOND)));
+    // etimer_set(&periodic_timer, SEND_TICK - CLOCK_SECOND +
+    //                                 (random_rand() % (2 * CLOCK_SECOND)));
+    etimer_set(&periodic_timer, SEND_TICK);
   }
 
   PROCESS_END();

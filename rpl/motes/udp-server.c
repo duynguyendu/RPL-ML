@@ -52,9 +52,9 @@ udp_rx_callback(struct simple_udp_connection *c,
          const uint8_t *data,
          uint16_t datalen)
 {
-  LOG_INFO("Sending response '%.*s' to ", datalen, (char *) data);
+  printf("Sending response '%.*s' to ", datalen, (char *) data);
   LOG_INFO_6ADDR(sender_addr);
-  LOG_INFO_("\n");
+  printf("\n");
 
   simple_udp_sendto(&udp_conn, data, datalen, sender_addr);
 }

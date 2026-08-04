@@ -91,7 +91,8 @@ def plot_etx(data, out_dir, dpi):
     print("  Saved etx_per_node.png")
 
 
-def plot_rank(data, out_dir, dpi):
+def plot_dodag(data, out_dir, dpi):
+    # TODO: plot the graph and rank as the same time
     df = data["dodag"]
     if df.empty:
         print("  Skipping rank plot (no data)")
@@ -158,7 +159,7 @@ def plot_cpu_util(data, out_dir, dpi):
             "o-",
             label=f"Node {node_id}",
             color=NODE_COLORS.get(node_id),
-            markersize=5
+            markersize=5,
         )
 
     _style_ax(
@@ -169,7 +170,6 @@ def plot_cpu_util(data, out_dir, dpi):
     fig.savefig(os.path.join(out_dir, "cpu_util_per_node.png"), dpi=dpi)
     plt.close(fig)
     print("  Saved cpu_util_per_node.png")
-
 
 
 def plot_packet_delivery(data, out_dir, dpi):
@@ -267,8 +267,8 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
-    # plot_etx(data, output_dir, dpi)
-    # plot_rank(data, output_dir, dpi)
+    plot_etx(data, output_dir, dpi)
+    # plot_dodag(data, output_dir, dpi)
     plot_cpu_util(data, output_dir, dpi)
     # plot_packet_delivery(data, output_dir, dpi)
     # plot_connectivity(data, output_dir, dpi)

@@ -21,6 +21,6 @@ void metrics_print_dodag(void);
 // Per-packet metrics
 uint32_t metrics_get_timestamp(void);
 
-void metrics_log_latency(uint32_t seqno, uint32_t sent_time);
+void metrics_log_latency(uint32_t seqno, uint32_t received_tick, uint32_t sent_tick);
 
 void metrics_print_hop_count(uint8_t initial_ttl);

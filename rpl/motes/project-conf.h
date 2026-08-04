@@ -11,9 +11,13 @@
 
 #ifdef CONTIKI_TARGET_SKY
 /* Save some RAM and ROM */
-#define QUEUEBUF_CONF_NUM              4
-#define UIP_CONF_BUFFER_SIZE         140
-#define BORDER_ROUTER_CONF_WEBSERVER   0
-#endif
+
+#ifndef QUEUEBUF_CONF_NUM
+#define QUEUEBUF_CONF_NUM 8
+#endif /* QUEUEBUF_CONF_NUM */
+
+#define UIP_CONF_BUFFER_SIZE 140
+#define BORDER_ROUTER_CONF_WEBSERVER 0
+#endif /* CONTIKI_TARGET_SKY */
 
 #endif /* PROJECT_CONF_H_ */

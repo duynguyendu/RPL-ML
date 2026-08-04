@@ -22,14 +22,15 @@ RE_ENERGEST_LOG = re.compile(
     r"^ENERGEST: CPU=(\d+) LPM=(\d+) DEEP_LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+)"
 )
 
-# TODO: hop count is being evaluated
 RE_HOP_COUNT = re.compile(r"HOP_COUNT: (\d+)")
 
-RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_tick=(\d+) rtt_ms=(\d+)")
+RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+) rtt_ms=(\d+)")
 
 # RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
 # RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
-# RE_RECEIVED = re.compile(r"\[INFO:\s+App\s+\]\s+Received request 'hello (\d+)' from")
+RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
+RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
+RE_CLIENT_RECEIVE = re.compile(r"Received response '(\d+)' from")
 
 METRIC_PERIOD = 10
 
@@ -39,8 +40,11 @@ def normalise_time(time: float) -> int:
 
 
 def process_log(log_path):
+    def _df(rows):
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+
     rows_etx, rows_dodag, rows_energest = [], [], []
-    rows_latency, rows_hop_count = [], []
+    rows_client_send = []
 
     with open(log_path) as fh:
         for raw in fh:
@@ -48,25 +52,25 @@ def process_log(log_path):
             m = LINE_RE.match(raw)
             if not m:
                 continue
-            time_us = int(m.group(1))
             node_id = int(m.group(2))
             content = m.group(3)
-            time_s = normalise_time(time_us / 1_000_000.0)
+            time_s = (int(m.group(1))) / 1_000_000.0
+            normalise_time_s = normalise_time(time_s)
 
             em = RE_ETX_LOG.match(content)
             if em:
                 etx_val = int(em.group(1)) + int(em.group(2)) / 10.0
-                rows_etx.append({"time_s": time_s, "node_id": node_id, "etx": etx_val})
+                rows_etx.append({"time_s": normalise_time_s, "node_id": node_id, "etx": etx_val})
                 continue
             if RE_ETX_NOT_FOUND.match(content):
-                rows_etx.append({"time_s": time_s, "node_id": node_id, "etx": np.nan})
+                rows_etx.append({"time_s": normalise_time_s, "node_id": node_id, "etx": np.nan})
                 continue
 
             dm = RE_DODAG_LOG.match(content)
             if dm:
                 rows_dodag.append(
                     {
-                        "time_s": time_s,
+                        "time_s": normalise_time_s,
                         "node_id": node_id,
                         "instance": int(dm.group(1)),
                         "version": int(dm.group(2)),
@@ -81,7 +85,7 @@ def process_log(log_path):
             if RE_DODAG_NOT_JOIN.match(content):
                 rows_dodag.append(
                     {
-                        "time_s": time_s,
+                        "time_s": normalise_time_s,
                         "node_id": node_id,
                         "instance": np.nan,
                         "version": np.nan,
@@ -98,7 +102,7 @@ def process_log(log_path):
             if eg:
                 rows_energest.append(
                     {
-                        "time_s": time_s,
+                        "time_s": normalise_time_s,
                         "node_id": node_id,
                         "cpu_ticks": int(eg.group(1)),
                         "lpm_ticks": int(eg.group(2)),
@@ -111,26 +115,61 @@ def process_log(log_path):
                 )
                 continue
 
-            latency = RE_LATENCY_LOG.match(content)
-            if latency:
-                rows_latency.append(
+            client_send = RE_CLIENT_SEND.match(content)
+            if client_send:
+                rows_client_send.append(
                     {
-                        "time_s": time_s,
+                        "client_send_time": time_s,
+                        "server_receive_time": 0,
+                        "client_receive_time": 0,
                         "node_id": node_id,
-                        "seqno": int(latency.group(1)),
-                        "rtt_tick": int(latency.group(2)),
-                        "rtt_ms": int(latency.group(3)),
+                        "seqno": int(client_send.group(1)),
+                        "rtt_ms": 0,
+                        "rtt_ticks": 0,
                     }
                 )
+                continue
 
-    def _df(rows):
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
+            latency = RE_LATENCY_LOG.match(content)
+            if latency:
+                seqno = int(latency.group(1))
+                row = [
+                    item
+                    for item in rows_client_send
+                    if item["node_id"] == node_id and item["seqno"] == seqno
+                ][0]
+                row["rtt_ticks"] = int(latency.group(2))
+                row["rtt_ms"] = int(latency.group(3))
+                continue
+
+            server_receive = RE_SERVER_RECEIVE.match(content)
+            if server_receive:
+                node_id_from_log = int(server_receive.group(2).split(":")[4], 16)
+                seqno = int(server_receive.group(1))
+                row = [
+                    item
+                    for item in rows_client_send
+                    if item["node_id"] == node_id_from_log and item["seqno"] == seqno
+                ][0]
+                row["server_receive_time"] = time_s
+                continue
+
+            client_receive = RE_CLIENT_RECEIVE.match(content)
+            if client_receive:
+                seqno = int(client_receive.group(1))
+                row = [
+                    item
+                    for item in rows_client_send
+                    if item["node_id"] == node_id and item["seqno"] == seqno
+                ][0]
+                row["client_receive_time"] = time_s
+                continue
 
     return {
         "etx": _df(rows_etx),
-        "dodag": _df(rows_dodag),
+        # "dodag": _df(rows_dodag),
         "energest": _df(rows_energest),
-        "latency": _df(rows_latency),
+        "latency": _df(rows_client_send),
     }
 
 
