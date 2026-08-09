@@ -14,23 +14,23 @@ Compile model:
 
 from __future__ import annotations
 
-import json
 import argparse
+import json
+import shutil
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
+import config
 
 try:
     # When executed as module (python -m ...)
-    from .platforms import get_platform, PlatformSpec
+    from .platforms import PlatformSpec, get_platform
 except Exception:  # pragma: no cover
     # Allow running as a standalone script
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
-    from platforms import get_platform, PlatformSpec
-
-
-# TODO: should create a global config file to make these passing var simplier
+    from platforms import PlatformSpec, get_platform
 
 
 def _join_interfaces(interfaces: List[str]) -> str:
@@ -43,34 +43,34 @@ def make_header(
     title: str,
     seed: int,
     radio: Dict[str, Any],
-    platform: PlatformSpec,
-    expected_nodes: int | None = None,
-    base_dir: str | None = None,
-    buffer_size: int = 4,
+    platform_spec: PlatformSpec,
 ) -> str:
     # Original repository root that contains src/ and Makefile
-    base_dir = Path(base_dir).resolve()
+    base_dir = Path(config.base_mote_dir).resolve()
+    target = platform_spec.target
 
-    server_source = (base_dir / platform.server_source_name()).as_posix()
-    client_source = (base_dir / platform.client_source_name()).as_posix()
+    server_source = (base_dir / platform_spec.server_source_name()).as_posix()
+    client_source = (base_dir / platform_spec.client_source_name()).as_posix()
     overload_client_source = (
-        base_dir / platform.overload_client_source_name()
+        base_dir / platform_spec.overload_client_source_name()
     ).as_posix()
 
     server_fw = (
-        base_dir / f"build/{platform.target}/{platform.server_binary_name()}"
+        base_dir / f"build/{target}/{platform_spec.server_binary_name()}"
     ).as_posix()
     client_fw = (
-        base_dir / f"build/{platform.target}/{platform.client_binary_name()}"
+        base_dir / f"build/{target}/{platform_spec.client_binary_name()}"
     ).as_posix()
     overload_client_fw = (
-        base_dir / f"build/{platform.target}/{platform.overload_client_binary_name()}"
+        base_dir / f"build/{target}/{platform_spec.overload_client_binary_name()}"
     ).as_posix()
 
+    parameters = f"TARGET={target} BUFFER_SIZE={config.buffer_size} SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration}"
+
     # TODO: document how to pass env var here
-    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.server_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
-    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.client_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
-    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform.overload_client_binary_name()} TARGET={platform.target} BUFFER_SIZE={buffer_size}"
+    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.server_binary_name()} {parameters}"
+    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters}"
+    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.overload_client_binary_name()} {parameters}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -90,35 +90,37 @@ def make_header(
     </events>
 
     <motetype>
-      {platform.mote_type}
-      <identifier>{platform.name}_server</identifier>
-      <description>RPL Server (Root) - {platform.name.upper()}</description>
+      {platform_spec.mote_type}
+      <identifier>{platform_spec.name}_server</identifier>
+      <description>RPL Server (Root) - {platform_spec.name.upper()}</description>
       <source>{server_source}</source>
       <commands>{server_cmd}</commands>
       <firmware>{server_fw}</firmware>
-{_join_interfaces(platform.interfaces)}
+{_join_interfaces(platform_spec.interfaces)}
     </motetype>
 
     <motetype>
-      {platform.mote_type}
-      <identifier>{platform.name}_client</identifier>
-      <description>RPL Client - {platform.name.upper()}</description>
+      {platform_spec.mote_type}
+      <identifier>{platform_spec.name}_client</identifier>
+      <description>RPL Client - {platform_spec.name.upper()}</description>
       <source>{client_source}</source>
       <commands>{client_cmd}</commands>
       <firmware>{client_fw}</firmware>
-{_join_interfaces(platform.interfaces)}
+{_join_interfaces(platform_spec.interfaces)}
     </motetype>
 
-    <motetype>
-      {platform.mote_type}
-      <identifier>{platform.name}_overload_client</identifier>
-      <description>RPL Overload Client - {platform.name.upper()}</description>
-      <source>{overload_client_source}</source>
-      <commands>{overload_client_cmd}</commands>
-      <firmware>{overload_client_fw}</firmware>
-{_join_interfaces(platform.interfaces)}
-    </motetype>
 """
+
+
+#     <motetype>
+#       {platform_spec.mote_type}
+#       <identifier>{platform_spec.name}_overload_client</identifier>
+#       <description>RPL Overload Client - {platform_spec.name.upper()}</description>
+#       <source>{overload_client_source}</source>
+#       <commands>{overload_client_cmd}</commands>
+#       <firmware>{overload_client_fw}</firmware>
+# {_join_interfaces(platform_spec.interfaces)}
+#     </motetype>
 
 
 def make_footer(timeout_ms: int, server_id: int) -> str:
@@ -181,34 +183,21 @@ def mote_xml(
   </mote>"""
 
 
-def generate_csc_from_dict(
-    topo: Dict[str, Any],
-    platform_name: str,
-    base_dir: str | None = None,
-    buffer_size: int = 4,
-) -> str:
-    platform = get_platform(platform_name)
+def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
+    platform_spec = get_platform(config.platform)
     radio = topo["radio"]
-    # Count clients (non-server)
-    client_count = 0
-    for m in topo.get("motes", []):
-        if str(m.get("role", "")).lower() != "server":
-            client_count += 1
 
     header = make_header(
         title=topo.get("topology_id", topo.get("title", "cooja_run")),
         seed=topo.get("seed", 123456),
         radio=radio,
-        platform=platform,
-        expected_nodes=client_count,
-        base_dir=base_dir,
-        buffer_size=buffer_size,
+        platform_spec=platform_spec,
     )
 
     motes_xml = []
     for m in topo["motes"]:
         role = str(m.get("role", "client")).lower()
-        motetype = f"{platform.name}_{role}"
+        motetype = f"{platform_spec.name}_{role}"
         motes_xml.append(
             mote_xml(
                 int(m["id"]),
@@ -238,13 +227,13 @@ def generate_csc(
     topology_json: str,
     out_csc: str,
     base_dir: str,
-    platform: str = "sky",
-    buffer_size: int = 4,
 ) -> None:
     topo = json.loads(Path(topology_json).read_text())
-    csc = generate_csc_from_dict(
-        topo, platform_name=platform, base_dir=base_dir, buffer_size=buffer_size
-    )
+    csc = generate_csc_from_dict(topo)
+    build_dir = Path(config.base_mote_dir).resolve() / "build"
+    if build_dir.exists() and build_dir.is_dir():
+        shutil.rmtree(build_dir)
+
     Path(out_csc).parent.mkdir(parents=True, exist_ok=True)
     Path(out_csc).write_text(csc)
     print(f"Wrote {out_csc}")
@@ -267,7 +256,6 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
-    # TODO: is it possible to set the send time from environment
     generate_csc(
         topology_json=args.topology_json,
         out_csc=args.out_csc,

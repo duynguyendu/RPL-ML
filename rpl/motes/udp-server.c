@@ -62,6 +62,7 @@ udp_rx_callback(struct simple_udp_connection *c,
 PROCESS_THREAD(udp_server_process, ev, data)
 {
   PROCESS_BEGIN();
+  printf("DAO_ACK %d\n", RPL_CONF_WITH_DAO_ACK);
 
   /* Initialize DAG root */
   NETSTACK_ROUTING.root_start();

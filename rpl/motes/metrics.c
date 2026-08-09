@@ -88,6 +88,7 @@ void metrics_print_dodag(void) {
          rpl_dag_root_is_root() ? "root" : "node", dag_id, preferred_parent);
 }
 
+// TODO: print the energy usage consumption as well
 void metrics_print_energest(void) {
   energest_flush();
   unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
@@ -102,10 +103,10 @@ void metrics_print_energest(void) {
   printf(ENERGEST_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total);
 }
 
-
 uint32_t metrics_get_timestamp(void) { return (uint32_t)clock_time(); }
 
-void metrics_log_latency(uint32_t seqno, uint32_t received_tick, uint32_t sent_tick) {
+void metrics_log_latency(uint32_t seqno, uint32_t received_tick,
+                         uint32_t sent_tick) {
   uint32_t rtt_tick = received_tick - sent_tick;
   uint32_t rtt_ms = (rtt_tick * 1000UL) / CLOCK_SECOND;
 

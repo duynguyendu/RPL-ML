@@ -15,6 +15,10 @@
 #define UDP_CLIENT_PORT 8765
 #define UDP_SERVER_PORT 5678
 
+#ifndef RAMP_UP_DURATION
+#define RAMP_UP_DURATION 60
+#endif
+
 #ifndef SEND_RATE
 #define SEND_RATE 30
 #endif
@@ -51,7 +55,6 @@ static void udp_rx_callback(struct simple_udp_connection *c,
   rx_count++;
 }
 
-/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(udp_client_process, ev, data) {
   static struct etimer periodic_timer;
   static char str[32];
@@ -62,38 +65,40 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   PROCESS_BEGIN();
   metrics_start();
 
+  printf("SEND_RATE=%d RAMP_UP_DURATION=%d DAO_ACK=%d BUFFER_SIZE=%d\n",
+         SEND_RATE, RAMP_UP_DURATION, RPL_CONF_WITH_DAO_ACK, QUEUEBUF_CONF_NUM);
+
   /* Initialize UDP connection */
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT,
                       udp_rx_callback);
 
-  etimer_set(&periodic_timer, random_rand() % SEND_TICK);
+  // Wait 60s to form DODAG first
+  etimer_set(&periodic_timer, RAMP_UP_DURATION * CLOCK_SECOND);
+  PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+
+  etimer_set(&periodic_timer, (random_rand() % SEND_RATE) * CLOCK_SECOND);
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
-    if (NETSTACK_ROUTING.node_is_reachable() &&
-        NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr)) {
+    int get_root_addr = NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr);
 
-      /* Print statistics every 10th TX */
-      if (tx_count % 10 == 0) {
-        printf("Tx/Rx/MissedTx: %" PRIu32 "/%" PRIu32 "/%" PRIu32 "\n",
-               tx_count, rx_count, missed_tx_count);
-      }
+    snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
+    send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
 
-      // Prepare the packet to send to root
-      snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
-      send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
+    printf("Sending request '%" PRIu32 "' to ", tx_count);
+    LOG_INFO_6ADDR(&dest_ipaddr);
+    printf("\n");
+
+    if (get_root_addr) {
       simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
-
-      printf("Sending request '%" PRIu32 "' to ", tx_count);
-      LOG_INFO_6ADDR(&dest_ipaddr);
-      printf("\n");
-
-      tx_count++;
     } else {
-      LOG_INFO("Not reachable yet\n");
-      if (tx_count > 0) {
-        missed_tx_count++;
-      }
+      missed_tx_count++;
+    }
+
+    tx_count++;
+    if (tx_count % 10 == 0) {
+      printf("Tx/Rx/MissedTx: %" PRIu32 "/%" PRIu32 "/%" PRIu32 "\n", tx_count,
+             rx_count, missed_tx_count);
     }
 
     /* Add some jitter */

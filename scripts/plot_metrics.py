@@ -19,9 +19,9 @@ Usage:
 
 import argparse
 import os
+from collections import defaultdict
 
 import matplotlib
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ import pandas as pd
 
 def load_data(in_dir):
     data = {}
-    for name in ("etx", "dodag", "energest", "cpu_util", "app_events"):
+    for name in ("etx", "hop_count", "energest", "latency"):
         path = os.path.join(in_dir, f"{name}.csv")
         if os.path.exists(path):
             data[name] = pd.read_csv(path)
@@ -173,34 +173,47 @@ def plot_cpu_util(data, out_dir, dpi):
 
 
 def plot_packet_delivery(data, out_dir, dpi):
-    df = data["app_events"]
+    df = data["latency"]
     if df.empty:
         print("  Skipping packet delivery plot (no data)")
         return
-    stats = df[df["event"] == "tx_rx_stats"].copy()
-    if stats.empty:
-        print("  Skipping packet delivery plot (no Tx/Rx/MissedTx stats)")
-        return
-    last = stats.groupby("node_id").last().reset_index()
-    last = last[last["node_id"] != 1]
-    if last.empty:
-        print("  Skipping packet delivery plot (no client stats)")
-        return
-    nodes = last["node_id"].values
-    x = np.arange(len(nodes))
+    stats = defaultdict(lambda: {"tx": 0, "rx": 0, "pdr": 0.0})
+
+    for _, row in df.iterrows():
+        node_id = row["node_id"]
+        stats[node_id]["tx"] += 1
+        if float(row["server_receive_time"]) != 0.0:
+            stats[node_id]["rx"] += 1
+
+    for node_id in stats:
+        tx = stats[node_id]["tx"]
+        rx = stats[node_id]["rx"]
+        stats[node_id]["pdr"] = rx / tx if tx else 0
+
+    node_ids = [int(i) for i in stats.keys()]
+    pdrs = [r["pdr"] for r in stats.values()]
+    plrs = [1 - r for r in pdrs]
+
     width = 0.25
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(x - width, last["tx_count"], width, label="TX", color="#4363d8")
-    ax.bar(x, last["rx_count"], width, label="RX", color="#3cb44b")
-    ax.bar(x + width, last["missed_count"], width, label="Missed TX", color="#e6194b")
-    ax.set_xticks(x)
-    ax.set_xticklabels([str(n) for n in nodes])
-    _style_ax(ax, "Packet Delivery (cumulative counters)", "Node ID", "Count")
+    ax.bar(node_ids, pdrs, width, label="PDR", color="#4363d8")
+    _style_ax(ax, "Packet Delivery (cumulative counters)", "Node ID", "PDR")
+    ax.set_xticks(node_ids)
     ax.legend(fontsize=9)
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "packet_delivery.png"), dpi=dpi)
     plt.close(fig)
     print("  Saved packet_delivery.png")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar(node_ids, plrs, width, label="Loss Ratio", color="#4363d8")
+    _style_ax(ax, "Packet Loss Ratio (cumulative counters)", "Node ID", "Loss Ratio")
+    ax.set_xticks(node_ids)
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "packet_loss.png"), dpi=dpi)
+    plt.close(fig)
+    print("  Saved packet_loss.png")
 
 
 def plot_connectivity(data, out_dir, dpi):
@@ -268,10 +281,8 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     plot_etx(data, output_dir, dpi)
-    # plot_dodag(data, output_dir, dpi)
     plot_cpu_util(data, output_dir, dpi)
-    # plot_packet_delivery(data, output_dir, dpi)
-    # plot_connectivity(data, output_dir, dpi)
+    plot_packet_delivery(data, output_dir, dpi)
     print("\nDone.")
 
 

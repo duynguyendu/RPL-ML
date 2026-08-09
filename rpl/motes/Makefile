@@ -1,14 +1,15 @@
-CONTIKI_PROJECT = udp-client overload-client udp-server
+CONTIKI_PROJECT = udp-client udp-server
+
 BUFFER_SIZE ?= 4
+SEND_RATE ?= 10
+DAO_ACK ?= 1
+RAMP_UP_DURATION ?= 60
+
 all: $(CONTIKI_PROJECT)
 
-PROJECT_SOURCEFILES += metrics.c
-PROJECT_SOURCEFILES += utils.c
-CFLAGS += -DQUEUEBUF_CONF_NUM=$(BUFFER_SIZE)
+CFLAGS += -DQUEUEBUF_CONF_NUM=$(BUFFER_SIZE) -DRPL_CONF_WITH_DAO_ACK=$(DAO_ACK) -DSEND_RATE=$(SEND_RATE) -DRAMP_UP_DURATION=$(RAMP_UP_DURATION)
 
-udp-client: CFLAGS += -DBUILD_CLIENT=1
-overload-client: CFLAGS += -DBUILD_CLIENT=1
-udp-server: CFLAGS += -DBUILD_SERVER=1
+PROJECT_SOURCEFILES += metrics.c utils.c
 
 CONTIKI = ../contiki-ng
 include $(CONTIKI)/Makefile.include

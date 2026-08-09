@@ -8,9 +8,11 @@ from pathlib import Path
 
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 
+# ETX
 RE_ETX_LOG = re.compile(r"^ETX:\s+(\d+)\.(\d+)")
 RE_ETX_NOT_FOUND = re.compile(r"^ETX:\s+no preferred parent")
 
+# DODAG
 RE_DODAG_LOG = re.compile(
     r"^DODAG:\s+instance=(\d+)\s+version=(\d+)\s+rank=(\d+)\s+"
     r"grounded=(\d+)\s+role=(\w+)\s+dag_id=([0-9a-f:]+)\s+"
@@ -18,19 +20,22 @@ RE_DODAG_LOG = re.compile(
 )
 RE_DODAG_NOT_JOIN = re.compile(r"^DODAG:\s+not joined")
 
+# ENERGEST
 RE_ENERGEST_LOG = re.compile(
     r"^ENERGEST: CPU=(\d+) LPM=(\d+) DEEP_LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+)"
 )
 
+# HOP_COUNT
 RE_HOP_COUNT = re.compile(r"HOP_COUNT: (\d+)")
 
+# LATENCY
 RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+) rtt_ms=(\d+)")
-
-# RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
-# RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 RE_CLIENT_RECEIVE = re.compile(r"Received response '(\d+)' from")
+
+# RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
+# RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
 
 METRIC_PERIOD = 10
 
@@ -45,6 +50,7 @@ def process_log(log_path):
 
     rows_etx, rows_dodag, rows_energest = [], [], []
     rows_client_send = []
+    rows_hop_count = []
 
     with open(log_path) as fh:
         for raw in fh:
@@ -59,11 +65,16 @@ def process_log(log_path):
 
             em = RE_ETX_LOG.match(content)
             if em:
+                # TODO: maybe update the log to simplify this
                 etx_val = int(em.group(1)) + int(em.group(2)) / 10.0
-                rows_etx.append({"time_s": normalise_time_s, "node_id": node_id, "etx": etx_val})
+                rows_etx.append(
+                    {"time_s": normalise_time_s, "node_id": node_id, "etx": etx_val}
+                )
                 continue
             if RE_ETX_NOT_FOUND.match(content):
-                rows_etx.append({"time_s": normalise_time_s, "node_id": node_id, "etx": np.nan})
+                rows_etx.append(
+                    {"time_s": normalise_time_s, "node_id": node_id, "etx": np.nan}
+                )
                 continue
 
             dm = RE_DODAG_LOG.match(content)
@@ -165,11 +176,23 @@ def process_log(log_path):
                 row["client_receive_time"] = time_s
                 continue
 
+            hop_count = RE_HOP_COUNT.match(content)
+            if hop_count:
+                rows_hop_count.append(
+                    {
+                        "time_s": normalise_time_s,
+                        "node_id": node_id,
+                        "hop_count": int(hop_count.group(1)),
+                    }
+                )
+
     return {
+        # TODO: maybe aggr etx and hop count
         "etx": _df(rows_etx),
         # "dodag": _df(rows_dodag),
         "energest": _df(rows_energest),
         "latency": _df(rows_client_send),
+        "hop_count": _df(rows_hop_count),
     }
 
 
