@@ -1,0 +1,11 @@
+CONTIKI_PROJECT = udp-server
+
+BUFFER_SIZE ?= 4
+DAO_ACK ?= 1
+
+all: $(CONTIKI_PROJECT)
+
+CFLAGS += -DQUEUEBUF_CONF_NUM=$(BUFFER_SIZE) -DRPL_CONF_WITH_DAO_ACK=$(DAO_ACK)
+
+CONTIKI = ../../contiki-ng
+include $(CONTIKI)/Makefile.include

@@ -5,13 +5,16 @@ from pathlib import Path
 # topology config
 spacing = 40
 topo_type = "tree"
-num_of_nodes = 20
+num_of_nodes = 30
 success_tx = 0.9
 success_rx = 0.9
+interference_range = 60
+tx_range = 50
 
 # csc config
-platform = "sky"
-send_rate = 15
+gather_metrics = 1
+platform = "z1"
+send_rate = 10
 buffer_size = 8
 ramp_up_duration = 120
 duration = 900

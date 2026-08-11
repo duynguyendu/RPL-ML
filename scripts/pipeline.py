@@ -15,7 +15,7 @@ def pipeline(
     is_train_model: bool = False,
 ) -> None:
     etx = round(1 / (config.success_tx * config.success_rx), 2)
-    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_buffer{config.buffer_size}_duration{config.duration}_etx{etx}_daoack{config.with_dao_ack}_{config.topo_type}"
+    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_buffer{config.buffer_size}_duration{config.duration}_etx{etx}_int_range{config.interference_range}_{config.topo_type}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
@@ -28,8 +28,8 @@ def pipeline(
             out_json=topology_json_file_name,
             platform="sky",
             seed=123456,
-            tx_range=50.0,
-            interference_range=100.0,
+            tx_range=config.tx_range,
+            interference_range=config.interference_range,
             success_tx=config.success_tx,
             success_rx=config.success_rx,
             duration=config.duration + config.ramp_up_duration,
@@ -55,6 +55,7 @@ def pipeline(
         parse_log(log_dir=output_dir, output_dir=output_dir)
         plot_metrics(df_dir=output_dir, output_dir=output_dir, dpi=150)
 
+    print(f"The run results are saved in {run_id}")
     # if is_train_model:
     #     train_model()
 

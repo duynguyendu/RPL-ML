@@ -32,19 +32,26 @@
 
 #define METRICS_PERIOD 10 * CLOCK_SECOND
 
-/// -------------------- METRICS LOG -----------------------------------
+#define MULTIPLIER 10
+// These numbers are from
+// https://github.com/YerevaNN/Cooja-Automation-ML/blob/main/case_study_rpl/firmware/battery_client.c
+#define CPU_CURRENT_MA 1.8 * MULTIPLIER
+#define LPM_CURRENT_MA 0.0545 * MULTIPLIER
+#define DEEP_LPM_CURRENT_MA 0.0135 * MULTIPLIER
+#define RADIO_LISTEN_CURRENT_MA 20.0 * MULTIPLIER
+#define RADIO_TRANSMIT_CURRENT_MA 17.4 * MULTIPLIER
 
-#define ETX_LOG "ETX: %u.%u\n"
-#define ETX_NOT_FOUND "ETX: no preferred parent\n"
+/// -------------------- METRICS LOG -----------------------------------
 
 #define DODAG_LOG                                                              \
   "DODAG: instance=%u version=%u rank=%u grounded=%u role=%s dag_id=%s "       \
   "preferred_parent=%s\n"
 #define DODAG_NOT_JOIN "DODAG: not joined\n"
 
-#define ENERGEST_LOG                                                           \
-  "ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu TRANSMIT=%lu OFF=%lu "    \
-  "TOTAL=%lu\n"
+#define METRICS_LOG                                                            \
+  "ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu "                         \
+  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%lumA HOP_COUNT=%d "            \
+  "ETX=%u.%02u\n"
 
 #define LATENCY_LOG                                                            \
   "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 " rtt_ms=%" PRIu32 "\n"
@@ -52,22 +59,22 @@
 
 static unsigned long prev_cpu_tick = 0;
 static clock_time_t prev_tick;
+int hop_count = 0;
 
 PROCESS(metrics_process, "Metrics process");
 
-void metrics_print_etx(void) {
+unsigned get_etx(void) {
   if (curr_instance.used) {
     rpl_parent_t *parent = curr_instance.dag.preferred_parent;
     if (parent != NULL) {
       const struct link_stats *stats = rpl_neighbor_get_link_stats(parent);
       if (stats != NULL) {
-        uint16_t etx_x10 = (stats->etx * 10) / LINK_STATS_ETX_DIVISOR;
-        printf(ETX_LOG, etx_x10 / 10, etx_x10 % 10);
-        return;
+        uint16_t etx_x100 = (stats->etx * 100) / LINK_STATS_ETX_DIVISOR;
+        return etx_x100;
       }
     }
   }
-  printf(ETX_NOT_FOUND);
+  return -1;
 }
 
 void metrics_print_dodag(void) {
@@ -88,21 +95,6 @@ void metrics_print_dodag(void) {
          rpl_dag_root_is_root() ? "root" : "node", dag_id, preferred_parent);
 }
 
-// TODO: print the energy usage consumption as well
-void metrics_print_energest(void) {
-  energest_flush();
-  unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
-  unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
-  unsigned long deep_lpm = energest_type_time(ENERGEST_TYPE_DEEP_LPM);
-  unsigned long listen = energest_type_time(ENERGEST_TYPE_LISTEN);
-  unsigned long transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT);
-  unsigned long total = ENERGEST_GET_TOTAL_TIME();
-  unsigned long off =
-      total > (listen + transmit) ? total - listen - transmit : 0;
-
-  printf(ENERGEST_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total);
-}
-
 uint32_t metrics_get_timestamp(void) { return (uint32_t)clock_time(); }
 
 void metrics_log_latency(uint32_t seqno, uint32_t received_tick,
@@ -113,13 +105,12 @@ void metrics_log_latency(uint32_t seqno, uint32_t received_tick,
   printf(LATENCY_LOG, seqno, rtt_tick, rtt_ms);
 }
 
-// TODO: make sure that this is correct
-void metrics_print_hop_count(uint8_t initial_ttl) {
+int get_hop_count(uint8_t initial_ttl) {
   uint8_t ttl = UIP_IP_BUF->ttl;
   if (ttl <= initial_ttl) {
-    printf("HOP_COUNT: %u\n", (unsigned)(initial_ttl - ttl));
+    return (initial_ttl - ttl);
   } else {
-    printf("HOP_COUNT: n/a (ttl=%u > initial_ttl=%u)\n", ttl, initial_ttl);
+    return -1;
   }
 }
 
@@ -137,9 +128,33 @@ PROCESS_THREAD(metrics_process, ev, data) {
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&metrics_timer));
 
-    metrics_print_etx();
     // metrics_print_dodag();
-    metrics_print_energest();
+    energest_flush();
+    unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
+    unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
+    unsigned long deep_lpm = energest_type_time(ENERGEST_TYPE_DEEP_LPM);
+    unsigned long listen = energest_type_time(ENERGEST_TYPE_LISTEN);
+    unsigned long transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT);
+    unsigned long total = ENERGEST_GET_TOTAL_TIME();
+    unsigned long off =
+        total > (listen + transmit) ? total - listen - transmit : 0;
+
+    double energy_comp =
+        (cpu * CPU_CURRENT_MA + lpm * LPM_CURRENT_MA +
+         deep_lpm * DEEP_LPM_CURRENT_MA + listen * RADIO_LISTEN_CURRENT_MA +
+         transmit * RADIO_TRANSMIT_CURRENT_MA) /
+        ENERGEST_SECOND;
+    unsigned long energy_comp_mA = (unsigned long)energy_comp;
+
+    unsigned etx = get_etx();
+    unsigned etx_int = -1, etx_frac = 0;
+    if (etx != -1) {
+      etx_int = etx / 100;
+      etx_frac = etx % 100;
+    }
+
+    printf(METRICS_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total,
+           energy_comp_mA, hop_count, etx_int, etx_frac);
 
     etimer_reset(&metrics_timer);
   }

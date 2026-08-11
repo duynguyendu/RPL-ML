@@ -1,35 +1,15 @@
 #!/usr/bin/env python3
-"""
-plot_metrics.py — Parse COOJA simulation logs and generate metric plots.
-
-Prerequisites:
-    pip install pandas matplotlib
-
-Usage:
-    # Parse log + plot
-    python3 plot_metrics.py
-
-    # Skip parsing, reuse existing CSVs
-    python3 plot_metrics.py --df parsed_data/
-
-    # Custom paths
-    python3 plot_metrics.py --log simulation_logs/COOJA.testlog \
-                            --output_dir plots/ --parseddir parsed_data/ --dpi 200
-"""
 
 import argparse
 import os
-from collections import defaultdict
 
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
+import duckdb
 import pandas as pd
 
 
 def load_data(in_dir):
     data = {}
-    for name in ("etx", "hop_count", "energest", "latency"):
+    for name in ("metrics", "latency"):
         path = os.path.join(in_dir, f"{name}.csv")
         if os.path.exists(path):
             data[name] = pd.read_csv(path)
@@ -53,226 +33,135 @@ NODE_COLORS = {
 }
 
 
-def _style_ax(ax, title, xlabel, ylabel):
+def plot_and_save(df, x, y, kind, title, xlabel, ylabel, path, **plot_kwargs):
+    ax = df.plot(x=x, y=y, kind=kind, legend=True, **plot_kwargs)
+
     ax.set_title(title, fontsize=11, fontweight="bold")
     ax.set_xlabel(xlabel, fontsize=9)
     ax.set_ylabel(ylabel, fontsize=9)
     ax.tick_params(labelsize=8)
+    ax.set_axisbelow(True)
     ax.grid(True, alpha=0.3)
+
+    ax.get_figure().savefig(path, dpi=150, bbox_inches="tight")
 
 
 def plot_etx(data, out_dir, dpi):
-    df = data["etx"]
-    if df.empty:
-        print("  Skipping ETX plot (no data)")
-        return
+    df = data["metrics"]
+    df = duckdb.sql(
+        """
+        SELECT time_s, AVG(etx) as avg_etx
+        FROM df
+        WHERE etx <> 65535.0
+        GROUP BY time_s
+        ORDER BY time_s
+        """
+    ).df()
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    for node_id in sorted(df["node_id"].unique()):
-        node_etx = df[df["node_id"] == node_id].dropna(subset=["etx"])
-        if node_etx.empty:
-            print(f"  Skipping ETX plot for node {node_id}")
-            continue
-
-        ax.plot(
-            node_etx["time_s"],
-            node_etx["etx"],
-            "o-",
-            label=f"Node {node_id}",
-            color=NODE_COLORS.get(node_id),
-            markersize=2,
-        )
-    _style_ax(ax, "ETX to Preferred RPL Parent", "Simulated Time (s)", "ETX")
-    ax.legend(fontsize=7, ncol=2, loc="best")
-
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "etx_per_node.png"), dpi=dpi)
-    plt.close(fig)
-    print("  Saved etx_per_node.png")
-
-
-def plot_dodag(data, out_dir, dpi):
-    # TODO: plot the graph and rank as the same time
-    df = data["dodag"]
-    if df.empty:
-        print("  Skipping rank plot (no data)")
-        return
-    fig, ax = plt.subplots(figsize=(10, 5))
-    for nid in sorted(df["node_id"].unique()):
-        sub = df[df["node_id"] == nid]
-        connected = sub["rank"] < 65535
-        disconnected = ~connected
-        if connected.any():
-            ax.plot(
-                sub.loc[connected, "time_s"],
-                sub.loc[connected, "rank"],
-                "o-",
-                label=f"Node {nid}",
-                color=NODE_COLORS.get(nid),
-                markersize=5,
-            )
-        if disconnected.any():
-            ax.plot(
-                sub.loc[disconnected, "time_s"],
-                [np.nan] * disconnected.sum(),
-                "x--",
-                color=NODE_COLORS.get(nid),
-                markersize=5,
-                alpha=0.4,
-            )
-    _style_ax(ax, "DODAG Rank per Node", "Simulated Time (s)", "Rank")
-    ax.legend(fontsize=7, ncol=2, loc="best")
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "rank_per_node.png"), dpi=dpi)
-    plt.close(fig)
-    print("  Saved rank_per_node.png")
-
-
-def plot_cpu_util(data, out_dir, dpi):
-    df = data["energest"]
-    if df.empty:
-        print("  Skipping energest plot (no data)")
-        return
-
-    nodes = sorted(df["node_id"].unique())
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    for ni, node_id in enumerate(nodes):
-        node_df = df[df["node_id"] == node_id]
-
-        prev_total_tick = 0
-        prev_comp_total_tick = 0
-        comp_percentage = []
-        for _, row in node_df.iterrows():
-            total_tick_delta = row["total_ticks"] - prev_total_tick
-            comp_tick_delta = row["cpu_ticks"] - prev_comp_total_tick
-            comp_percentage.append(round(comp_tick_delta / total_tick_delta, 2))
-
-            # Update prev_ticks
-            prev_comp_total_tick = row["cpu_ticks"]
-            prev_total_tick = row["total_ticks"]
-        comp_percentage = np.array(comp_percentage)
-
-        ax.plot(
-            node_df["time_s"].values,
-            comp_percentage,
-            "o-",
-            label=f"Node {node_id}",
-            color=NODE_COLORS.get(node_id),
-            markersize=5,
-        )
-
-    _style_ax(
-        ax, "CPU Utilization per Node", "Simulated Time (s)", "CPU Utilization (%)"
+    plot_and_save(
+        df,
+        x="time_s",
+        y="avg_etx",
+        kind="line",
+        title="Average ETX by simulated time",
+        xlabel="Simulated time (s)",
+        ylabel="Average ETX",
+        path=f"{out_dir}/average_etx.png",
+        figsize=(10, 5),
     )
-    ax.legend(fontsize=7, ncol=2, loc="best")
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "cpu_util_per_node.png"), dpi=dpi)
-    plt.close(fig)
-    print("  Saved cpu_util_per_node.png")
+    print("  Saved average_etx.png")
+
+
+def plot_energy_usage(data, out_dir, dpi):
+    df = data["metrics"]
+    result_df = duckdb.sql(
+        """
+        SELECT df.node_id, energy_comp
+        FROM df
+            JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
+            ON df.node_id = nodes.node_id
+        WHERE df.time_s = nodes.latest_time
+        ORDER BY df.node_id
+        """
+    ).df()
+
+    plot_and_save(
+        result_df,
+        x="node_id",
+        y="energy_comp",
+        kind="bar",
+        title="Energy Usage after simulation",
+        xlabel="Node ID",
+        ylabel="Energy Usage (mAh)",
+        path=f"{out_dir}/energy_comp.png",
+        figsize=(10, 5),
+    )
+    print("  Saved energy_comp.png")
+
+    result_df = duckdb.sql(
+        """
+        SELECT df.node_id, (cpu_ticks / total_ticks) * 100 as cpu_usage
+        FROM df
+            JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
+            ON df.node_id = nodes.node_id
+        WHERE df.time_s = nodes.latest_time
+        ORDER BY df.node_id
+        """
+    ).df()
+
+    plot_and_save(
+        result_df,
+        x="node_id",
+        y="cpu_usage",
+        kind="bar",
+        title="CPU usage through the simulation",
+        xlabel="Node ID",
+        ylabel="CPU Usage (%)",
+        path=f"{out_dir}/cpu_usage.png",
+        figsize=(10, 5),
+    )
+    print("  Saved cpu_usage.png")
 
 
 def plot_packet_delivery(data, out_dir, dpi):
     df = data["latency"]
-    if df.empty:
-        print("  Skipping packet delivery plot (no data)")
-        return
-    stats = defaultdict(lambda: {"tx": 0, "rx": 0, "pdr": 0.0})
+    df = duckdb.sql(
+        """
+        SELECT node_id, rx/tx as pdr, 1 - rx/tx as plr
+        FROM (
+            SELECT node_id, COUNT(*) as tx, COUNT(*) FILTER (WHERE server_receive_time <> 0) as rx
+            FROM df
+            GROUP BY node_id
+            ORDER BY node_id
+            )
+        """
+    ).df()
 
-    for _, row in df.iterrows():
-        node_id = row["node_id"]
-        stats[node_id]["tx"] += 1
-        if float(row["server_receive_time"]) != 0.0:
-            stats[node_id]["rx"] += 1
-
-    for node_id in stats:
-        tx = stats[node_id]["tx"]
-        rx = stats[node_id]["rx"]
-        stats[node_id]["pdr"] = rx / tx if tx else 0
-
-    node_ids = [int(i) for i in stats.keys()]
-    pdrs = [r["pdr"] for r in stats.values()]
-    plrs = [1 - r for r in pdrs]
-
-    width = 0.25
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(node_ids, pdrs, width, label="PDR", color="#4363d8")
-    _style_ax(ax, "Packet Delivery (cumulative counters)", "Node ID", "PDR")
-    ax.set_xticks(node_ids)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "packet_delivery.png"), dpi=dpi)
-    plt.close(fig)
+    plot_and_save(
+        df,
+        x="node_id",
+        y="pdr",
+        kind="bar",
+        title="Packet Delivery Ratio",
+        xlabel="Node ID",
+        ylabel="Delivery Ratio",
+        path=f"{out_dir}/packet_delivery.png",
+        figsize=(10, 5),
+    )
     print("  Saved packet_delivery.png")
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(node_ids, plrs, width, label="Loss Ratio", color="#4363d8")
-    _style_ax(ax, "Packet Loss Ratio (cumulative counters)", "Node ID", "Loss Ratio")
-    ax.set_xticks(node_ids)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "packet_loss.png"), dpi=dpi)
-    plt.close(fig)
+    plot_and_save(
+        df,
+        x="node_id",
+        y="plr",
+        kind="bar",
+        title="Packet Loss Ratio",
+        xlabel="Node ID",
+        ylabel="Loss Ratio",
+        path=f"{out_dir}/packet_loss.png",
+        figsize=(10, 5),
+    )
     print("  Saved packet_loss.png")
-
-
-def plot_connectivity(data, out_dir, dpi):
-    df = data["app_events"]
-    if df.empty:
-        print("  Skipping connectivity plot (no data)")
-        return
-    clients = df[df["node_id"] != 1]["node_id"].unique()
-    if len(clients) == 0:
-        print("  Skipping connectivity plot (no client events)")
-        return
-    nodes = sorted(clients)
-    bin_size = 5.0
-    t_min, t_max = df["time_s"].min(), df["time_s"].max()
-    bins = np.arange(t_min, t_max + bin_size, bin_size)
-    n_bins = len(bins) - 1
-    matrix = np.full((len(nodes), n_bins), np.nan)
-
-    for i, nid in enumerate(nodes):
-        node_df = df[df["node_id"] == nid]
-        for bi in range(n_bins):
-            in_bin = node_df[
-                (node_df["time_s"] >= bins[bi]) & (node_df["time_s"] < bins[bi + 1])
-            ]
-            if in_bin.empty:
-                continue
-            has_txrx = (in_bin["event"] == "tx_rx_stats").any()
-            matrix[i, bi] = 1 if has_txrx else 0
-
-    fig, ax = plt.subplots(figsize=(12, 4))
-    cmap = matplotlib.colors.ListedColormap(["#e6194b", "#3cb44b"])
-    cmap.set_bad(color="#dddddd")
-    ax.imshow(
-        matrix,
-        aspect="auto",
-        cmap=cmap,
-        vmin=0,
-        vmax=1,
-        interpolation="nearest",
-        extent=[t_min, t_max, len(nodes) - 0.5, -0.5],
-    )
-    ax.set_yticks(range(len(nodes)))
-    ax.set_yticklabels([str(n) for n in nodes])
-    _style_ax(ax, "Node Connectivity over Time", "Simulated Time (s)", "Node ID")
-    from matplotlib.patches import Patch
-
-    ax.legend(
-        handles=[
-            Patch(facecolor="#3cb44b", label="Reachable"),
-            Patch(facecolor="#e6194b", label="Not reachable"),
-            Patch(facecolor="#dddddd", label="No data"),
-        ],
-        fontsize=8,
-        loc="upper right",
-    )
-    fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, "connectivity.png"), dpi=dpi)
-    plt.close(fig)
-    print("  Saved connectivity.png")
 
 
 def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
@@ -281,7 +170,10 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     plot_etx(data, output_dir, dpi)
-    plot_cpu_util(data, output_dir, dpi)
+    # plot average energy usage by hop_count
+    # plot average energy usage by children count
+    plot_energy_usage(data, output_dir, dpi)
+    # Plot packet delivery ratio by hop_count
     plot_packet_delivery(data, output_dir, dpi)
     print("\nDone.")
 

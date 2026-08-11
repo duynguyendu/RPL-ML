@@ -26,6 +26,23 @@ class RadioConf:
     success_rx: float = 1.0
 
 
+def _sample_in_disk(cx: float, cy: float, r: float) -> Tuple[float, float]:
+    """Uniformly sample a point inside the disk of radius r centered at (cx, cy)."""
+    u = random.random()
+    theta = random.random() * 2.0 * math.pi
+    rad = r * math.sqrt(u)
+    return (cx + rad * math.cos(theta), cy + rad * math.sin(theta))
+
+
+def _sample_in_annulus(
+    cx: float, cy: float, r_min: float, r_max: float
+) -> Tuple[float, float]:
+    """Uniformly (by area) sample a point in the annulus [r_min, r_max] centered at (cx, cy)."""
+    theta = random.random() * 2.0 * math.pi
+    rad = math.sqrt(random.uniform(r_min * r_min, r_max * r_max))
+    return (cx + rad * math.cos(theta), cy + rad * math.sin(theta))
+
+
 def make_base(
     topology_id: str,
     topo_type: str,
@@ -200,6 +217,66 @@ def sparse_grid_positions(
     )
 
 
+def scatter_positions(
+    num_clients: int,
+    tx_range: float,
+    seed: int | None = None,
+    min_dist_ratio: float = 0.7,
+    area_scale: float = 1.2,
+    sparsity: float = 1.0,
+    half_plane_angle_deg: float = 0.0,
+    max_point_attempts: int = 300,
+    max_restarts: int = 60,
+) -> List[Tuple[float, float]]:
+    min_dist = tx_range * min_dist_ratio
+    side = sparsity * max(
+        2.2 * min_dist, area_scale * min_dist * math.sqrt(max(1, num_clients))
+    )
+    root = (0.0, 0.0)
+    base_seed = 0 if seed is None else seed
+    angle_rad = math.radians(half_plane_angle_deg)
+    cos_t, sin_t = math.cos(angle_rad), math.sin(angle_rad)
+
+    w = side / math.sqrt(2.0)
+    h = side * math.sqrt(2.0)
+
+    def sample_candidate() -> Tuple[float, float]:
+        x_local = random.uniform(0.0, w)
+        y_local = random.uniform(-h / 2.0, h / 2.0)
+        return (
+            root[0] + x_local * cos_t - y_local * sin_t,
+            root[1] + x_local * sin_t + y_local * cos_t,
+        )
+
+    for restart in range(max_restarts):
+        random.seed(base_seed + restart * 1000)
+
+        placed: List[Tuple[float, float]] = []
+        all_points: List[Tuple[float, float]] = [root]
+        ok = True
+        for _ in range(num_clients):
+            found = False
+            for _ in range(max_point_attempts):
+                cand = sample_candidate()
+                if all(
+                    math.hypot(cand[0] - p[0], cand[1] - p[1]) >= min_dist
+                    for p in all_points
+                ):
+                    placed.append(cand)
+                    all_points.append(cand)
+                    found = True
+                    break
+            if not found:
+                ok = False
+                break
+        if ok and _is_connected(placed, tx_range=tx_range):
+            return placed
+
+    raise RuntimeError(
+        f"Failed to generate a connected scattered topology after {max_restarts} restarts"
+    )
+
+
 def _is_connected(positions: List[Tuple[float, float]], tx_range: float) -> bool:
     """
     Check if the graph formed by connecting nodes within tx_range is connected.
@@ -290,6 +367,14 @@ def build_topology(
             seed=seed,
             max_attempts=sparse_max_attempts,
             tx_range=radio.tx_range,
+        )
+    elif topo_type == "scatter":
+        pts = scatter_positions(
+            num_clients,
+            seed=seed,
+            tx_range=radio.tx_range,
+            min_dist_ratio=0.8,
+            max_restarts=6000,
         )
     else:
         raise ValueError(f"Unknown topology type: {topo_type}")

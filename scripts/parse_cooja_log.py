@@ -2,15 +2,12 @@ import argparse
 import os
 import re
 import sys
-import numpy as np
-import pandas as pd
 from pathlib import Path
 
-LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
+import numpy as np
+import pandas as pd
 
-# ETX
-RE_ETX_LOG = re.compile(r"^ETX:\s+(\d+)\.(\d+)")
-RE_ETX_NOT_FOUND = re.compile(r"^ETX:\s+no preferred parent")
+LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 
 # DODAG
 RE_DODAG_LOG = re.compile(
@@ -21,12 +18,9 @@ RE_DODAG_LOG = re.compile(
 RE_DODAG_NOT_JOIN = re.compile(r"^DODAG:\s+not joined")
 
 # ENERGEST
-RE_ENERGEST_LOG = re.compile(
-    r"^ENERGEST: CPU=(\d+) LPM=(\d+) DEEP_LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+)"
+RE_METRICS_LOG = re.compile(
+    r"^ENERGEST: CPU=(\d+) LPM=(\d+) DEEP_LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) ENERGY_COMP=(\d+)mA HOP_COUNT=(\d+) ETX=(\d+\.\d{2})"
 )
-
-# HOP_COUNT
-RE_HOP_COUNT = re.compile(r"HOP_COUNT: (\d+)")
 
 # LATENCY
 RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+) rtt_ms=(\d+)")
@@ -34,8 +28,6 @@ RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 RE_CLIENT_RECEIVE = re.compile(r"Received response '(\d+)' from")
 
-# RE_TXRX = re.compile(r"Tx/Rx/MissedTx:\s+(\d+)/(\d+)/(\d+)")
-# RE_NOT_REACHABLE = re.compile(r"^Not reachable yet$")
 
 METRIC_PERIOD = 10
 
@@ -48,9 +40,9 @@ def process_log(log_path):
     def _df(rows):
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-    rows_etx, rows_dodag, rows_energest = [], [], []
+    rows_metrics = []
+    rows_etx, rows_dodag = [], []
     rows_client_send = []
-    rows_hop_count = []
 
     with open(log_path) as fh:
         for raw in fh:
@@ -62,20 +54,6 @@ def process_log(log_path):
             content = m.group(3)
             time_s = (int(m.group(1))) / 1_000_000.0
             normalise_time_s = normalise_time(time_s)
-
-            em = RE_ETX_LOG.match(content)
-            if em:
-                # TODO: maybe update the log to simplify this
-                etx_val = int(em.group(1)) + int(em.group(2)) / 10.0
-                rows_etx.append(
-                    {"time_s": normalise_time_s, "node_id": node_id, "etx": etx_val}
-                )
-                continue
-            if RE_ETX_NOT_FOUND.match(content):
-                rows_etx.append(
-                    {"time_s": normalise_time_s, "node_id": node_id, "etx": np.nan}
-                )
-                continue
 
             dm = RE_DODAG_LOG.match(content)
             if dm:
@@ -109,19 +87,22 @@ def process_log(log_path):
                 )
                 continue
 
-            eg = RE_ENERGEST_LOG.match(content)
-            if eg:
-                rows_energest.append(
+            metrics = RE_METRICS_LOG.match(content)
+            if metrics:
+                rows_metrics.append(
                     {
                         "time_s": normalise_time_s,
                         "node_id": node_id,
-                        "cpu_ticks": int(eg.group(1)),
-                        "lpm_ticks": int(eg.group(2)),
-                        "deep_lpm_ticks": int(eg.group(3)),
-                        "tx_ticks": int(eg.group(4)),
-                        "rx_ticks": int(eg.group(5)),
-                        "off_ticks": int(eg.group(6)),
-                        "total_ticks": int(eg.group(7)),
+                        "cpu_ticks": int(metrics.group(1)),
+                        "lpm_ticks": int(metrics.group(2)),
+                        "deep_lpm_ticks": int(metrics.group(3)),
+                        "tx_ticks": int(metrics.group(4)),
+                        "rx_ticks": int(metrics.group(5)),
+                        "off_ticks": int(metrics.group(6)),
+                        "total_ticks": int(metrics.group(7)),
+                        "energy_comp": int(metrics.group(8)),
+                        "hop_count": int(metrics.group(9)),
+                        "etx": float(metrics.group(10)),
                     }
                 )
                 continue
@@ -155,13 +136,14 @@ def process_log(log_path):
 
             server_receive = RE_SERVER_RECEIVE.match(content)
             if server_receive:
-                node_id_from_log = int(server_receive.group(2).split(":")[4], 16)
+                node_id_from_log = int(server_receive.group(2).split(":")[5], 16)
                 seqno = int(server_receive.group(1))
                 row = [
                     item
                     for item in rows_client_send
                     if item["node_id"] == node_id_from_log and item["seqno"] == seqno
-                ][0]
+                ]
+                row = row[0]
                 row["server_receive_time"] = time_s
                 continue
 
@@ -176,23 +158,11 @@ def process_log(log_path):
                 row["client_receive_time"] = time_s
                 continue
 
-            hop_count = RE_HOP_COUNT.match(content)
-            if hop_count:
-                rows_hop_count.append(
-                    {
-                        "time_s": normalise_time_s,
-                        "node_id": node_id,
-                        "hop_count": int(hop_count.group(1)),
-                    }
-                )
-
     return {
-        # TODO: maybe aggr etx and hop count
         "etx": _df(rows_etx),
         # "dodag": _df(rows_dodag),
-        "energest": _df(rows_energest),
+        "metrics": _df(rows_metrics),
         "latency": _df(rows_client_send),
-        "hop_count": _df(rows_hop_count),
     }
 
 

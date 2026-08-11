@@ -46,31 +46,12 @@ def make_header(
     platform_spec: PlatformSpec,
 ) -> str:
     # Original repository root that contains src/ and Makefile
-    base_dir = Path(config.base_mote_dir).resolve()
     target = platform_spec.target
-
-    server_source = (base_dir / platform_spec.server_source_name()).as_posix()
-    client_source = (base_dir / platform_spec.client_source_name()).as_posix()
-    overload_client_source = (
-        base_dir / platform_spec.overload_client_source_name()
-    ).as_posix()
-
-    server_fw = (
-        base_dir / f"build/{target}/{platform_spec.server_binary_name()}"
-    ).as_posix()
-    client_fw = (
-        base_dir / f"build/{target}/{platform_spec.client_binary_name()}"
-    ).as_posix()
-    overload_client_fw = (
-        base_dir / f"build/{target}/{platform_spec.overload_client_binary_name()}"
-    ).as_posix()
 
     parameters = f"TARGET={target} BUFFER_SIZE={config.buffer_size} SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration}"
 
-    # TODO: document how to pass env var here
-    server_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.server_binary_name()} {parameters}"
-    client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters}"
-    overload_client_cmd = f"$(MAKE) -C {base_dir.as_posix()} -j$(CPUS) {platform_spec.overload_client_binary_name()} {parameters}"
+    server_cmd = f"$(MAKE) -C {platform_spec.server_base_dir()} -j$(CPUS) {platform_spec.server_binary_name()} {parameters}"
+    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} GATHER_METRICS={config.gather_metrics}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -93,9 +74,9 @@ def make_header(
       {platform_spec.mote_type}
       <identifier>{platform_spec.name}_server</identifier>
       <description>RPL Server (Root) - {platform_spec.name.upper()}</description>
-      <source>{server_source}</source>
+      <source>{platform_spec.server_source_path()}</source>
       <commands>{server_cmd}</commands>
-      <firmware>{server_fw}</firmware>
+      <firmware>{platform_spec.server_firmware_path()}</firmware>
 {_join_interfaces(platform_spec.interfaces)}
     </motetype>
 
@@ -103,9 +84,9 @@ def make_header(
       {platform_spec.mote_type}
       <identifier>{platform_spec.name}_client</identifier>
       <description>RPL Client - {platform_spec.name.upper()}</description>
-      <source>{client_source}</source>
+      <source>{platform_spec.client_source_path()}</source>
       <commands>{client_cmd}</commands>
-      <firmware>{client_fw}</firmware>
+      <firmware>{platform_spec.client_firmware_path()}</firmware>
 {_join_interfaces(platform_spec.interfaces)}
     </motetype>
 
@@ -187,6 +168,13 @@ def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
     platform_spec = get_platform(config.platform)
     radio = topo["radio"]
 
+    build_dir = platform_spec.server_base_dir() / "build"
+    if build_dir.exists() and build_dir.is_dir():
+        shutil.rmtree(build_dir)
+    build_dir = platform_spec.client_base_dir() / "build"
+    if build_dir.exists() and build_dir.is_dir():
+        shutil.rmtree(build_dir)
+
     header = make_header(
         title=topo.get("topology_id", topo.get("title", "cooja_run")),
         seed=topo.get("seed", 123456),
@@ -230,9 +218,6 @@ def generate_csc(
 ) -> None:
     topo = json.loads(Path(topology_json).read_text())
     csc = generate_csc_from_dict(topo)
-    build_dir = Path(config.base_mote_dir).resolve() / "build"
-    if build_dir.exists() and build_dir.is_dir():
-        shutil.rmtree(build_dir)
 
     Path(out_csc).parent.mkdir(parents=True, exist_ok=True)
     Path(out_csc).write_text(csc)
