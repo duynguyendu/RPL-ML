@@ -89,11 +89,51 @@ def compute_pdr(data):
     ).df()
 
 
+def compute_energy_by_hop(data):
+    df = data["metrics"]
+    if df.empty:
+        return pd.DataFrame(columns=["time_s", "hop_count", "avg_energy"])
+    return duckdb.sql(
+        """
+        WITH deltas AS (
+            SELECT node_id, time_s, hop_count,
+                   energy_comp - LAG(energy_comp)
+                       OVER (PARTITION BY node_id ORDER BY time_s) AS energy_delta
+            FROM df
+        )
+        SELECT time_s, hop_count, AVG(energy_delta) AS avg_energy
+        FROM deltas
+        WHERE energy_delta IS NOT NULL
+        GROUP BY time_s, hop_count
+        ORDER BY time_s, hop_count
+        """
+    ).df()
+
+
+def compute_energy_usage_by_hop(data):
+    df = data["metrics"]
+    if df.empty:
+        return pd.DataFrame(columns=["node_id", "hop_count", "energy_comp"])
+    return duckdb.sql(
+        """
+        WITH latest AS (
+            SELECT node_id, MAX(time_s) AS t FROM df GROUP BY node_id
+        )
+        SELECT df.node_id, df.hop_count, df.energy_comp
+        FROM df JOIN latest ON df.node_id = latest.node_id AND df.time_s = latest.t
+        ORDER BY df.hop_count, df.node_id
+        """
+    ).df()
+
+
 def compute_metrics(data):
     return {
         "etx": compute_etx(data),
         "energy": compute_energy(data),
         "pdr": compute_pdr(data),
+        "energy_by_hop": compute_energy_by_hop(data),
+        # TODO: could optimise this by aggr on energy_by_hop instead
+        "energy_usage_by_hop": compute_energy_usage_by_hop(data),
     }
 
 
@@ -207,6 +247,50 @@ def plot_energy_usage(metrics, out_dir, dpi):
         )
     )
     print("  Saved cpu_usage")
+    return figs
+
+
+def plot_energy_by_hop(metrics, out_dir, dpi):
+    df = metrics["energy_by_hop"]
+    figs = []
+    if df.empty:
+        return figs
+    pivoted = df.pivot(index="time_s", columns="hop_count", values="avg_energy").reset_index()
+    cols = [c for c in pivoted.columns if c != "time_s"]
+    figs.append(
+        get_fig(
+            pivoted,
+            x="time_s",
+            y=cols,
+            kind="line",
+            title="Average Energy Usage by Hop Count",
+            xlabel="Simulated time (s)",
+            ylabel="Average Energy per Interval (mAh)",
+        )
+    )
+    print("  Add energy_by_hop")
+    return figs
+
+
+def plot_energy_usage_by_hop(metrics, out_dir, dpi):
+    df = metrics["energy_usage_by_hop"]
+    figs = []
+    if df.empty:
+        return figs
+    fig = get_fig(
+        df,
+        x="hop_count",
+        y="energy_comp",
+        kind="box",
+        title="Energy Usage by Hop Count",
+        xlabel="Hop Count",
+        ylabel="Energy Usage (mAh)",
+        category_x=True,
+    )
+    for trace in fig.data:
+        trace.boxmean = True
+    figs.append(fig)
+    print("  Add energy_usage_by_hop")
     return figs
 
 
@@ -669,11 +753,11 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     figs = []
     figs.extend(plot_topology(df_dir, output_dir, metrics))
     figs.extend(plot_etx(metrics, output_dir, dpi))
-    # plot average energy usage by hop_count
-    #   Group the number of tx and rx by hop count and time_s
+    figs.extend(plot_energy_usage(metrics, output_dir, dpi))
+    figs.extend(plot_energy_by_hop(metrics, output_dir, dpi))
+    figs.extend(plot_energy_usage_by_hop(metrics, output_dir, dpi))
     # plot average energy usage by children count
     # Plot packet delivery ratio by hop_count
-    figs.extend(plot_energy_usage(metrics, output_dir, dpi))
     figs.extend(plot_packet_delivery(metrics, output_dir, dpi))
 
     with open(f"{output_dir}/dashboard.html", "w") as f:
