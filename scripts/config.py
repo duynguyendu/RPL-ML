@@ -3,10 +3,10 @@ from ast import literal_eval
 from pathlib import Path
 
 # pipeline config
-is_generate_topology = (True,)
-is_simulate = (True,)
-is_plot_metrics = (True,)
-is_train_model = (False,)
+is_generate_topology = True
+is_simulate = True
+is_plot_metrics = True
+is_train_model = False
 
 # topology config
 spacing = 40

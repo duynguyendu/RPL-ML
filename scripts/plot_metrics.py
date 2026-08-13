@@ -143,6 +143,45 @@ def compute_cpu_usage_by_hop(data):
     ).df()
 
 
+def compute_latency_by_hop(data):
+    lat = data["latency"]
+    m = data["metrics"]
+    if lat.empty or m.empty:
+        return pd.DataFrame(columns=["node_id", "hop_count", "avg_latency"])
+    return duckdb.sql(
+        """
+        WITH delivered AS (
+            SELECT node_id, client_send_time AS send_time,
+                   server_receive_time - client_send_time AS one_way_latency
+            FROM lat
+            WHERE server_receive_time <> 0
+        )
+        SELECT d.node_id, m.hop_count, AVG(d.one_way_latency) AS avg_latency
+        FROM delivered d
+        ASOF JOIN m
+            ON d.node_id = m.node_id AND m.time_s >= d.send_time
+        GROUP BY d.node_id, m.hop_count
+        ORDER BY m.hop_count, d.node_id
+        """
+    ).df()
+
+
+def compute_latency_by_node(data):
+    df = data["latency"]
+    if df.empty:
+        return pd.DataFrame(columns=["node_id", "avg_latency"])
+    return duckdb.sql(
+        """
+        SELECT node_id,
+               AVG(server_receive_time - client_send_time) AS avg_latency
+        FROM df
+        WHERE server_receive_time <> 0
+        GROUP BY node_id
+        ORDER BY node_id
+        """
+    ).df()
+
+
 def compute_metrics(data):
     return {
         "etx": compute_etx(data),
@@ -152,6 +191,8 @@ def compute_metrics(data):
         # TODO: could optimise this by aggr on energy_by_hop instead
         "energy_usage_by_hop": compute_energy_usage_by_hop(data),
         "cpu_usage_by_hop": compute_cpu_usage_by_hop(data),
+        "latency_by_hop": compute_latency_by_hop(data),
+        "latency_by_node": compute_latency_by_node(data),
     }
 
 
@@ -339,6 +380,54 @@ def plot_cpu_usage_by_hop(metrics, out_dir, dpi):
     return figs
 
 
+def plot_latency_by_hop(metrics, out_dir, dpi):
+    df = metrics["latency_by_hop"]
+    figs = []
+    if df.empty:
+        return figs
+    fig = get_fig(
+        df,
+        x="hop_count",
+        y="avg_latency",
+        kind="box",
+        title="Latency by Hop Count",
+        xlabel="Hop Count",
+        ylabel="One-way Latency (s)",
+        category_x=True,
+    )
+    for trace in fig.data:
+        trace.boxmean = True
+    outlier_rows = _box_outliers(df, "hop_count", "avg_latency")
+    if not outlier_rows.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=[str(row.hop_count) for row in outlier_rows.itertuples()],
+                y=[row.avg_latency for row in outlier_rows.itertuples()],
+                mode="text",
+                text=[str(int(row.node_id)) for row in outlier_rows.itertuples()],
+                textposition="top center",
+                textfont=dict(size=10, color="black"),
+                hoverinfo="skip",
+            )
+        )
+    figs.append(fig)
+    print("  Add latency_by_hop")
+    return figs
+
+
+def _box_outliers(df, group, value):
+    outliers = []
+    for _, grp in df.groupby(group):
+        q1 = grp[value].quantile(0.25)
+        q3 = grp[value].quantile(0.75)
+        iqr = q3 - q1
+        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        outliers.append(grp[(grp[value] < lo) | (grp[value] > hi)])
+    if not outliers:
+        return pd.DataFrame(columns=[group, value])
+    return pd.concat(outliers)
+
+
 def plot_packet_delivery(metrics, out_dir, dpi):
     df = metrics["pdr"]
     figs = []
@@ -387,6 +476,10 @@ def plot_topology(df_dir, out_dir, metrics):
     has_pdr = not pdr_df.empty
     pdr_by_node = {
         int(row.node_id): float(row.pdr) for row in pdr_df.itertuples()
+    }
+    latency_by_node = {
+        int(row.node_id): float(row.avg_latency)
+        for row in metrics["latency_by_node"].itertuples()
     }
 
     radio = topo.get("radio", {})
@@ -496,9 +589,14 @@ def plot_topology(df_dir, out_dir, metrics):
         energy_by_node.get(int(m["id"]), float("nan")) for m in clients
     ]
     clients_cpu = [cpu_by_node.get(int(m["id"]), float("nan")) for m in clients]
+    clients_latency = [
+        latency_by_node.get(int(m["id"]), float("nan")) for m in clients
+    ]
     clients_custom = [
-        [int(m["id"]), m.get("role", "client"), pdr, eng, cpu]
-        for m, pdr, eng, cpu in zip(clients, clients_pdr, clients_energy, clients_cpu)
+        [int(m["id"]), m.get("role", "client"), pdr, eng, cpu, lat]
+        for m, pdr, eng, cpu, lat in zip(
+            clients, clients_pdr, clients_energy, clients_cpu, clients_latency
+        )
     ]
     clients_hover = (
         "Node %{customdata[0]} (%{customdata[1]})<br>"
@@ -522,6 +620,14 @@ def plot_topology(df_dir, out_dir, metrics):
         f"TX range: {tx_range} m<br>"
         f"Interference range: {interference_range} m<br>"
         "CPU: %{customdata[4]:.1f}%"
+        "<extra></extra>"
+    )
+    latency_hover = (
+        "Node %{customdata[0]} (%{customdata[1]})<br>"
+        "Position: (%{x:.1f}, %{y:.1f})<br>"
+        f"TX range: {tx_range} m<br>"
+        f"Interference range: {interference_range} m<br>"
+        "Latency: %{customdata[5]:.3f} s"
         "<extra></extra>"
     )
     fig.add_trace(
@@ -651,15 +757,18 @@ def plot_topology(df_dir, out_dir, metrics):
         "      var cbTitle = gd.data[CLIENTS_IDX].marker.colorbar.title.text;\n"
         "      if (cbTitle === 'Energy (mAh)') metricIdx = 3;\n"
         "      else if (cbTitle === 'CPU Usage (%%)') metricIdx = 4;\n"
+        "      else if (cbTitle === 'Avg Latency (s)') metricIdx = 5;\n"
         "      var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "        'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "        'TX range: ' + TX_RANGE + ' m<br>' +\n"
         "        'Interference range: ' + INT_RANGE + ' m';\n"
-        "      if (pt.customdata[metricIdx] !== undefined && pt.customdata[metricIdx] !== null) {\n"
+        "      if (pt.customdata[metricIdx] !== undefined && pt.customdata[metricIdx] !== null && !isNaN(pt.customdata[metricIdx])) {\n"
         "        if (metricIdx === 3) {\n"
         "          tipHtml += '<br>Energy: ' + pt.customdata[3].toFixed(3) + ' mAh';\n"
         "        } else if (metricIdx === 4) {\n"
         "          tipHtml += '<br>CPU: ' + pt.customdata[4].toFixed(1) + '%%';\n"
+        "        } else if (metricIdx === 5) {\n"
+        "          tipHtml += '<br>Latency: ' + pt.customdata[5].toFixed(3) + ' s';\n"
         "        } else {\n"
         "          tipHtml += '<br>PDR: ' + (pt.customdata[2] * 100).toFixed(1) + '%%';\n"
         "        }\n"
@@ -703,6 +812,25 @@ def plot_topology(df_dir, out_dir, metrics):
 
     energy_cmax = _finite_bounds(clients_energy)[1]
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
+    real_latency = [v for v in clients_latency if not math.isnan(v)]
+    latency_cmax = max(real_latency) if real_latency else 1.0
+    latency_cmin_real = min(real_latency) if real_latency else 0.0
+    has_missing_latency = len(real_latency) < len(clients_latency)
+    if has_missing_latency or latency_cmin_real == 0.0:
+        clients_latency_color = [
+            0.0 if math.isnan(v) else v for v in clients_latency
+        ]
+        latency_cmin = 0.0
+        p0 = latency_cmin_real / latency_cmax if latency_cmax > 0 else 1.0
+        latency_colorscale = [
+            [0.0, "red"],
+            [max(p0, 1e-6), "rgb(189,215,231)"],
+            [1.0, "rgb(8,48,107)"],
+        ]
+    else:
+        clients_latency_color = clients_latency
+        latency_cmin = latency_cmin_real
+        latency_colorscale = "Blues"
     layout: dict = dict(
         title=dict(text="Network Topology", font=dict(size=14, family="Arial", weight="bold")),
         dragmode="pan",
@@ -781,6 +909,21 @@ def plot_topology(df_dir, out_dir, metrics):
                             [4],
                         ],
                     ),
+                    dict(
+                        label="Avg Latency",
+                        method="restyle",
+                        args=[
+                            {
+                                "marker.color": [clients_latency_color],
+                                "marker.cmin": [latency_cmin],
+                                "marker.cmax": [latency_cmax],
+                                "marker.colorscale": [latency_colorscale],
+                                "marker.colorbar.title.text": ["Avg Latency (s)"],
+                                "hovertemplate": [latency_hover],
+                            },
+                            [4],
+                        ],
+                    ),
                 ],
             )
         ]
@@ -803,6 +946,7 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     figs.extend(plot_energy_by_hop(metrics, output_dir, dpi))
     figs.extend(plot_energy_usage_by_hop(metrics, output_dir, dpi))
     figs.extend(plot_cpu_usage_by_hop(metrics, output_dir, dpi))
+    figs.extend(plot_latency_by_hop(metrics, output_dir, dpi))
     # plot average energy usage by children count (including all children of children)
     # Plot packet delivery ratio by hop_count
     figs.extend(plot_packet_delivery(metrics, output_dir, dpi))

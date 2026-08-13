@@ -8,19 +8,14 @@ from topology_generator import generate_topology
 # from ..models.train import train_model
 
 
-def pipeline(
-    is_generate_topology: bool = True,
-    is_simulate: bool = True,
-    is_plot_metrics: bool = True,
-    is_train_model: bool = False,
-) -> None:
+def pipeline() -> None:
     etx = round(1 / (config.success_tx * config.success_rx), 2)
     run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_buffer{config.buffer_size}_duration{config.duration}_etx{etx}_int_range{config.interference_range}_{config.topo_type}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
 
-    if is_generate_topology:
+    if config.is_generate_topology:
         generate_topology(
             topo_type=config.topo_type,
             num_of_nodes=config.num_of_nodes,
@@ -44,14 +39,14 @@ def pipeline(
             base_dir=config.base_mote_dir,
         )
 
-    if is_simulate:
+    if config.is_simulate:
         simulate_csc(
             csc_file=csc_file_name,
             cooja_base=config.base_cooja,
             output_dir=output_dir,
         )
 
-    if is_plot_metrics:
+    if config.is_plot_metrics:
         parse_log(log_dir=output_dir, output_dir=output_dir)
         plot_metrics(df_dir=output_dir, output_dir=output_dir, dpi=150)
 
@@ -66,9 +61,4 @@ def pipeline(
 
 
 if __name__ == "__main__":
-    pipeline(
-        is_generate_topology=config.is_generate_topology,
-        is_simulate=config.is_simulate,
-        is_plot_metrics=config.is_plot_metrics,
-        is_train_model=config.is_train_model,
-    )
+    pipeline()
