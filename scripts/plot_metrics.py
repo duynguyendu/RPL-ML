@@ -118,6 +118,9 @@ GRAPH_COLORS = {
     "plr": "#f58231",
 }
 
+PDR_COLORSCALE = [[0.0, "red"], [1.0, "green"]]
+CPU_COLORSCALE = [[0.0, "darkblue"], [1.0, "red"]]
+
 
 def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=None, height=None, category_x=False, **plot_kwargs):
     fig = df.plot(x=x, y=y, kind=kind)
@@ -185,7 +188,7 @@ def plot_energy_usage(metrics, out_dir, dpi):
             xlabel="Node ID",
             ylabel="Energy Usage (mAh)",
             category_x=True,
-            color=GRAPH_COLORS["energy"],
+            color="#8ecae6",
         )
     )
     print("  Add energy_comp")
@@ -343,7 +346,7 @@ def plot_topology(df_dir, out_dir, metrics):
             x=[sx],
             y=[sy],
             mode="markers+text",
-            marker=dict(symbol="star", size=16, color=GRAPH_COLORS["energy"]),
+            marker=dict(symbol="star", size=22, color=GRAPH_COLORS["energy"]),
             text=[f"{int(server[0]['id'])}"],
             textposition="top center",
             customdata=[[int(server[0]["id"]), "server"]],
@@ -351,17 +354,45 @@ def plot_topology(df_dir, out_dir, metrics):
             name="Server",
         )
     )
-    clients_custom = [[int(m["id"]), m.get("role", "client")] for m in clients]
+    energy = metrics["energy"]
+    energy_by_node = {
+        int(row.node_id): float(row.energy_comp)
+        for row in energy["energy"].itertuples()
+    }
+    cpu_by_node = {
+        int(row.node_id): float(row.cpu_usage) for row in energy["cpu"].itertuples()
+    }
     clients_pdr = [pdr_by_node.get(int(m["id"]), float("nan")) for m in clients]
-    if has_pdr:
-        for row, pdr in zip(clients_custom, clients_pdr):
-            row.append(pdr)
+    clients_energy = [
+        energy_by_node.get(int(m["id"]), float("nan")) for m in clients
+    ]
+    clients_cpu = [cpu_by_node.get(int(m["id"]), float("nan")) for m in clients]
+    clients_custom = [
+        [int(m["id"]), m.get("role", "client"), pdr, eng, cpu]
+        for m, pdr, eng, cpu in zip(clients, clients_pdr, clients_energy, clients_cpu)
+    ]
     clients_hover = (
         "Node %{customdata[0]} (%{customdata[1]})<br>"
         "Position: (%{x:.1f}, %{y:.1f})<br>"
         f"TX range: {tx_range} m<br>"
         f"Interference range: {interference_range} m<br>"
         "PDR: %{customdata[2]:.2f}"
+        "<extra></extra>"
+    )
+    energy_hover = (
+        "Node %{customdata[0]} (%{customdata[1]})<br>"
+        "Position: (%{x:.1f}, %{y:.1f})<br>"
+        f"TX range: {tx_range} m<br>"
+        f"Interference range: {interference_range} m<br>"
+        "Energy: %{customdata[3]:.3f} mAh"
+        "<extra></extra>"
+    )
+    cpu_hover = (
+        "Node %{customdata[0]} (%{customdata[1]})<br>"
+        "Position: (%{x:.1f}, %{y:.1f})<br>"
+        f"TX range: {tx_range} m<br>"
+        f"Interference range: {interference_range} m<br>"
+        "CPU: %{customdata[4]:.1f}%"
         "<extra></extra>"
     )
     fig.add_trace(
@@ -371,11 +402,12 @@ def plot_topology(df_dir, out_dir, metrics):
             mode="markers+text",
             marker=dict(
                 symbol="circle",
-                size=9,
+                size=14,
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
-                colorscale="RdYlGn",
+                colorscale=PDR_COLORSCALE,
                 cmin=0.0,
                 cmax=1.0,
+                line=dict(width=1, color="black"),
                 showscale=has_pdr,
                 colorbar=dict(
                     title=dict(text="PDR", side="right"),
@@ -486,12 +518,22 @@ def plot_topology(df_dir, out_dir, metrics):
         "    if (!pt) return;\n"
         "    if (pt.curveNumber === SERVER_IDX || pt.curveNumber === CLIENTS_IDX) {\n"
         "      var id = String(pt.customdata[0]);\n"
+        "      var metricIdx = 2;\n"
+        "      var cbTitle = gd.data[CLIENTS_IDX].marker.colorbar.title.text;\n"
+        "      if (cbTitle === 'Energy (mAh)') metricIdx = 3;\n"
+        "      else if (cbTitle === 'CPU Usage (%%)') metricIdx = 4;\n"
         "      var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "        'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "        'TX range: ' + TX_RANGE + ' m<br>' +\n"
         "        'Interference range: ' + INT_RANGE + ' m';\n"
-        "      if (pt.customdata[2] !== undefined && pt.customdata[2] !== null) {\n"
-        "        tipHtml += '<br>PDR: ' + (pt.customdata[2] * 100).toFixed(1) + '%%';\n"
+        "      if (pt.customdata[metricIdx] !== undefined && pt.customdata[metricIdx] !== null) {\n"
+        "        if (metricIdx === 3) {\n"
+        "          tipHtml += '<br>Energy: ' + pt.customdata[3].toFixed(3) + ' mAh';\n"
+        "        } else if (metricIdx === 4) {\n"
+        "          tipHtml += '<br>CPU: ' + pt.customdata[4].toFixed(1) + '%%';\n"
+        "        } else {\n"
+        "          tipHtml += '<br>PDR: ' + (pt.customdata[2] * 100).toFixed(1) + '%%';\n"
+        "        }\n"
         "      }\n"
         "      showTip(tipHtml);\n"
         "      if (busy) {\n"
@@ -524,7 +566,15 @@ def plot_topology(df_dir, out_dir, metrics):
         json.dumps(circ_y),
     )
 
-    fig.update_layout(
+    def _finite_bounds(values, default_min=0.0, default_max=1.0):
+        finite = [v for v in values if not math.isnan(v)]
+        if not finite:
+            return default_min, default_max
+        return min(finite), max(finite)
+
+    energy_cmax = _finite_bounds(clients_energy)[1]
+    cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
+    layout: dict = dict(
         title=dict(text="Network Topology", font=dict(size=14, family="Arial", weight="bold")),
         xaxis=dict(
             title=dict(text="X (m)", font=dict(size=12)),
@@ -545,6 +595,66 @@ def plot_topology(df_dir, out_dir, metrics):
             scaleratio=1,
         ),
     )
+    if has_pdr:
+        layout["updatemenus"] = [
+            dict(
+                type="buttons",
+                direction="right",
+                showactive=True,
+                x=0.5,
+                y=1.18,
+                xanchor="center",
+                yanchor="top",
+                buttons=[
+                    dict(
+                        label="PDR",
+                        method="restyle",
+                        args=[
+                            {
+                                "marker.color": [clients_pdr],
+                                "marker.cmin": [0.0],
+                                "marker.cmax": [1.0],
+                                "marker.colorscale": [PDR_COLORSCALE],
+                                "marker.colorbar.title.text": ["PDR"],
+                                "hovertemplate": [clients_hover],
+                            },
+                            [4],
+                        ],
+                    ),
+                    dict(
+                        label="Energy Usage",
+                        method="restyle",
+                        args=[
+                            {
+                                "marker.color": [clients_energy],
+                                "marker.cmin": [0.0],
+                                "marker.cmax": [energy_cmax],
+                                "marker.colorscale": ["Viridis"],
+                                "marker.colorbar.title.text": ["Energy (mAh)"],
+                                "hovertemplate": [energy_hover],
+                            },
+                            [4],
+                        ],
+                    ),
+                    dict(
+                        label="CPU Util",
+                        method="restyle",
+                        args=[
+                            {
+                                "marker.color": [clients_cpu],
+                                "marker.cmin": [cpu_cmin],
+                                "marker.cmax": [cpu_cmax],
+                                "marker.colorscale": [CPU_COLORSCALE],
+                                "marker.colorbar.title.text": ["CPU Usage (%)"],
+                                "hovertemplate": [cpu_hover],
+                            },
+                            [4],
+                        ],
+                    ),
+                ],
+            )
+        ]
+    fig.update_layout(layout)
     fig._topology_post_script = edge_script
     print("  Add topology")
     return [fig]
