@@ -28,6 +28,75 @@ def load_data(in_dir):
     return data
 
 
+def compute_etx(data):
+    df = data["metrics"]
+    if df.empty:
+        return pd.DataFrame(columns=["time_s", "avg_etx"])
+    return duckdb.sql(
+        """
+        SELECT time_s, AVG(etx) as avg_etx
+        FROM df
+        WHERE etx <> 65535.0
+        GROUP BY time_s
+        ORDER BY time_s
+        """
+    ).df()
+
+
+def compute_energy(data):
+    df = data["metrics"]
+    if df.empty:
+        energy = pd.DataFrame(columns=["node_id", "energy_comp"])
+        cpu = pd.DataFrame(columns=["node_id", "cpu_usage"])
+    else:
+        energy = duckdb.sql(
+            """
+            SELECT df.node_id, energy_comp
+            FROM df
+                JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
+                ON df.node_id = nodes.node_id
+            WHERE df.time_s = nodes.latest_time
+            ORDER BY df.node_id
+            """
+        ).df()
+        cpu = duckdb.sql(
+            """
+            SELECT df.node_id, (cpu_ticks / total_ticks) * 100 as cpu_usage
+            FROM df
+                JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
+                ON df.node_id = nodes.node_id
+            WHERE df.time_s = nodes.latest_time
+            ORDER BY df.node_id
+            """
+        ).df()
+    return {"energy": energy, "cpu": cpu}
+
+
+def compute_pdr(data):
+    df = data["latency"]
+    if df.empty:
+        return pd.DataFrame(columns=["node_id", "pdr", "plr"])
+    return duckdb.sql(
+        """
+        SELECT node_id, rx/tx as pdr, 1 - rx/tx as plr
+        FROM (
+            SELECT node_id, COUNT(*) as tx, COUNT(*) FILTER (WHERE server_receive_time <> 0) as rx
+            FROM df
+            GROUP BY node_id
+            ORDER BY node_id
+            )
+        """
+    ).df()
+
+
+def compute_metrics(data):
+    return {
+        "etx": compute_etx(data),
+        "energy": compute_energy(data),
+        "pdr": compute_pdr(data),
+    }
+
+
 NODE_COLORS = {
     2: "#e6194b",
     3: "#3cb44b",
@@ -82,18 +151,9 @@ def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=None, heigh
     return fig
 
 
-def plot_etx(data, out_dir, dpi):
-    df = data["metrics"]
+def plot_etx(metrics, out_dir, dpi):
+    df = metrics["etx"]
     figs = []
-    df = duckdb.sql(
-        """
-        SELECT time_s, AVG(etx) as avg_etx
-        FROM df
-        WHERE etx <> 65535.0
-        GROUP BY time_s
-        ORDER BY time_s
-        """
-    ).df()
 
     print("  Add etx plots")
     figs.append(
@@ -111,23 +171,13 @@ def plot_etx(data, out_dir, dpi):
     return figs
 
 
-def plot_energy_usage(data, out_dir, dpi):
-    df = data["metrics"]
+def plot_energy_usage(metrics, out_dir, dpi):
+    energy = metrics["energy"]
     figs = []
-    result_df = duckdb.sql(
-        """
-        SELECT df.node_id, energy_comp
-        FROM df
-            JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
-            ON df.node_id = nodes.node_id
-        WHERE df.time_s = nodes.latest_time
-        ORDER BY df.node_id
-        """
-    ).df()
 
     figs.append(
         get_fig(
-            result_df,
+            energy["energy"],
             x="node_id",
             y="energy_comp",
             kind="bar",
@@ -140,20 +190,9 @@ def plot_energy_usage(data, out_dir, dpi):
     )
     print("  Add energy_comp")
 
-    result_df = duckdb.sql(
-        """
-        SELECT df.node_id, (cpu_ticks / total_ticks) * 100 as cpu_usage
-        FROM df
-            JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
-            ON df.node_id = nodes.node_id
-        WHERE df.time_s = nodes.latest_time
-        ORDER BY df.node_id
-        """
-    ).df()
-
     figs.append(
         get_fig(
-            result_df,
+            energy["cpu"],
             x="node_id",
             y="cpu_usage",
             kind="bar",
@@ -168,20 +207,9 @@ def plot_energy_usage(data, out_dir, dpi):
     return figs
 
 
-def plot_packet_delivery(data, out_dir, dpi):
-    df = data["latency"]
+def plot_packet_delivery(metrics, out_dir, dpi):
+    df = metrics["pdr"]
     figs = []
-    df = duckdb.sql(
-        """
-        SELECT node_id, rx/tx as pdr, 1 - rx/tx as plr
-        FROM (
-            SELECT node_id, COUNT(*) as tx, COUNT(*) FILTER (WHERE server_receive_time <> 0) as rx
-            FROM df
-            GROUP BY node_id
-            ORDER BY node_id
-            )
-        """
-    ).df()
 
     figs.append(
         get_fig(
@@ -215,13 +243,19 @@ def plot_packet_delivery(data, out_dir, dpi):
     return figs
 
 
-def plot_topology(df_dir, out_dir):
+def plot_topology(df_dir, out_dir, metrics):
     path = os.path.join(df_dir, "topology.json")
     if not os.path.exists(path):
         print(f"  Warning: {path} not found, skipping topology plot")
         return []
     with open(path) as fh:
         topo = json.load(fh)
+
+    pdr_df = metrics["pdr"]
+    has_pdr = not pdr_df.empty
+    pdr_by_node = {
+        int(row.node_id): float(row.pdr) for row in pdr_df.itertuples()
+    }
 
     radio = topo.get("radio", {})
     tx_range = radio.get("tx_range", 0)
@@ -317,16 +351,42 @@ def plot_topology(df_dir, out_dir):
             name="Server",
         )
     )
+    clients_custom = [[int(m["id"]), m.get("role", "client")] for m in clients]
+    clients_pdr = [pdr_by_node.get(int(m["id"]), float("nan")) for m in clients]
+    if has_pdr:
+        for row, pdr in zip(clients_custom, clients_pdr):
+            row.append(pdr)
+    clients_hover = (
+        "Node %{customdata[0]} (%{customdata[1]})<br>"
+        "Position: (%{x:.1f}, %{y:.1f})<br>"
+        f"TX range: {tx_range} m<br>"
+        f"Interference range: {interference_range} m<br>"
+        "PDR: %{customdata[2]:.2f}"
+        "<extra></extra>"
+    )
     fig.add_trace(
         go.Scatter(
             x=[float(m["x"]) for m in clients],
             y=[float(m["y"]) for m in clients],
             mode="markers+text",
-            marker=dict(symbol="circle", size=9, color=GRAPH_COLORS["etx"]),
+            marker=dict(
+                symbol="circle",
+                size=9,
+                color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
+                colorscale="RdYlGn",
+                cmin=0.0,
+                cmax=1.0,
+                showscale=has_pdr,
+                colorbar=dict(
+                    title=dict(text="PDR", side="right"),
+                    thickness=14,
+                    len=0.7,
+                ),
+            ),
             text=[f"{int(m['id'])}" for m in clients],
             textposition="top center",
-            customdata=[[int(m["id"]), m.get("role", "client")] for m in clients],
-            hovertemplate=node_hover,
+            customdata=clients_custom,
+            hovertemplate=clients_hover if has_pdr else node_hover,
             name="Clients",
         )
     )
@@ -426,10 +486,14 @@ def plot_topology(df_dir, out_dir):
         "    if (!pt) return;\n"
         "    if (pt.curveNumber === SERVER_IDX || pt.curveNumber === CLIENTS_IDX) {\n"
         "      var id = String(pt.customdata[0]);\n"
-        "      showTip('Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
+        "      var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "        'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "        'TX range: ' + TX_RANGE + ' m<br>' +\n"
-        "        'Interference range: ' + INT_RANGE + ' m');\n"
+        "        'Interference range: ' + INT_RANGE + ' m';\n"
+        "      if (pt.customdata[2] !== undefined && pt.customdata[2] !== null) {\n"
+        "        tipHtml += '<br>PDR: ' + (pt.customdata[2] * 100).toFixed(1) + '%%';\n"
+        "      }\n"
+        "      showTip(tipHtml);\n"
         "      if (busy) {\n"
         "        pending = id;\n"
         "        pendingHide = false;\n"
@@ -488,18 +552,19 @@ def plot_topology(df_dir, out_dir):
 
 def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     data = load_data(df_dir)
+    metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = []
-    figs.extend(plot_topology(df_dir, output_dir))
-    figs.extend(plot_etx(data, output_dir, dpi))
+    figs.extend(plot_topology(df_dir, output_dir, metrics))
+    figs.extend(plot_etx(metrics, output_dir, dpi))
     # plot average energy usage by hop_count
     #   Group the number of tx and rx by hop count and time_s
     # plot average energy usage by children count
     # Plot packet delivery ratio by hop_count
-    figs.extend(plot_energy_usage(data, output_dir, dpi))
-    figs.extend(plot_packet_delivery(data, output_dir, dpi))
+    figs.extend(plot_energy_usage(metrics, output_dir, dpi))
+    figs.extend(plot_packet_delivery(metrics, output_dir, dpi))
 
     with open(f"{output_dir}/dashboard.html", "w") as f:
         f.write(
