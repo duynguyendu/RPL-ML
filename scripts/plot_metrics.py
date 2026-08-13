@@ -126,6 +126,23 @@ def compute_energy_usage_by_hop(data):
     ).df()
 
 
+def compute_cpu_usage_by_hop(data):
+    df = data["metrics"]
+    if df.empty:
+        return pd.DataFrame(columns=["node_id", "hop_count", "cpu_usage"])
+    return duckdb.sql(
+        """
+        WITH latest AS (
+            SELECT node_id, MAX(time_s) AS t FROM df GROUP BY node_id
+        )
+        SELECT df.node_id, df.hop_count,
+               (df.cpu_ticks / df.total_ticks) * 100 AS cpu_usage
+        FROM df JOIN latest ON df.node_id = latest.node_id AND df.time_s = latest.t
+        ORDER BY df.hop_count, df.node_id
+        """
+    ).df()
+
+
 def compute_metrics(data):
     return {
         "etx": compute_etx(data),
@@ -134,6 +151,7 @@ def compute_metrics(data):
         "energy_by_hop": compute_energy_by_hop(data),
         # TODO: could optimise this by aggr on energy_by_hop instead
         "energy_usage_by_hop": compute_energy_usage_by_hop(data),
+        "cpu_usage_by_hop": compute_cpu_usage_by_hop(data),
     }
 
 
@@ -168,6 +186,9 @@ def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=None, heigh
         for trace in fig.data:
             if trace.type == "bar":
                 trace.marker.color = color
+            elif trace.type == "box":
+                trace.marker.color = color
+                trace.line.color = color
             else:
                 trace.line.color = color
     if category_x:
@@ -286,11 +307,35 @@ def plot_energy_usage_by_hop(metrics, out_dir, dpi):
         xlabel="Hop Count",
         ylabel="Energy Usage (mAh)",
         category_x=True,
+        color="#b8860b",
     )
     for trace in fig.data:
         trace.boxmean = True
     figs.append(fig)
     print("  Add energy_usage_by_hop")
+    return figs
+
+
+def plot_cpu_usage_by_hop(metrics, out_dir, dpi):
+    df = metrics["cpu_usage_by_hop"]
+    figs = []
+    if df.empty:
+        return figs
+    fig = get_fig(
+        df,
+        x="hop_count",
+        y="cpu_usage",
+        kind="box",
+        title="CPU Usage by Hop Count",
+        xlabel="Hop Count",
+        ylabel="CPU Usage (%)",
+        category_x=True,
+        color="#e6194b",
+    )
+    for trace in fig.data:
+        trace.boxmean = True
+    figs.append(fig)
+    print("  Add cpu_usage_by_hop")
     return figs
 
 
@@ -756,7 +801,8 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     figs.extend(plot_energy_usage(metrics, output_dir, dpi))
     figs.extend(plot_energy_by_hop(metrics, output_dir, dpi))
     figs.extend(plot_energy_usage_by_hop(metrics, output_dir, dpi))
-    # plot average energy usage by children count
+    figs.extend(plot_cpu_usage_by_hop(metrics, output_dir, dpi))
+    # plot average energy usage by children count (including all children of children)
     # Plot packet delivery ratio by hop_count
     figs.extend(plot_packet_delivery(metrics, output_dir, dpi))
 
