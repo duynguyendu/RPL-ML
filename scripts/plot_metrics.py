@@ -705,6 +705,7 @@ def plot_topology(df_dir, out_dir, metrics):
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
     layout: dict = dict(
         title=dict(text="Network Topology", font=dict(size=14, family="Arial", weight="bold")),
+        dragmode="pan",
         xaxis=dict(
             title=dict(text="X (m)", font=dict(size=12)),
             tickfont=dict(size=11),

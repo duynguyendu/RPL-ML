@@ -221,7 +221,6 @@ def sparse_grid_positions(
 
 def random_positions(
     num_clients: int,
-    spacing: float,
     seed: int | None = None,
     tx_range: float = 50.0,
     max_attempts: int = 6000,
@@ -230,11 +229,11 @@ def random_positions(
         random.seed(seed)
 
     upper_x, upper_y = tx_range, tx_range
-    lower_x, lower_y = -tx_range, 0
+    lower_x, lower_y = -tx_range, -tx_range / 4
     positions = [(0, 0)]
 
-    spacing_sqr = spacing**2
-    tx_range_sqr = tx_range**2
+    spacing_sqr = (tx_range * 0.7) ** 2
+    tx_range_sqr = (tx_range * 0.90) ** 2
     for i in range(num_clients):
         for _ in range(max_attempts):
             x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
@@ -412,7 +411,6 @@ def build_topology(
     elif topo_type == "random":
         pts = random_positions(
             num_clients,
-            spacing=spacing,
             seed=seed,
             max_attempts=6000,
             tx_range=radio.tx_range,

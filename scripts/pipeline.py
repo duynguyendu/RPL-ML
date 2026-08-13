@@ -68,7 +68,7 @@ def pipeline(
 if __name__ == "__main__":
     pipeline(
         is_generate_topology=True,
-        is_simulate=False,
+        is_simulate=True,
         is_plot_metrics=True,
         is_train_model=False,
     )
