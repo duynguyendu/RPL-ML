@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
+import math
 import os
 
 import duckdb
 import pandas as pd
+import plotly.graph_objects as go
+
+from topology_utils import build_connectivity_graph
 
 backend = "plotly"
 pd.options.plotting.backend = backend
@@ -36,21 +41,37 @@ NODE_COLORS = {
     11: "#469990",
 }
 
+GRAPH_COLORS = {
+    "etx": "#636efa",
+    "energy": "#e6194b",
+    "cpu": "#3cb44b",
+    "pdr": "#4363d8",
+    "plr": "#f58231",
+}
 
-def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=560, height=320, **plot_kwargs):
-    fig = df.plot(x=x, y=y, color=color, kind=kind)
+
+def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=None, height=None, category_x=False, **plot_kwargs):
+    fig = df.plot(x=x, y=y, kind=kind)
+    if color is not None:
+        for trace in fig.data:
+            if trace.type == "bar":
+                trace.marker.color = color
+            else:
+                trace.line.color = color
+    if category_x:
+        fig.update_xaxes(type="category")
     fig.update_layout(
-        title=dict(text=title, font=dict(size=11, family="Arial", weight="bold")),
+        title=dict(text=title, font=dict(size=14, family="Arial", weight="bold")),
         xaxis=dict(
-            title=dict(text=xlabel, font=dict(size=9)),
-            tickfont=dict(size=8),
+            title=dict(text=xlabel, font=dict(size=12)),
+            tickfont=dict(size=11),
             showgrid=True,
             gridwidth=1,
             gridcolor="rgba(128,128,128,0.3)",  # alpha=0.3 equivalent
         ),
         yaxis=dict(
-            title=dict(text=ylabel, font=dict(size=9)),
-            tickfont=dict(size=8),
+            title=dict(text=ylabel, font=dict(size=12)),
+            tickfont=dict(size=11),
             showgrid=True,
             gridwidth=1,
             gridcolor="rgba(128,128,128,0.3)",
@@ -84,6 +105,7 @@ def plot_etx(data, out_dir, dpi):
             title="Average ETX by simulated time",
             xlabel="Simulated time (s)",
             ylabel="Average ETX",
+            color=GRAPH_COLORS["etx"],
         )
     )
     return figs
@@ -112,6 +134,8 @@ def plot_energy_usage(data, out_dir, dpi):
             title="Energy Usage after simulation",
             xlabel="Node ID",
             ylabel="Energy Usage (mAh)",
+            category_x=True,
+            color=GRAPH_COLORS["energy"],
         )
     )
     print("  Add energy_comp")
@@ -136,6 +160,8 @@ def plot_energy_usage(data, out_dir, dpi):
             title="CPU usage through the simulation",
             xlabel="Node ID",
             ylabel="CPU Usage (%)",
+            category_x=True,
+            color=GRAPH_COLORS["cpu"],
         )
     )
     print("  Saved cpu_usage")
@@ -166,6 +192,8 @@ def plot_packet_delivery(data, out_dir, dpi):
             title="Packet Delivery Ratio",
             xlabel="Node ID",
             ylabel="Delivery Ratio",
+            category_x=True,
+            color=GRAPH_COLORS["pdr"],
         )
     )
     print("  Saved packet_delivery")
@@ -179,10 +207,283 @@ def plot_packet_delivery(data, out_dir, dpi):
             title="Packet Loss Ratio",
             xlabel="Node ID",
             ylabel="Loss Ratio",
+            category_x=True,
+            color=GRAPH_COLORS["plr"],
         )
     )
     print("  Saved packet_loss")
     return figs
+
+
+def plot_topology(df_dir, out_dir):
+    path = os.path.join(df_dir, "topology.json")
+    if not os.path.exists(path):
+        print(f"  Warning: {path} not found, skipping topology plot")
+        return []
+    with open(path) as fh:
+        topo = json.load(fh)
+
+    radio = topo.get("radio", {})
+    tx_range = radio.get("tx_range", 0)
+    interference_range = radio.get("interference_range", 0)
+    motes = topo.get("motes", [])
+
+    server = [m for m in motes if str(m.get("role", "")).lower() == "server"]
+    clients = [m for m in motes if str(m.get("role", "")).lower() != "server"]
+    if not server:
+        print(f"  Warning: no server in {path}, skipping topology plot")
+        return []
+
+    sx, sy = float(server[0]["x"]), float(server[0]["y"])
+
+    pad = max(tx_range, interference_range) * 1.05
+    all_x = [float(m["x"]) for m in motes]
+    all_y = [float(m["y"]) for m in motes]
+    cx_axis, cy_axis = (min(all_x) + max(all_x)) / 2, (min(all_y) + max(all_y)) / 2
+    half_span = max(max(all_x) - min(all_x), max(all_y) - min(all_y)) / 2 + pad
+    x_axis = [cx_axis - half_span, cx_axis + half_span]
+    y_axis = [cy_axis - half_span, cy_axis + half_span]
+
+    adjacency = build_connectivity_graph(motes, tx_range)
+    positions = {int(m["id"]): (float(m["x"]), float(m["y"])) for m in motes}
+    nodes_data = {
+        str(mid): {
+            "x": positions[mid][0],
+            "y": positions[mid][1],
+            "n": sorted(adjacency.get(mid, [])),
+        }
+        for mid in positions
+    }
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[],
+            y=[],
+            mode="lines",
+            line=dict(color=GRAPH_COLORS["plr"], width=2.5),
+            hoverinfo="skip",
+            visible=False,
+            showlegend=False,
+            name="Neighbor Links",
+        )
+    )
+
+    angles = [2 * math.pi * i / 48 for i in range(49)]
+    circ_x = [math.cos(a) for a in angles]
+    circ_y = [math.sin(a) for a in angles]
+    fig.add_trace(
+        go.Scatter(
+            x=[],
+            y=[],
+            mode="lines",
+            line=dict(color=GRAPH_COLORS["cpu"], width=1.5),
+            hoverinfo="skip",
+            visible=False,
+            showlegend=False,
+            name="TX Range",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[],
+            y=[],
+            mode="lines",
+            line=dict(color=GRAPH_COLORS["plr"], width=1.5, dash="dash"),
+            hoverinfo="skip",
+            visible=False,
+            showlegend=False,
+            name="Interference Range",
+        )
+    )
+
+    node_hover = (
+        "Node %{customdata[0]} (%{customdata[1]})<br>"
+        "Position: (%{x:.1f}, %{y:.1f})<br>"
+        f"TX range: {tx_range} m<br>"
+        f"Interference range: {interference_range} m"
+        "<extra></extra>"
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[sx],
+            y=[sy],
+            mode="markers+text",
+            marker=dict(symbol="star", size=16, color=GRAPH_COLORS["energy"]),
+            text=[f"{int(server[0]['id'])}"],
+            textposition="top center",
+            customdata=[[int(server[0]["id"]), "server"]],
+            hovertemplate=node_hover,
+            name="Server",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[float(m["x"]) for m in clients],
+            y=[float(m["y"]) for m in clients],
+            mode="markers+text",
+            marker=dict(symbol="circle", size=9, color=GRAPH_COLORS["etx"]),
+            text=[f"{int(m['id'])}" for m in clients],
+            textposition="top center",
+            customdata=[[int(m["id"]), m.get("role", "client")] for m in clients],
+            hovertemplate=node_hover,
+            name="Clients",
+        )
+    )
+
+    edge_script = (
+        "(function() {\n"
+        "  var gd = document.getElementById('topology_plot');\n"
+        "  if (!gd) return;\n"
+        "  var nodes = %s;\n"
+        "  var TX_RANGE = %s, INT_RANGE = %s;\n"
+        "  var CIRC_X = %s, CIRC_Y = %s;\n"
+        "  var EDGE_IDX = 0, TX_CIRCLE_IDX = 1, INT_CIRCLE_IDX = 2;\n"
+        "  var SERVER_IDX = 3, CLIENTS_IDX = 4;\n"
+        "  var current = null;\n"
+        "  var busy = false;\n"
+        "  var pending = null;\n"
+        "  var pendingHide = false;\n"
+        "  gd.style.position = 'relative';\n"
+        "  var tip = document.createElement('div');\n"
+        "  tip.style.cssText = 'position:absolute;top:8px;display:none;' +\n"
+        "    'background:rgba(255,255,255,0.97);border:1px solid #b0b7c3;' +\n"
+        "    'border-radius:4px;padding:6px 10px;font-family:Arial;font-size:11px;' +\n"
+        "    'color:#2a3f5f;box-shadow:0 2px 6px rgba(0,0,0,0.25);' +\n"
+        "    'pointer-events:none;z-index:10;white-space:pre-line;max-width:280px;';\n"
+        "  gd.appendChild(tip);\n"
+        "  var st = document.createElement('style');\n"
+        "  st.textContent = '#topology_plot .hoverlayer { visibility: hidden; }';\n"
+        "  document.head.appendChild(st);\n"
+        "  function positionTip() {\n"
+        "    if (!gd._fullLayout || !gd._fullLayout._size) return;\n"
+        "    var sz = gd._fullLayout._size;\n"
+        "    var w = tip.offsetWidth || 120;\n"
+        "    tip.style.left = (sz.l + sz.w - w - 8) + 'px';\n"
+        "    tip.style.top = (sz.t + 8) + 'px';\n"
+        "  }\n"
+        "  function showTip(html) {\n"
+        "    tip.innerHTML = html;\n"
+        "    tip.style.display = 'block';\n"
+        "    positionTip();\n"
+        "  }\n"
+        "  function hideTip() { tip.style.display = 'none'; }\n"
+        "  function segs(id) {\n"
+        "    var node = nodes[id];\n"
+        "    if (!node) return {x: [], y: []};\n"
+        "    var xs = [], ys = [];\n"
+        "    for (var i = 0; i < node.n.length; i++) {\n"
+        "      var nb = nodes[node.n[i]];\n"
+        "      xs.push(node.x, nb.x, null);\n"
+        "      ys.push(node.y, nb.y, null);\n"
+        "    }\n"
+        "    return {x: xs, y: ys};\n"
+        "  }\n"
+        "  function circleXY(cx, cy, r) {\n"
+        "    var xs = [], ys = [];\n"
+        "    for (var i = 0; i < CIRC_X.length; i++) {\n"
+        "      xs.push(cx + CIRC_X[i] * r);\n"
+        "      ys.push(cy + CIRC_Y[i] * r);\n"
+        "    }\n"
+        "    return {x: xs, y: ys};\n"
+        "  }\n"
+        "  function showEdges(id) {\n"
+        "    var node = nodes[id];\n"
+        "    var s = segs(id);\n"
+        "    var tx = circleXY(node.x, node.y, TX_RANGE);\n"
+        "    var it = circleXY(node.x, node.y, INT_RANGE);\n"
+        "    busy = true;\n"
+        "    Plotly.restyle(gd, {\n"
+        "      x: [s.x, tx.x, it.x],\n"
+        "      y: [s.y, tx.y, it.y],\n"
+        "      visible: [true, true, true]\n"
+        "    }, [EDGE_IDX, TX_CIRCLE_IDX, INT_CIRCLE_IDX]).then(done, done);\n"
+        "  }\n"
+        "  function hideEdges() {\n"
+        "    busy = true;\n"
+        "    Plotly.restyle(gd, {\n"
+        "      visible: [false, false, false]\n"
+        "    }, [EDGE_IDX, TX_CIRCLE_IDX, INT_CIRCLE_IDX]).then(done, done);\n"
+        "  }\n"
+        "  function done() {\n"
+        "    busy = false;\n"
+        "    if (pending !== null) {\n"
+        "      var id = pending;\n"
+        "      pending = null;\n"
+        "      pendingHide = false;\n"
+        "      if (id === current) return;\n"
+        "      current = id;\n"
+        "      showEdges(id);\n"
+        "    } else if (pendingHide) {\n"
+        "      pendingHide = false;\n"
+        "      if (current === null) return;\n"
+        "      current = null;\n"
+        "      hideEdges();\n"
+        "    }\n"
+        "  }\n"
+        "  gd.on('plotly_hover', function(e) {\n"
+        "    var pt = e.points[0];\n"
+        "    if (!pt) return;\n"
+        "    if (pt.curveNumber === SERVER_IDX || pt.curveNumber === CLIENTS_IDX) {\n"
+        "      var id = String(pt.customdata[0]);\n"
+        "      showTip('Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
+        "        'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
+        "        'TX range: ' + TX_RANGE + ' m<br>' +\n"
+        "        'Interference range: ' + INT_RANGE + ' m');\n"
+        "      if (busy) {\n"
+        "        pending = id;\n"
+        "        pendingHide = false;\n"
+        "        return;\n"
+        "      }\n"
+        "      if (id === current) return;\n"
+        "      current = id;\n"
+        "      showEdges(id);\n"
+        "    }\n"
+        "  });\n"
+        "  gd.on('plotly_unhover', function() {\n"
+        "    hideTip();\n"
+        "    if (busy) {\n"
+        "      pending = null;\n"
+        "      pendingHide = true;\n"
+        "      return;\n"
+        "    }\n"
+        "    if (current === null) return;\n"
+        "    current = null;\n"
+        "    hideEdges();\n"
+        "  });\n"
+        "})();"
+    ) % (
+        json.dumps(nodes_data),
+        tx_range,
+        interference_range,
+        json.dumps(circ_x),
+        json.dumps(circ_y),
+    )
+
+    fig.update_layout(
+        title=dict(text="Network Topology", font=dict(size=14, family="Arial", weight="bold")),
+        xaxis=dict(
+            title=dict(text="X (m)", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+            range=x_axis,
+        ),
+        yaxis=dict(
+            title=dict(text="Y (m)", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+            range=y_axis,
+            scaleanchor="x",
+            scaleratio=1,
+        ),
+    )
+    fig._topology_post_script = edge_script
+    print("  Add topology")
+    return [fig]
 
 
 def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
@@ -191,6 +492,7 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = []
+    figs.extend(plot_topology(df_dir, output_dir))
     figs.extend(plot_etx(data, output_dir, dpi))
     # plot average energy usage by hop_count
     #   Group the number of tx and rx by hop count and time_s
@@ -200,7 +502,14 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     figs.extend(plot_packet_delivery(data, output_dir, dpi))
 
     with open(f"{output_dir}/dashboard.html", "w") as f:
-        f.write(figs[0].to_html(full_html=True, include_plotlyjs="cdn"))
+        f.write(
+            figs[0].to_html(
+                full_html=True,
+                include_plotlyjs="cdn",
+                div_id="topology_plot",
+                post_script=getattr(figs[0], "_topology_post_script", None),
+            )
+        )
         for fig in figs[1:]:
             f.write(fig.to_html(full_html=False, include_plotlyjs=False))
     print("\nDone.")
