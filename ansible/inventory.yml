@@ -1,0 +1,17 @@
+# ---
+# all:
+#   children:
+#     gateway:
+#       hosts:
+#         10.9.2.50:
+#           ansible_user: root
+#           ansible_ssh_private_key_file: ~/.ssh/homeserver
+#
+#     internal:
+#       hosts:
+#         <internal-hostname>:          # replace with the internal machine's name/IP
+#           ansible_user: root
+#           ansible_ssh_private_key_file: ~/.ssh/homeserver
+#           ansible_ssh_common_args: >-
+#             -o ProxyJump=root@10.9.2.50
+#             -o StrictHostKeyChecking=no

@@ -128,7 +128,6 @@ PROCESS_THREAD(metrics_process, ev, data) {
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&metrics_timer));
 
-    // metrics_print_dodag();
     energest_flush();
     unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
     unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
@@ -153,9 +152,11 @@ PROCESS_THREAD(metrics_process, ev, data) {
       etx_frac = etx % 100;
     }
 
+
     printf(METRICS_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total,
            energy_comp_mA, hop_count, etx_int, etx_frac);
 
+    metrics_print_dodag();
     etimer_reset(&metrics_timer);
   }
 

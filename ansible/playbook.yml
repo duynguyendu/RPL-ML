@@ -1,0 +1,60 @@
+---
+- name: Deploy RPL-TinyML and run pipeline
+  hosts: all
+  gather_facts: false
+
+  vars:
+    deploy_path: /opt/RPL-TinyML
+    src_root: "{{ playbook_dir }}/../"
+    local_runs_dir: "{{ playbook_dir }}/../simulation_logs"
+
+  tasks:
+    - name: Ensure rsync is installed on the target
+      ansible.builtin.raw: >
+        command -v rsync >/dev/null 2>&1 ||
+        (apt-get update && apt-get install -y rsync)
+      changed_when: false
+
+    - name: Deploy repository to server
+      ansible.posix.synchronize:
+        src: "{{ src_root }}"
+        dest: "{{ deploy_path }}"
+        delete: true
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=venv"
+          - "--exclude=.cache"
+          - "--exclude=simulation_logs"
+          - "--exclude=ansible"
+
+    - name: Create virtualenv and install dependencies
+      ansible.builtin.pip:
+        requirements: "{{ deploy_path }}/requirements.txt"
+        virtualenv: "{{ deploy_path }}/venv"
+        virtualenv_command: python3 -m venv
+
+    - name: Remove previous run results
+      ansible.builtin.file:
+        path: "{{ deploy_path }}/scripts/runs"
+        state: absent
+
+    - name: Run the RPL-TinyML pipeline
+      ansible.builtin.shell:
+        cmd: "{{ deploy_path }}/venv/bin/python pipeline.py"
+        chdir: "{{ deploy_path }}/scripts"
+      register: pipeline_out
+
+    - name: Generate unique run id
+      ansible.builtin.set_fact:
+        run_id: "{{ '%Y%m%d-%H%M%S' | strftime }}-{{ range(1000, 9999) | random }}"
+
+    - name: Pull simulation runs back to control node
+      ansible.posix.synchronize:
+        src: "{{ deploy_path }}/scripts/runs/"
+        dest: "{{ local_runs_dir }}/{{ run_id }}"
+        mode: pull
+      delegate_to: localhost
+
+    - name: Report where the run results were saved
+      ansible.builtin.debug:
+        msg: "Run results saved to {{ local_runs_dir }}/{{ run_id }}"

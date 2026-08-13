@@ -2,9 +2,15 @@ import sys
 from ast import literal_eval
 from pathlib import Path
 
+# pipeline config
+is_generate_topology = (True,)
+is_simulate = (True,)
+is_plot_metrics = (True,)
+is_train_model = (False,)
+
 # topology config
 spacing = 40
-topo_type = "tree"
+topo_type = "random"
 num_of_nodes = 60
 success_tx = 0.9
 success_rx = 0.9
