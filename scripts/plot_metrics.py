@@ -6,6 +6,10 @@ import os
 import duckdb
 import pandas as pd
 
+backend = "plotly"
+pd.options.plotting.backend = backend
+extension = "html" if backend == "plotly" else "png"
+
 
 def load_data(in_dir):
     data = {}
@@ -33,21 +37,33 @@ NODE_COLORS = {
 }
 
 
-def plot_and_save(df, x, y, kind, title, xlabel, ylabel, path, **plot_kwargs):
-    ax = df.plot(x=x, y=y, kind=kind, legend=True, **plot_kwargs)
-
-    ax.set_title(title, fontsize=11, fontweight="bold")
-    ax.set_xlabel(xlabel, fontsize=9)
-    ax.set_ylabel(ylabel, fontsize=9)
-    ax.tick_params(labelsize=8)
-    ax.set_axisbelow(True)
-    ax.grid(True, alpha=0.3)
-
-    ax.get_figure().savefig(path, dpi=150, bbox_inches="tight")
+def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=560, height=320, **plot_kwargs):
+    fig = df.plot(x=x, y=y, color=color, kind=kind)
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=11, family="Arial", weight="bold")),
+        xaxis=dict(
+            title=dict(text=xlabel, font=dict(size=9)),
+            tickfont=dict(size=8),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",  # alpha=0.3 equivalent
+        ),
+        yaxis=dict(
+            title=dict(text=ylabel, font=dict(size=9)),
+            tickfont=dict(size=8),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        width=width,
+        height=height,
+    )
+    return fig
 
 
 def plot_etx(data, out_dir, dpi):
     df = data["metrics"]
+    figs = []
     df = duckdb.sql(
         """
         SELECT time_s, AVG(etx) as avg_etx
@@ -58,22 +74,24 @@ def plot_etx(data, out_dir, dpi):
         """
     ).df()
 
-    plot_and_save(
-        df,
-        x="time_s",
-        y="avg_etx",
-        kind="line",
-        title="Average ETX by simulated time",
-        xlabel="Simulated time (s)",
-        ylabel="Average ETX",
-        path=f"{out_dir}/average_etx.png",
-        figsize=(10, 5),
+    print("  Add etx plots")
+    figs.append(
+        get_fig(
+            df,
+            x="time_s",
+            y="avg_etx",
+            kind="line",
+            title="Average ETX by simulated time",
+            xlabel="Simulated time (s)",
+            ylabel="Average ETX",
+        )
     )
-    print("  Saved average_etx.png")
+    return figs
 
 
 def plot_energy_usage(data, out_dir, dpi):
     df = data["metrics"]
+    figs = []
     result_df = duckdb.sql(
         """
         SELECT df.node_id, energy_comp
@@ -85,18 +103,18 @@ def plot_energy_usage(data, out_dir, dpi):
         """
     ).df()
 
-    plot_and_save(
-        result_df,
-        x="node_id",
-        y="energy_comp",
-        kind="bar",
-        title="Energy Usage after simulation",
-        xlabel="Node ID",
-        ylabel="Energy Usage (mAh)",
-        path=f"{out_dir}/energy_comp.png",
-        figsize=(10, 5),
+    figs.append(
+        get_fig(
+            result_df,
+            x="node_id",
+            y="energy_comp",
+            kind="bar",
+            title="Energy Usage after simulation",
+            xlabel="Node ID",
+            ylabel="Energy Usage (mAh)",
+        )
     )
-    print("  Saved energy_comp.png")
+    print("  Add energy_comp")
 
     result_df = duckdb.sql(
         """
@@ -109,22 +127,24 @@ def plot_energy_usage(data, out_dir, dpi):
         """
     ).df()
 
-    plot_and_save(
-        result_df,
-        x="node_id",
-        y="cpu_usage",
-        kind="bar",
-        title="CPU usage through the simulation",
-        xlabel="Node ID",
-        ylabel="CPU Usage (%)",
-        path=f"{out_dir}/cpu_usage.png",
-        figsize=(10, 5),
+    figs.append(
+        get_fig(
+            result_df,
+            x="node_id",
+            y="cpu_usage",
+            kind="bar",
+            title="CPU usage through the simulation",
+            xlabel="Node ID",
+            ylabel="CPU Usage (%)",
+        )
     )
-    print("  Saved cpu_usage.png")
+    print("  Saved cpu_usage")
+    return figs
 
 
 def plot_packet_delivery(data, out_dir, dpi):
     df = data["latency"]
+    figs = []
     df = duckdb.sql(
         """
         SELECT node_id, rx/tx as pdr, 1 - rx/tx as plr
@@ -137,31 +157,32 @@ def plot_packet_delivery(data, out_dir, dpi):
         """
     ).df()
 
-    plot_and_save(
-        df,
-        x="node_id",
-        y="pdr",
-        kind="bar",
-        title="Packet Delivery Ratio",
-        xlabel="Node ID",
-        ylabel="Delivery Ratio",
-        path=f"{out_dir}/packet_delivery.png",
-        figsize=(10, 5),
+    figs.append(
+        get_fig(
+            df,
+            x="node_id",
+            y="pdr",
+            kind="bar",
+            title="Packet Delivery Ratio",
+            xlabel="Node ID",
+            ylabel="Delivery Ratio",
+        )
     )
-    print("  Saved packet_delivery.png")
+    print("  Saved packet_delivery")
 
-    plot_and_save(
-        df,
-        x="node_id",
-        y="plr",
-        kind="bar",
-        title="Packet Loss Ratio",
-        xlabel="Node ID",
-        ylabel="Loss Ratio",
-        path=f"{out_dir}/packet_loss.png",
-        figsize=(10, 5),
+    figs.append(
+        get_fig(
+            df,
+            x="node_id",
+            y="plr",
+            kind="bar",
+            title="Packet Loss Ratio",
+            xlabel="Node ID",
+            ylabel="Loss Ratio",
+        )
     )
-    print("  Saved packet_loss.png")
+    print("  Saved packet_loss")
+    return figs
 
 
 def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
@@ -169,12 +190,19 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
-    plot_etx(data, output_dir, dpi)
+    figs = []
+    figs.extend(plot_etx(data, output_dir, dpi))
     # plot average energy usage by hop_count
+    #   Group the number of tx and rx by hop count and time_s
     # plot average energy usage by children count
-    plot_energy_usage(data, output_dir, dpi)
     # Plot packet delivery ratio by hop_count
-    plot_packet_delivery(data, output_dir, dpi)
+    figs.extend(plot_energy_usage(data, output_dir, dpi))
+    figs.extend(plot_packet_delivery(data, output_dir, dpi))
+
+    with open(f"{output_dir}/dashboard.html", "w") as f:
+        f.write(figs[0].to_html(full_html=True, include_plotlyjs="cdn"))
+        for fig in figs[1:]:
+            f.write(fig.to_html(full_html=False, include_plotlyjs=False))
     print("\nDone.")
 
 

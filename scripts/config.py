@@ -5,20 +5,21 @@ from pathlib import Path
 # topology config
 spacing = 40
 topo_type = "tree"
-num_of_nodes = 30
+num_of_nodes = 60
 success_tx = 0.9
 success_rx = 0.9
 interference_range = 60
 tx_range = 50
+side_length = 600  # For random topology
 
 # csc config
 gather_metrics = 1
 platform = "z1"
-send_rate = 10
+send_rate = 30
 buffer_size = 8
 ramp_up_duration = 120
-duration = 900
-with_dao_ack = 0
+duration = 3600
+with_dao_ack = 1
 
 # output dir
 base_output_dir = Path("runs").resolve()

@@ -66,17 +66,18 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   static uint32_t tx_count;
 
   PROCESS_BEGIN();
-#if GATHER_METRICS
-  metrics_start();
-#endif
 
   /* Initialize UDP connection */
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT,
                       udp_rx_callback);
 
-  // Wait 60s to form DODAG first
+  // Wait till DODAG stablise
   etimer_set(&periodic_timer, RAMP_UP_DURATION * CLOCK_SECOND);
   PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+
+#if GATHER_METRICS
+  metrics_start();
+#endif
 
   etimer_set(&periodic_timer, (random_rand() % SEND_RATE) * CLOCK_SECOND);
   while (1) {
@@ -95,7 +96,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
     simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
     tx_count++;
 
-    // TODO: add a bit of jitter
+    // TODO: add 20% of jitter
     etimer_set(&periodic_timer, SEND_TICK);
   }
 

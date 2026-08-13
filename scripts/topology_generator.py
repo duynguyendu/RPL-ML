@@ -15,7 +15,9 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
+
 from topology_utils import assert_connected
+import config
 
 
 @dataclass
@@ -217,6 +219,44 @@ def sparse_grid_positions(
     )
 
 
+def random_positions(
+    num_clients: int,
+    spacing: float,
+    seed: int | None = None,
+    tx_range: float = 50.0,
+    max_attempts: int = 6000,
+) -> List[Tuple[float, float]]:
+    if seed is not None:
+        random.seed(seed)
+
+    upper_x, upper_y = tx_range, tx_range
+    lower_x, lower_y = -tx_range, 0
+    positions = [(0, 0)]
+
+    spacing_sqr = spacing**2
+    tx_range_sqr = tx_range**2
+    for i in range(num_clients):
+        for _ in range(max_attempts):
+            x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
+            if all(
+                (x - x0) ** 2 + (y - y0) ** 2 >= spacing_sqr for (x0, y0) in positions
+            ) and any(
+                (x - x0) ** 2 + (y - y0) ** 2 <= tx_range_sqr for (x0, y0) in positions
+            ):
+                positions.append((x, y))
+                upper_x = max(upper_x, x + tx_range)
+                lower_x = min(lower_x, x - tx_range)
+                upper_y = max(upper_y, y + tx_range)
+                break
+        else:
+            raise RuntimeError(
+                f"Failed to generate connected sparse grid topology after {max_attempts} attempts"
+            )
+
+    if _is_connected(positions, tx_range=tx_range):
+        return positions[1:]
+
+
 def scatter_positions(
     num_clients: int,
     tx_range: float,
@@ -228,6 +268,7 @@ def scatter_positions(
     max_point_attempts: int = 300,
     max_restarts: int = 60,
 ) -> List[Tuple[float, float]]:
+    # TODO: need a better way to generate this
     min_dist = tx_range * min_dist_ratio
     side = sparsity * max(
         2.2 * min_dist, area_scale * min_dist * math.sqrt(max(1, num_clients))
@@ -366,6 +407,14 @@ def build_topology(
             grid_spacing=spacing,
             seed=seed,
             max_attempts=sparse_max_attempts,
+            tx_range=radio.tx_range,
+        )
+    elif topo_type == "random":
+        pts = random_positions(
+            num_clients,
+            spacing=spacing,
+            seed=seed,
+            max_attempts=6000,
             tx_range=radio.tx_range,
         )
     elif topo_type == "scatter":
