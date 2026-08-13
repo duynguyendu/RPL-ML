@@ -280,35 +280,81 @@ def plot_energy_usage(metrics, out_dir, dpi):
     energy = metrics["energy"]
     figs = []
 
-    figs.append(
-        get_fig(
-            energy["energy"],
-            x="node_id",
-            y="energy_comp",
-            kind="bar",
-            title="Energy Usage after simulation",
-            xlabel="Node ID",
-            ylabel="Energy Usage (mAh)",
-            category_x=True,
-            color="#8ecae6",
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=energy["energy"]["node_id"],
+            y=energy["energy"]["energy_comp"],
+            name="Energy Usage (mAh)",
+            marker_color="#8ecae6",
+            hovertemplate="Node %{x}<br>Energy: %{y:.3f} mAh<extra></extra>",
         )
     )
-    print("  Add energy_comp")
-
-    figs.append(
-        get_fig(
-            energy["cpu"],
-            x="node_id",
-            y="cpu_usage",
-            kind="bar",
-            title="CPU usage through the simulation",
-            xlabel="Node ID",
-            ylabel="CPU Usage (%)",
-            category_x=True,
-            color=GRAPH_COLORS["cpu"],
+    fig.add_trace(
+        go.Bar(
+            x=energy["cpu"]["node_id"],
+            y=energy["cpu"]["cpu_usage"],
+            name="CPU Usage (%)",
+            marker_color=GRAPH_COLORS["cpu"],
+            hovertemplate="Node %{x}<br>CPU: %{y:.1f}%<extra></extra>",
+            visible=False,
         )
     )
-    print("  Saved cpu_usage")
+    fig.update_layout(
+        title=dict(text="Energy Usage after simulation", font=dict(size=14, family="Arial", weight="bold")),
+        xaxis=dict(
+            type="category",
+            title=dict(text="Node ID", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        yaxis=dict(
+            title=dict(text="Energy Usage (mAh)", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                showactive=True,
+                x=0.5,
+                y=1.18,
+                xanchor="center",
+                yanchor="top",
+                buttons=[
+                    dict(
+                        label="Energy Usage (mAh)",
+                        method="update",
+                        args=[
+                            {"visible": [True, False]},
+                            {
+                                "yaxis": {"title": {"text": "Energy Usage (mAh)"}},
+                                "title": {"text": "Energy Usage after simulation"},
+                            },
+                        ],
+                    ),
+                    dict(
+                        label="CPU Usage (%)",
+                        method="update",
+                        args=[
+                            {"visible": [False, True]},
+                            {
+                                "yaxis": {"title": {"text": "CPU Usage (%)"}},
+                                "title": {"text": "CPU usage through the simulation"},
+                            },
+                        ],
+                    ),
+                ],
+            )
+        ],
+    )
+    figs.append(fig)
+    print("  Add energy_comp / cpu_usage")
     return figs
 
 
@@ -334,72 +380,42 @@ def plot_energy_by_hop(metrics, out_dir, dpi):
     return figs
 
 
-def plot_energy_usage_by_hop(metrics, out_dir, dpi):
-    df = metrics["energy_usage_by_hop"]
+def plot_by_hop(metrics, out_dir, dpi):
     figs = []
-    if df.empty:
+    specs = [
+        ("energy_usage_by_hop", "energy_comp", "Energy Usage (mAh)", "#b8860b"),
+        ("cpu_usage_by_hop", "cpu_usage", "CPU Usage (%)", "#e6194b"),
+        ("latency_by_hop", "avg_latency", "One-way Latency (s)", "#636efa"),
+    ]
+    traces = []
+    labels = []
+    for key, ycol, label, color in specs:
+        df = metrics[key]
+        if df.empty:
+            continue
+        labels.append(label)
+        traces.append(
+            go.Box(
+                x=df["hop_count"].astype(str),
+                y=df[ycol],
+                name=label,
+                marker_color=color,
+                line_color=color,
+                boxmean=True,
+                visible=False,
+            )
+        )
+    if not traces:
         return figs
-    fig = get_fig(
-        df,
-        x="hop_count",
-        y="energy_comp",
-        kind="box",
-        title="Energy Usage by Hop Count",
-        xlabel="Hop Count",
-        ylabel="Energy Usage (mAh)",
-        category_x=True,
-        color="#b8860b",
+
+    latency_df = metrics["latency_by_hop"]
+    outlier_rows = (
+        _box_outliers(latency_df, "hop_count", "avg_latency")
+        if not latency_df.empty
+        else pd.DataFrame()
     )
-    for trace in fig.data:
-        trace.boxmean = True
-    figs.append(fig)
-    print("  Add energy_usage_by_hop")
-    return figs
-
-
-def plot_cpu_usage_by_hop(metrics, out_dir, dpi):
-    df = metrics["cpu_usage_by_hop"]
-    figs = []
-    if df.empty:
-        return figs
-    fig = get_fig(
-        df,
-        x="hop_count",
-        y="cpu_usage",
-        kind="box",
-        title="CPU Usage by Hop Count",
-        xlabel="Hop Count",
-        ylabel="CPU Usage (%)",
-        category_x=True,
-        color="#e6194b",
-    )
-    for trace in fig.data:
-        trace.boxmean = True
-    figs.append(fig)
-    print("  Add cpu_usage_by_hop")
-    return figs
-
-
-def plot_latency_by_hop(metrics, out_dir, dpi):
-    df = metrics["latency_by_hop"]
-    figs = []
-    if df.empty:
-        return figs
-    fig = get_fig(
-        df,
-        x="hop_count",
-        y="avg_latency",
-        kind="box",
-        title="Latency by Hop Count",
-        xlabel="Hop Count",
-        ylabel="One-way Latency (s)",
-        category_x=True,
-    )
-    for trace in fig.data:
-        trace.boxmean = True
-    outlier_rows = _box_outliers(df, "hop_count", "avg_latency")
     if not outlier_rows.empty:
-        fig.add_trace(
+        traces.append(
             go.Scatter(
                 x=[str(row.hop_count) for row in outlier_rows.itertuples()],
                 y=[row.avg_latency for row in outlier_rows.itertuples()],
@@ -408,10 +424,61 @@ def plot_latency_by_hop(metrics, out_dir, dpi):
                 textposition="top center",
                 textfont=dict(size=10, color="black"),
                 hoverinfo="skip",
+                visible=False,
             )
         )
+
+    n_box = len(labels)
+    n_traces = len(traces)
+    traces[0].visible = True
+    fig = go.Figure(data=traces)
+    buttons = []
+    for i, label in enumerate(labels):
+        vis = [False] * n_traces
+        vis[i] = True
+        buttons.append(
+            dict(
+                label=label,
+                method="update",
+                args=[
+                    {"visible": vis},
+                    {"yaxis": {"title": {"text": label}}},
+                ],
+            )
+        )
+    fig.update_layout(
+        title=dict(text="Metrics by Hop Count", font=dict(size=14, family="Arial", weight="bold")),
+        xaxis=dict(
+            type="category",
+            title=dict(text="Hop Count", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        yaxis=dict(
+            title=dict(text=labels[0], font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        showlegend=False,
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                showactive=True,
+                x=0.5,
+                y=1.18,
+                xanchor="center",
+                yanchor="top",
+                buttons=buttons,
+            )
+        ],
+    )
     figs.append(fig)
-    print("  Add latency_by_hop")
+    print("  Add metrics_by_hop")
     return figs
 
 
@@ -431,36 +498,72 @@ def _box_outliers(df, group, value):
 def plot_packet_delivery(metrics, out_dir, dpi):
     df = metrics["pdr"]
     figs = []
+    if df.empty:
+        return figs
 
-    figs.append(
-        get_fig(
-            df,
-            x="node_id",
-            y="pdr",
-            kind="bar",
-            title="Packet Delivery Ratio",
-            xlabel="Node ID",
-            ylabel="Delivery Ratio",
-            category_x=True,
-            color=GRAPH_COLORS["pdr"],
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=df["node_id"],
+            y=df["pdr"],
+            name="PDR",
+            marker_color=GRAPH_COLORS["pdr"],
+            hovertemplate="Node %{x}<br>PDR: %{y:.2f}<extra></extra>",
         )
     )
-    print("  Saved packet_delivery")
-
-    figs.append(
-        get_fig(
-            df,
-            x="node_id",
-            y="plr",
-            kind="bar",
-            title="Packet Loss Ratio",
-            xlabel="Node ID",
-            ylabel="Loss Ratio",
-            category_x=True,
-            color=GRAPH_COLORS["plr"],
+    fig.add_trace(
+        go.Bar(
+            x=df["node_id"],
+            y=df["plr"],
+            name="PLR",
+            marker_color=GRAPH_COLORS["plr"],
+            hovertemplate="Node %{x}<br>PLR: %{y:.2f}<extra></extra>",
+            visible=False,
         )
     )
-    print("  Saved packet_loss")
+    fig.update_layout(
+        title=dict(text="Packet Delivery / Loss Ratio", font=dict(size=14, family="Arial", weight="bold")),
+        xaxis=dict(
+            type="category",
+            title=dict(text="Node ID", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        yaxis=dict(
+            title=dict(text="Ratio", font=dict(size=12)),
+            tickfont=dict(size=11),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.3)",
+        ),
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                showactive=True,
+                x=0.5,
+                y=1.18,
+                xanchor="center",
+                yanchor="top",
+                buttons=[
+                    dict(
+                        label="PDR",
+                        method="restyle",
+                        args=[{"visible": [True, False]}],
+                    ),
+                    dict(
+                        label="PLR",
+                        method="restyle",
+                        args=[{"visible": [False, True]}],
+                    ),
+                ],
+            )
+        ],
+    )
+    figs.append(fig)
+    print("  Saved packet_delivery / packet_loss")
     return figs
 
 
@@ -944,9 +1047,7 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     figs.extend(plot_etx(metrics, output_dir, dpi))
     figs.extend(plot_energy_usage(metrics, output_dir, dpi))
     figs.extend(plot_energy_by_hop(metrics, output_dir, dpi))
-    figs.extend(plot_energy_usage_by_hop(metrics, output_dir, dpi))
-    figs.extend(plot_cpu_usage_by_hop(metrics, output_dir, dpi))
-    figs.extend(plot_latency_by_hop(metrics, output_dir, dpi))
+    figs.extend(plot_by_hop(metrics, output_dir, dpi))
     # plot average energy usage by children count (including all children of children)
     # Plot packet delivery ratio by hop_count
     figs.extend(plot_packet_delivery(metrics, output_dir, dpi))

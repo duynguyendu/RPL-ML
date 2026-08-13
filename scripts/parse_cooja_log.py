@@ -100,7 +100,7 @@ def process_log(log_path):
                         "rx_ticks": int(metrics.group(5)),
                         "off_ticks": int(metrics.group(6)),
                         "total_ticks": int(metrics.group(7)),
-                        "energy_comp": int(metrics.group(8)),
+                        "energy_comp": int(metrics.group(8)) / 3600,
                         "hop_count": int(metrics.group(9)),
                         "etx": float(metrics.group(10)),
                     }
