@@ -16,7 +16,7 @@ RE_DODAG_LOG = re.compile(
 )
 RE_DODAG_NOT_JOIN = re.compile(r"^DODAG:\s+not joined")
 RE_DODAG_PARENT = re.compile(
-    r"^\[WARN: RPL       \] found parent: ([0-9a-f:]+), staying in DAG"
+    r"^\[INFO: RPL       \] parent switch: ([0-9a-f:]+|\(NULL IP addr\)) -> ([0-9a-f:]+)"
 )
 
 # ENERGEST
@@ -59,7 +59,7 @@ def process_log(log_path):
 
             dag_parent = RE_DODAG_PARENT.match(content)
             if dag_parent:
-                node_id_from_log = int(dag_parent.group(1).split(":")[5], 16)
+                node_id_from_log = int(dag_parent.group(2).split(":")[5], 16)
                 rows_dodag.append(
                     {
                         "time_s": time_s,

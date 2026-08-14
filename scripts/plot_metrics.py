@@ -258,7 +258,7 @@ def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None, width=None, heigh
     return fig
 
 
-def plot_etx(metrics, out_dir, dpi):
+def plot_etx(metrics, dpi):
     df = metrics["etx"]
     figs = []
 
@@ -278,7 +278,7 @@ def plot_etx(metrics, out_dir, dpi):
     return figs
 
 
-def plot_energy_usage(metrics, out_dir, dpi):
+def plot_energy_usage(metrics, dpi):
     energy = metrics["energy"]
     figs = []
 
@@ -360,7 +360,7 @@ def plot_energy_usage(metrics, out_dir, dpi):
     return figs
 
 
-def plot_energy_by_hop(metrics, out_dir, dpi):
+def plot_energy_by_hop(metrics, dpi):
     df = metrics["energy_by_hop"]
     figs = []
     if df.empty:
@@ -382,7 +382,7 @@ def plot_energy_by_hop(metrics, out_dir, dpi):
     return figs
 
 
-def plot_by_hop(metrics, out_dir, dpi):
+def plot_by_hop(metrics, dpi):
     figs = []
     specs = [
         ("energy_usage_by_hop", "energy_comp", "Energy Usage (mAh)", "#b8860b"),
@@ -496,7 +496,7 @@ def _box_outliers(df, group, value):
     return pd.concat(outliers)
 
 
-def plot_packet_delivery(metrics, out_dir, dpi):
+def plot_packet_delivery(metrics, dpi):
     df = metrics["pdr"]
     figs = []
     if df.empty:
@@ -568,13 +568,24 @@ def plot_packet_delivery(metrics, out_dir, dpi):
     return figs
 
 
-def plot_topology(df_dir, out_dir, metrics):
+def plot_topology(df_dir, metrics):
     path = os.path.join(df_dir, "topology.json")
     if not os.path.exists(path):
         print(f"  Warning: {path} not found, skipping topology plot")
         return []
     with open(path) as fh:
         topo = json.load(fh)
+
+    dodag_path = os.path.join(df_dir, "dodag.csv")
+    parent_of = {}
+    if os.path.exists(dodag_path):
+        dodag = pd.read_csv(dodag_path)
+        if not dodag.empty and {"node_id", "parent_id"}.issubset(dodag.columns):
+            dodag = dodag.sort_values("time_s")
+            parent_of = {
+                int(row.node_id): int(row.parent_id)
+                for row in dodag.drop_duplicates("node_id", keep="last").itertuples()
+            }
 
     pdr_df = metrics["pdr"]
     has_pdr = not pdr_df.empty
@@ -761,6 +772,29 @@ def plot_topology(df_dir, out_dir, metrics):
             name="Clients",
         )
     )
+
+    for mid, pid in parent_of.items():
+        if mid not in positions or pid not in positions:
+            continue
+        cx, cy = positions[mid]
+        px, py = positions[pid]
+        fig.add_annotation(
+            x=px,
+            y=py,
+            ax=cx,
+            ay=cy,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1.2,
+            arrowwidth=1.5,
+            arrowcolor="rgba(60,60,60,0.7)",
+            standoff=9,
+            startstandoff=9,
+        )
 
     edge_script = (
         "(function() {\n"
@@ -1058,14 +1092,14 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = []
-    figs.extend(plot_topology(df_dir, output_dir, metrics))
-    figs.extend(plot_etx(metrics, output_dir, dpi))
-    figs.extend(plot_energy_usage(metrics, output_dir, dpi))
-    figs.extend(plot_energy_by_hop(metrics, output_dir, dpi))
-    figs.extend(plot_by_hop(metrics, output_dir, dpi))
+    figs.extend(plot_topology(df_dir, metrics))
+    figs.extend(plot_etx(metrics, dpi))
+    figs.extend(plot_energy_usage(metrics, dpi))
+    figs.extend(plot_energy_by_hop(metrics, dpi))
+    figs.extend(plot_by_hop(metrics, dpi))
     # plot average energy usage by children count (including all children of children)
     # Plot packet delivery ratio by hop_count
-    figs.extend(plot_packet_delivery(metrics, output_dir, dpi))
+    figs.extend(plot_packet_delivery(metrics, dpi))
 
     html_config = {"toImageButtonOptions": {"format": "png", "scale": 8}}
 
