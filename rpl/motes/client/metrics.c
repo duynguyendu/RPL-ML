@@ -50,7 +50,7 @@
 
 #define METRICS_LOG                                                            \
   "ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu "                         \
-  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%lumA HOP_COUNT=%d "            \
+  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%lumA HOP_COUNT=%u "            \
   "ETX=%u.%02u\n"
 
 #define LATENCY_LOG                                                            \
@@ -59,7 +59,7 @@
 
 static unsigned long prev_cpu_tick = 0;
 static clock_time_t prev_tick;
-int hop_count = 0;
+int hop_count = -1;
 
 PROCESS(metrics_process, "Metrics process");
 

@@ -61,7 +61,7 @@ static void udp_rx_callback(struct simple_udp_connection *c,
 
 PROCESS_THREAD(udp_client_process, ev, data) {
   static struct etimer periodic_timer;
-  static char str[32];
+  static char str[PACKET_SIZE];
   uip_ipaddr_t dest_ipaddr;
   static uint32_t tx_count;
 
@@ -93,7 +93,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
     send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
 #endif
 
-    simple_udp_sendto(&udp_conn, str, strlen(str), &dest_ipaddr);
+    simple_udp_sendto(&udp_conn, str, PACKET_SIZE, &dest_ipaddr);
     tx_count++;
 
     // TODO: add 20% of jitter

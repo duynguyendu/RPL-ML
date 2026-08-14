@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
@@ -16,6 +15,9 @@ RE_DODAG_LOG = re.compile(
     r"preferred_parent=([0-9a-f:]+|none)"
 )
 RE_DODAG_NOT_JOIN = re.compile(r"^DODAG:\s+not joined")
+RE_DODAG_PARENT = re.compile(
+    r"^\[WARN: RPL       \] found parent: ([0-9a-f:]+), staying in DAG"
+)
 
 # ENERGEST
 RE_METRICS_LOG = re.compile(
@@ -41,7 +43,7 @@ def process_log(log_path):
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     rows_metrics = []
-    rows_etx, rows_dodag = [], []
+    rows_dodag = []
     rows_client_send = []
 
     with open(log_path) as fh:
@@ -55,40 +57,52 @@ def process_log(log_path):
             time_s = (int(m.group(1))) / 1_000_000.0
             normalise_time_s = normalise_time(time_s)
 
-            dm = RE_DODAG_LOG.match(content)
-            if dm:
+            dag_parent = RE_DODAG_PARENT.match(content)
+            if dag_parent:
+                node_id_from_log = int(dag_parent.group(1).split(":")[5], 16)
                 rows_dodag.append(
                     {
-                        "time_s": normalise_time_s,
+                        "time_s": time_s,
                         "node_id": node_id,
-                        "instance": int(dm.group(1)),
-                        "version": int(dm.group(2)),
-                        "rank": int(dm.group(3)),
-                        "grounded": int(dm.group(4)),
-                        "role": dm.group(5),
-                        "dag_id": dm.group(6),
-                        "preferred_parent": dm.group(7),
+                        "parent_id": node_id_from_log,
                     }
                 )
-                continue
-            if RE_DODAG_NOT_JOIN.match(content):
-                rows_dodag.append(
-                    {
-                        "time_s": normalise_time_s,
-                        "node_id": node_id,
-                        "instance": np.nan,
-                        "version": np.nan,
-                        "rank": 65535,
-                        "grounded": np.nan,
-                        "role": np.nan,
-                        "dag_id": np.nan,
-                        "preferred_parent": np.nan,
-                    }
-                )
-                continue
+
+            # dm = RE_DODAG_LOG.match(content)
+            # if dm:
+            #     rows_dodag.append(
+            #         {
+            #             "time_s": normalise_time_s,
+            #             "node_id": node_id,
+            #             "instance": int(dm.group(1)),
+            #             "version": int(dm.group(2)),
+            #             "rank": int(dm.group(3)),
+            #             "grounded": int(dm.group(4)),
+            #             "role": dm.group(5),
+            #             "dag_id": dm.group(6),
+            #             "preferred_parent": dm.group(7),
+            #         }
+            #     )
+            #     continue
+            # if RE_DODAG_NOT_JOIN.match(content):
+            #     rows_dodag.append(
+            #         {
+            #             "time_s": normalise_time_s,
+            #             "node_id": node_id,
+            #             "instance": np.nan,
+            #             "version": np.nan,
+            #             "rank": 65535,
+            #             "grounded": np.nan,
+            #             "role": np.nan,
+            #             "dag_id": np.nan,
+            #             "preferred_parent": np.nan,
+            #         }
+            #     )
+            #     continue
 
             metrics = RE_METRICS_LOG.match(content)
             if metrics:
+                hop_count = int(metrics.group(9))
                 rows_metrics.append(
                     {
                         "time_s": normalise_time_s,
@@ -101,7 +115,7 @@ def process_log(log_path):
                         "off_ticks": int(metrics.group(6)),
                         "total_ticks": int(metrics.group(7)),
                         "energy_comp": int(metrics.group(8)) / 3600,
-                        "hop_count": int(metrics.group(9)),
+                        "hop_count": hop_count,
                         "etx": float(metrics.group(10)),
                     }
                 )
@@ -159,8 +173,7 @@ def process_log(log_path):
                 continue
 
     return {
-        "etx": _df(rows_etx),
-        # "dodag": _df(rows_dodag),
+        "dodag": _df(rows_dodag),
         "metrics": _df(rows_metrics),
         "latency": _df(rows_client_send),
     }

@@ -100,6 +100,7 @@ def compute_energy_by_hop(data):
                    energy_comp - LAG(energy_comp)
                        OVER (PARTITION BY node_id ORDER BY time_s) AS energy_delta
             FROM df
+            WHERE hop_count <> 65535
         )
         SELECT time_s, hop_count, AVG(energy_delta) AS avg_energy
         FROM deltas
@@ -117,7 +118,7 @@ def compute_energy_usage_by_hop(data):
     return duckdb.sql(
         """
         WITH latest AS (
-            SELECT node_id, MAX(time_s) AS t FROM df GROUP BY node_id
+            SELECT node_id, MAX(time_s) AS t FROM df WHERE hop_count <> 65535 GROUP BY node_id
         )
         SELECT df.node_id, df.hop_count, df.energy_comp
         FROM df JOIN latest ON df.node_id = latest.node_id AND df.time_s = latest.t
@@ -133,7 +134,7 @@ def compute_cpu_usage_by_hop(data):
     return duckdb.sql(
         """
         WITH latest AS (
-            SELECT node_id, MAX(time_s) AS t FROM df GROUP BY node_id
+            SELECT node_id, MAX(time_s) AS t FROM df WHERE hop_count <> 65535 GROUP BY node_id
         )
         SELECT df.node_id, df.hop_count,
                (df.cpu_ticks / df.total_ticks) * 100 AS cpu_usage
@@ -160,6 +161,7 @@ def compute_latency_by_hop(data):
         FROM delivered d
         ASOF JOIN m
             ON d.node_id = m.node_id AND m.time_s >= d.send_time
+        WHERE m.hop_count <> 65535
         GROUP BY d.node_id, m.hop_count
         ORDER BY m.hop_count, d.node_id
         """
@@ -428,7 +430,6 @@ def plot_by_hop(metrics, out_dir, dpi):
             )
         )
 
-    n_box = len(labels)
     n_traces = len(traces)
     traces[0].visible = True
     fig = go.Figure(data=traces)
@@ -743,7 +744,7 @@ def plot_topology(df_dir, out_dir, metrics):
                 size=14,
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
                 colorscale=PDR_COLORSCALE,
-                cmin=0.0,
+                cmin=0.75,
                 cmax=1.0,
                 line=dict(width=1, color="black"),
                 showscale=has_pdr,
@@ -973,7 +974,7 @@ def plot_topology(df_dir, out_dir, metrics):
                         args=[
                             {
                                 "marker.color": [clients_pdr],
-                                "marker.cmin": [0.0],
+                                "marker.cmin": [0.75],
                                 "marker.cmax": [1.0],
                                 "marker.colorscale": [PDR_COLORSCALE],
                                 "marker.colorbar.title.text": ["PDR"],
@@ -1036,10 +1037,24 @@ def plot_topology(df_dir, out_dir, metrics):
     return [fig]
 
 
+def save_metrics_csv(metrics, out_dir):
+    out_dir = os.path.join(out_dir, "aggregate_metrics")
+    os.makedirs(out_dir, exist_ok=True)
+    for key, value in metrics.items():
+        if isinstance(value, dict):
+            for subkey, df in value.items():
+                df.to_csv(os.path.join(out_dir, f"{subkey}.csv"), index=False)
+                print(f"  Saved {subkey}.csv")
+        elif isinstance(value, pd.DataFrame):
+            value.to_csv(os.path.join(out_dir, f"{key}.csv"), index=False)
+            print(f"  Saved {key}.csv")
+
+
 def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     data = load_data(df_dir)
     metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
+    save_metrics_csv(metrics, output_dir)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = []
@@ -1052,6 +1067,8 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     # Plot packet delivery ratio by hop_count
     figs.extend(plot_packet_delivery(metrics, output_dir, dpi))
 
+    html_config = {"toImageButtonOptions": {"format": "png", "scale": 8}}
+
     with open(f"{output_dir}/dashboard.html", "w") as f:
         f.write(
             figs[0].to_html(
@@ -1059,10 +1076,17 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
                 include_plotlyjs="cdn",
                 div_id="topology_plot",
                 post_script=getattr(figs[0], "_topology_post_script", None),
+                config=html_config,
             )
         )
         for fig in figs[1:]:
-            f.write(fig.to_html(full_html=False, include_plotlyjs=False))
+            f.write(
+                fig.to_html(
+                    full_html=False,
+                    include_plotlyjs=False,
+                    config=html_config,
+                )
+            )
     print("\nDone.")
 
 

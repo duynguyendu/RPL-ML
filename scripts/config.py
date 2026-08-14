@@ -23,9 +23,10 @@ gather_metrics = 1
 platform = "z1"
 send_rate = 30
 buffer_size = 8
-ramp_up_duration = 120
+ramp_up_duration = 300
 duration = 3600
 with_dao_ack = 1
+packet_size = 32
 
 # output dir
 base_output_dir = Path("runs").resolve()
