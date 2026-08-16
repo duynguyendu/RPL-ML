@@ -39,6 +39,15 @@ def _join_interfaces(interfaces: List[str]) -> str:
     )
 
 
+def convert_rpl_of_to_int(rpl_of):
+    if rpl_of == "of0":
+        return 0
+    elif rpl_of == "mhrof":
+        return 1
+    # default to mhrof
+    return 1
+
+
 def make_header(
     title: str,
     seed: int,
@@ -48,7 +57,7 @@ def make_header(
     # Original repository root that contains src/ and Makefile
     target = platform_spec.target
 
-    parameters = f"TARGET={target} BUFFER_SIZE={config.buffer_size} SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size}"
+    parameters = f"TARGET={target} BUFFER_SIZE={config.buffer_size} SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)}"
 
     server_cmd = f"$(MAKE) -C {platform_spec.server_base_dir()} -j$(CPUS) {platform_spec.server_binary_name()} {parameters}"
     client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} GATHER_METRICS={config.gather_metrics}"

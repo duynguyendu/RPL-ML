@@ -28,7 +28,7 @@ RE_METRICS_LOG = re.compile(
 RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+) rtt_ms=(\d+)")
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
-RE_CLIENT_RECEIVE = re.compile(r"Received response '(\d+)' from")
+RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
 
 METRIC_PERIOD = 10
@@ -67,38 +67,6 @@ def process_log(log_path):
                         "parent_id": node_id_from_log,
                     }
                 )
-
-            # dm = RE_DODAG_LOG.match(content)
-            # if dm:
-            #     rows_dodag.append(
-            #         {
-            #             "time_s": normalise_time_s,
-            #             "node_id": node_id,
-            #             "instance": int(dm.group(1)),
-            #             "version": int(dm.group(2)),
-            #             "rank": int(dm.group(3)),
-            #             "grounded": int(dm.group(4)),
-            #             "role": dm.group(5),
-            #             "dag_id": dm.group(6),
-            #             "preferred_parent": dm.group(7),
-            #         }
-            #     )
-            #     continue
-            # if RE_DODAG_NOT_JOIN.match(content):
-            #     rows_dodag.append(
-            #         {
-            #             "time_s": normalise_time_s,
-            #             "node_id": node_id,
-            #             "instance": np.nan,
-            #             "version": np.nan,
-            #             "rank": 65535,
-            #             "grounded": np.nan,
-            #             "role": np.nan,
-            #             "dag_id": np.nan,
-            #             "preferred_parent": np.nan,
-            #         }
-            #     )
-            #     continue
 
             metrics = RE_METRICS_LOG.match(content)
             if metrics:
@@ -163,13 +131,14 @@ def process_log(log_path):
 
             client_receive = RE_CLIENT_RECEIVE.match(content)
             if client_receive:
-                seqno = int(client_receive.group(1))
+                seqno = int(client_receive.group(2))
                 row = [
                     item
                     for item in rows_client_send
                     if item["node_id"] == node_id and item["seqno"] == seqno
                 ][0]
                 row["client_receive_time"] = time_s
+                row["hop_count"] = int(client_receive.group(1))
                 continue
 
     return {

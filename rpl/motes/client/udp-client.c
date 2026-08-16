@@ -28,10 +28,10 @@
 #define MAX_PENDING 20
 
 static struct simple_udp_connection udp_conn;
+int hop_count = -1;
 
 #if GATHER_METRICS
 static clock_time_t send_times[MAX_PENDING];
-extern int hop_count;
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -45,7 +45,8 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t receiver_port, const uint8_t *data,
                             uint16_t datalen) {
 
-  printf("Received response '%.*s' from ", datalen, (char *)data);
+  hop_count = get_hop_count(UIP_TTL);
+  printf("HOP_COUNT=%u Received response '%.*s' from ", hop_count, datalen, (char *)data);
   LOG_INFO_6ADDR(sender_addr);
   printf("\n");
 
@@ -54,8 +55,6 @@ static void udp_rx_callback(struct simple_udp_connection *c,
   // Extract seqno from the response data
   uint32_t seqno = atoi((char *)data);
   metrics_log_latency(seqno, received_tick, send_times[seqno % MAX_PENDING]);
-
-  hop_count = get_hop_count(UIP_TTL);
 #endif
 }
 

@@ -59,7 +59,7 @@
 
 static unsigned long prev_cpu_tick = 0;
 static clock_time_t prev_tick;
-int hop_count = -1;
+extern int hop_count;
 
 PROCESS(metrics_process, "Metrics process");
 
