@@ -1,8 +1,10 @@
+#include "../proj-logging-conf.h"
+
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 
-#define LOG_CONF_LEVEL_RPL LOG_LEVEL_INFO
-#define LOG_CONF_LEVEL_MAC LOG_LEVEL_WARN
+#define TSCH_LOG_CONF_PER_SLOT 0
+
 #define NETSTACK_MAX_ROUTE_ENTRIES 60
 #define RPL_CONF_OF_OCP RPL_OF
 

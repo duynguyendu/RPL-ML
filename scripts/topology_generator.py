@@ -232,15 +232,15 @@ def random_positions(
     lower_x, lower_y = -tx_range, -tx_range / 4
     positions = [(0, 0)]
 
-    spacing_sqr = (tx_range * 0.7) ** 2
-    tx_range_sqr = (tx_range * 0.90) ** 2
+    min_spacing_sqr = (tx_range * 0.6) ** 2
+    max_spacing_sqr = (tx_range * 0.85) ** 2
     for i in range(num_clients):
         for _ in range(max_attempts):
             x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
             if all(
-                (x - x0) ** 2 + (y - y0) ** 2 >= spacing_sqr for (x0, y0) in positions
+                (x - x0) ** 2 + (y - y0) ** 2 >= min_spacing_sqr for (x0, y0) in positions
             ) and any(
-                (x - x0) ** 2 + (y - y0) ** 2 <= tx_range_sqr for (x0, y0) in positions
+                (x - x0) ** 2 + (y - y0) ** 2 <= max_spacing_sqr for (x0, y0) in positions
             ):
                 positions.append((x, y))
                 upper_x = max(upper_x, x + tx_range)

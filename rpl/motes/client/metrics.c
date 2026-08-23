@@ -32,14 +32,14 @@
 
 #define METRICS_PERIOD 10 * CLOCK_SECOND
 
-#define MULTIPLIER 10
+#define VOLTAGE 3
 // These numbers are from
 // https://github.com/YerevaNN/Cooja-Automation-ML/blob/main/case_study_rpl/firmware/battery_client.c
-#define CPU_CURRENT_MA 1.8 * MULTIPLIER
-#define LPM_CURRENT_MA 0.0545 * MULTIPLIER
-#define DEEP_LPM_CURRENT_MA 0.0135 * MULTIPLIER
-#define RADIO_LISTEN_CURRENT_MA 20.0 * MULTIPLIER
-#define RADIO_TRANSMIT_CURRENT_MA 17.4 * MULTIPLIER
+#define CPU_CURRENT_MA 1.8 * VOLTAGE
+#define LPM_CURRENT_MA 0.0545 * VOLTAGE
+#define DEEP_LPM_CURRENT_MA 0.0135 * VOLTAGE
+#define RADIO_LISTEN_CURRENT_MA 20.0 * VOLTAGE
+#define RADIO_TRANSMIT_CURRENT_MA 17.4 * VOLTAGE
 
 /// -------------------- METRICS LOG -----------------------------------
 
@@ -50,7 +50,7 @@
 
 #define METRICS_LOG                                                            \
   "ENERGEST: CPU=%lu LPM=%lu DEEP_LPM=%lu LISTEN=%lu "                         \
-  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%lumA HOP_COUNT=%u "            \
+  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%lumicroA HOP_COUNT=%u "         \
   "ETX=%u.%02u\n"
 
 #define LATENCY_LOG                                                            \
@@ -143,7 +143,7 @@ PROCESS_THREAD(metrics_process, ev, data) {
          deep_lpm * DEEP_LPM_CURRENT_MA + listen * RADIO_LISTEN_CURRENT_MA +
          transmit * RADIO_TRANSMIT_CURRENT_MA) /
         ENERGEST_SECOND;
-    unsigned long energy_comp_mA = (unsigned long)energy_comp;
+    unsigned long energy_comp_microA = (unsigned long)(energy_comp * 1000);
 
     unsigned etx = get_etx();
     unsigned etx_int = -1, etx_frac = 0;
@@ -152,9 +152,8 @@ PROCESS_THREAD(metrics_process, ev, data) {
       etx_frac = etx % 100;
     }
 
-
     printf(METRICS_LOG, cpu, lpm, deep_lpm, listen, transmit, off, total,
-           energy_comp_mA, hop_count, etx_int, etx_frac);
+           energy_comp_microA, hop_count, etx_int, etx_frac);
 
     metrics_print_dodag();
     etimer_reset(&metrics_timer);

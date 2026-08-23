@@ -751,7 +751,7 @@ def plot_topology(df_dir, metrics):
                 size=14,
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
                 colorscale=PDR_COLORSCALE,
-                cmin=0.75,
+                cmin=0.0,
                 cmax=1.0,
                 line=dict(width=1, color="black"),
                 showscale=has_pdr,

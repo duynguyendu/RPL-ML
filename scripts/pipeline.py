@@ -10,7 +10,7 @@ from topology_generator import generate_topology
 
 def pipeline() -> None:
     etx = round(1 / (config.success_tx * config.success_rx), 2)
-    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx}_int_range{config.interference_range}_{config.topo_type}"
+    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx}_int_range{config.interference_range}_{config.topo_type}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
@@ -50,7 +50,7 @@ def pipeline() -> None:
         parse_log(log_dir=output_dir, output_dir=output_dir)
         plot_metrics(df_dir=output_dir, output_dir=output_dir, dpi=150)
 
-    print(f"The run results are saved in {run_id}")
+    print(f"{run_id}")
     # if is_train_model:
     #     train_model()
 
