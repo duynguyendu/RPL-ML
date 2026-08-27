@@ -273,6 +273,7 @@ def plot_etx(metrics, dpi):
 
 
 def plot_energy_usage(metrics, dpi):
+    # TODO: include a hard number for average energy usage of all
     energy = metrics["energy"]
     figs = []
 
@@ -1132,7 +1133,7 @@ def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = []
     figs.extend(plot_topology(df_dir, metrics))
-    figs.extend(plot_etx(metrics, dpi))
+    # figs.extend(plot_etx(metrics, dpi))
     figs.extend(plot_energy_usage(metrics, dpi))
     figs.extend(plot_energy_by_hop(metrics, dpi))
     figs.extend(plot_by_hop(metrics, dpi))

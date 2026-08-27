@@ -27,7 +27,6 @@ ramp_up_duration = 120
 duration = 3600
 with_dao_ack = 1
 packet_size = 64
-# rpl_of = "of0"
 rpl_of = "mhrof"
 
 # output dir

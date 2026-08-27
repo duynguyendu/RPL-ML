@@ -9,23 +9,17 @@ import pandas as pd
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 
 # DODAG
-RE_DODAG_LOG = re.compile(
-    r"^DODAG:\s+instance=(\d+)\s+version=(\d+)\s+rank=(\d+)\s+"
-    r"grounded=(\d+)\s+role=(\w+)\s+dag_id=([0-9a-f:]+)\s+"
-    r"preferred_parent=([0-9a-f:]+|none)"
-)
-RE_DODAG_NOT_JOIN = re.compile(r"^DODAG:\s+not joined")
 RE_DODAG_PARENT = re.compile(
-    r"^\[INFO: RPL       \] parent switch: ([0-9a-f:]+|\(NULL IP addr\)) -> ([0-9a-f:]+)"
+    r"^\[WARN: RPL       \] parent switch: ([0-9a-f:]+|\(NULL IP addr\)) -> ([0-9a-f:]+)"
 )
 
 # ENERGEST
 RE_METRICS_LOG = re.compile(
-    r"^ENERGEST: CPU=(\d+) LPM=(\d+) DEEP_LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) ENERGY_COMP=(\d+)microA HOP_COUNT=(\d+) ETX=(\d+\.\d{2})"
+    r"^ENERGEST: CPU=(\d+) LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) ENERGY_COMP=(\d+)uA HOP_COUNT=(\d+) ETX=(\d+\.\d{2})"
 )
 
 # LATENCY
-RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+) rtt_ms=(\d+)")
+RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+)")
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
@@ -70,21 +64,19 @@ def process_log(log_path):
 
             metrics = RE_METRICS_LOG.match(content)
             if metrics:
-                hop_count = int(metrics.group(9))
                 rows_metrics.append(
                     {
                         "time_s": normalise_time_s,
                         "node_id": node_id,
                         "cpu_ticks": int(metrics.group(1)),
                         "lpm_ticks": int(metrics.group(2)),
-                        "deep_lpm_ticks": int(metrics.group(3)),
-                        "tx_ticks": int(metrics.group(4)),
-                        "rx_ticks": int(metrics.group(5)),
-                        "off_ticks": int(metrics.group(6)),
-                        "total_ticks": int(metrics.group(7)),
-                        "energy_comp": int(metrics.group(8)) / 1000.0 / 3600.0,
-                        "hop_count": hop_count,
-                        "etx": float(metrics.group(10)),
+                        "tx_ticks": int(metrics.group(3)),
+                        "rx_ticks": int(metrics.group(4)),
+                        "off_ticks": int(metrics.group(5)),
+                        "total_ticks": int(metrics.group(6)),
+                        "energy_comp": int(metrics.group(7)) / 1000.0 / 3600.0,
+                        "hop_count": int(metrics.group(8)),
+                        "etx": float(metrics.group(9)),
                     }
                 )
                 continue
@@ -98,7 +90,6 @@ def process_log(log_path):
                         "client_receive_time": 0,
                         "node_id": node_id,
                         "seqno": int(client_send.group(1)),
-                        "rtt_ms": 0,
                         "rtt_ticks": 0,
                     }
                 )
@@ -113,7 +104,6 @@ def process_log(log_path):
                     if item["node_id"] == node_id and item["seqno"] == seqno
                 ][0]
                 row["rtt_ticks"] = int(latency.group(2))
-                row["rtt_ms"] = int(latency.group(3))
                 continue
 
             server_receive = RE_SERVER_RECEIVE.match(content)

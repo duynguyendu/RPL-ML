@@ -14,8 +14,6 @@
 
 void metrics_start(void);
 
-void metrics_print_dodag(void);
-
 int get_hop_count(uint8_t initial_ttl);
 
 // Per-packet metrics

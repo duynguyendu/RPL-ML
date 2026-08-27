@@ -31,6 +31,7 @@ static struct simple_udp_connection udp_conn;
 int hop_count = -1;
 
 #if GATHER_METRICS
+#include "net/packetbuf.h"
 static clock_time_t send_times[MAX_PENDING];
 #endif
 
@@ -46,11 +47,15 @@ static void udp_rx_callback(struct simple_udp_connection *c,
                             uint16_t datalen) {
 
   hop_count = get_hop_count(UIP_TTL);
-  printf("HOP_COUNT=%u Received response '%.*s' from ", hop_count, datalen, (char *)data);
+  printf("HOP_COUNT=%u Received response '%.*s' from ", hop_count, datalen,
+         (char *)data);
   LOG_INFO_6ADDR(sender_addr);
   printf("\n");
 
 #if GATHER_METRICS
+  int16_t rssi = (int16_t)packetbuf_attr(PACKETBUF_ATTR_RSSI);
+  printf("RSSI: %d dBm\n", rssi);
+
   uint32_t received_tick = metrics_get_timestamp();
   // Extract seqno from the response data
   uint32_t seqno = atoi((char *)data);
