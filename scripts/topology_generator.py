@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 from topology_utils import assert_connected
-import config
 
 
 @dataclass

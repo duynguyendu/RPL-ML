@@ -31,7 +31,6 @@ static struct simple_udp_connection udp_conn;
 int hop_count = -1;
 
 #if GATHER_METRICS
-#include "net/packetbuf.h"
 static clock_time_t send_times[MAX_PENDING];
 #endif
 
@@ -53,9 +52,6 @@ static void udp_rx_callback(struct simple_udp_connection *c,
   printf("\n");
 
 #if GATHER_METRICS
-  int16_t rssi = (int16_t)packetbuf_attr(PACKETBUF_ATTR_RSSI);
-  printf("RSSI: %d dBm\n", rssi);
-
   uint32_t received_tick = metrics_get_timestamp();
   // Extract seqno from the response data
   uint32_t seqno = atoi((char *)data);
@@ -100,8 +96,10 @@ PROCESS_THREAD(udp_client_process, ev, data) {
     simple_udp_sendto(&udp_conn, str, PACKET_SIZE, &dest_ipaddr);
     tx_count++;
 
-    // TODO: add 20% of jitter
-    etimer_set(&periodic_timer, SEND_TICK);
+    // 20% jitter
+    clock_time_t jitter_range = SEND_TICK / 5;
+    etimer_set(&periodic_timer, (SEND_TICK - jitter_range +
+                                 (random_rand() % (2 * jitter_range + 1))));
   }
 
   PROCESS_END();

@@ -752,8 +752,6 @@ def plot_topology(df_dir, metrics):
                 size=14,
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
                 colorscale=PDR_COLORSCALE,
-                cmin=0.0,
-                cmax=1.0,
                 line=dict(width=1, color="black"),
                 showscale=has_pdr,
                 colorbar=dict(
@@ -969,6 +967,7 @@ def plot_topology(df_dir, metrics):
         return min(finite), max(finite)
 
     energy_cmax = _finite_bounds(clients_energy)[1]
+    pdr_cmin, pdr_cmax = _finite_bounds(clients_pdr, 0.0, 10.0)
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
     real_latency = [v for v in clients_latency if not math.isnan(v)]
     latency_cmax = max(real_latency) if real_latency else 1.0
@@ -1024,8 +1023,8 @@ def plot_topology(df_dir, metrics):
                 args=[
                     {
                         "marker.color": [clients_pdr],
-                        "marker.cmin": [0.75],
-                        "marker.cmax": [1.0],
+                        "marker.cmin": [pdr_cmin],
+                        "marker.cmax": [pdr_cmax],
                         "marker.colorscale": [PDR_COLORSCALE],
                         "marker.colorbar.title.text": ["PDR"],
                     },

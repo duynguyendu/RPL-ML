@@ -91,6 +91,7 @@ def process_log(log_path):
                         "node_id": node_id,
                         "seqno": int(client_send.group(1)),
                         "rtt_ticks": 0,
+                        "hop_count": 65535,
                     }
                 )
                 continue
