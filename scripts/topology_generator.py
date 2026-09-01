@@ -231,7 +231,7 @@ def random_positions(
     lower_x, lower_y = -tx_range, -tx_range / 4
     positions = [(0, 0)]
 
-    min_spacing_sqr = (tx_range * 0.5) ** 2
+    min_spacing_sqr = (tx_range * 0.3) ** 2
     max_spacing_sqr = (tx_range * 0.7) ** 2
     for i in range(num_clients):
         for _ in range(max_attempts):
