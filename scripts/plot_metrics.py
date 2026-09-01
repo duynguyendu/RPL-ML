@@ -13,9 +13,9 @@ import plotly.graph_objects as go
 
 from topology_utils import build_connectivity_graph
 
-backend = "plotly"
-pd.options.plotting.backend = backend
-extension = "html" if backend == "plotly" else "png"
+pd.options.plotting.backend = "plotly"
+
+INVALID = 65535  # sentinel for "no value" in etx / hop_count columns
 
 
 def load_data(in_dir):
@@ -30,75 +30,93 @@ def load_data(in_dir):
     return data
 
 
+def _query(sql, df, columns):
+    """Run a DuckDB query that refers to the bound frame as ``df``.
+
+    Returns an empty frame with ``columns`` when ``df`` has no rows so callers
+    never have to special-case a missing input CSV.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=columns)
+    return duckdb.sql(sql).df()
+
+
 def compute_etx(data):
-    df = data["metrics"]
-    if df.empty:
-        return pd.DataFrame(columns=["time_s", "avg_etx"])
-    return duckdb.sql(
+    return _query(
         """
-        SELECT time_s, AVG(etx) as avg_etx
+        SELECT time_s, AVG(etx) AS avg_etx
         FROM df
         WHERE etx <> 65535.0
         GROUP BY time_s
         ORDER BY time_s
+        """,
+        data["metrics"],
+        ["time_s", "avg_etx"],
+    )
+
+
+def compute_latest(data):
+    """State of every node at the end of the simulation (its last metrics row)."""
+    return _query(
         """
-    ).df()
+        SELECT node_id, hop_count, energy_comp,
+               (cpu_ticks / total_ticks) * 100 AS cpu_usage
+        FROM df
+        QUALIFY row_number() OVER (PARTITION BY node_id ORDER BY time_s DESC) = 1
+        ORDER BY node_id
+        """,
+        data["metrics"],
+        ["node_id", "hop_count", "energy_comp", "cpu_usage"],
+    )
 
 
-def compute_energy(data):
-    df = data["metrics"]
-    if df.empty:
-        energy = pd.DataFrame(columns=["node_id", "energy_comp"])
-        cpu = pd.DataFrame(columns=["node_id", "cpu_usage"])
-    else:
-        energy = duckdb.sql(
-            """
-            SELECT df.node_id, energy_comp
-            FROM df
-                JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
-                ON df.node_id = nodes.node_id
-            WHERE df.time_s = nodes.latest_time
-            ORDER BY df.node_id
-            """
-        ).df()
-        cpu = duckdb.sql(
-            """
-            SELECT df.node_id, (cpu_ticks / total_ticks) * 100 as cpu_usage
-            FROM df
-                JOIN (SELECT node_id, MAX(time_s) as latest_time FROM df GROUP BY node_id) as nodes
-                ON df.node_id = nodes.node_id
-            WHERE df.time_s = nodes.latest_time
-            ORDER BY df.node_id
-            """
-        ).df()
-    return {"energy": energy, "cpu": cpu}
+def compute_energy(latest):
+    return {
+        "energy": latest[["node_id", "energy_comp"]].reset_index(drop=True),
+        "cpu": latest[["node_id", "cpu_usage"]].reset_index(drop=True),
+    }
+
+
+def _latest_by_hop(latest, value):
+    df = latest[latest["hop_count"] != INVALID]
+    return (
+        df[["node_id", "hop_count", value]]
+        .sort_values(["hop_count", "node_id"])
+        .reset_index(drop=True)
+    )
+
+
+def compute_energy_usage_by_hop(latest):
+    return _latest_by_hop(latest, "energy_comp")
+
+
+def compute_cpu_usage_by_hop(latest):
+    return _latest_by_hop(latest, "cpu_usage")
 
 
 def compute_pdr(data):
-    df = data["latency"]
-    if df.empty:
-        return pd.DataFrame(columns=["node_id", "pdr", "plr"])
-    return duckdb.sql(
+    return _query(
         """
-        SELECT node_id, rx/tx as pdr, 1 - rx/tx as plr
+        SELECT node_id, rx / tx AS pdr, 1 - rx / tx AS plr
         FROM (
-            SELECT node_id, COUNT(*) as tx, COUNT(*) FILTER (WHERE server_receive_time <> 0) as rx
+            SELECT node_id,
+                   COUNT(*) AS tx,
+                   COUNT(*) FILTER (WHERE server_receive_time <> 0) AS rx
             FROM df
             GROUP BY node_id
-            ORDER BY node_id
-            )
-        """
-    ).df()
+        )
+        ORDER BY node_id
+        """,
+        data["latency"],
+        ["node_id", "pdr", "plr"],
+    )
 
 
 def compute_energy_by_hop(data):
-    df = data["metrics"]
-    if df.empty:
-        return pd.DataFrame(columns=["time_s", "hop_count", "avg_energy"])
-    return duckdb.sql(
+    return _query(
         """
         WITH deltas AS (
-            SELECT node_id, time_s, hop_count,
+            SELECT time_s, hop_count,
                    energy_comp - LAG(energy_comp)
                        OVER (PARTITION BY node_id ORDER BY time_s) AS energy_delta
             FROM df
@@ -109,87 +127,44 @@ def compute_energy_by_hop(data):
         WHERE energy_delta IS NOT NULL
         GROUP BY time_s, hop_count
         ORDER BY time_s, hop_count
-        """
-    ).df()
-
-
-def compute_energy_usage_by_hop(data):
-    df = data["metrics"]
-    if df.empty:
-        return pd.DataFrame(columns=["node_id", "hop_count", "energy_comp"])
-    return duckdb.sql(
-        """
-        WITH latest AS (
-            SELECT node_id, MAX(time_s) AS t FROM df WHERE hop_count <> 65535 GROUP BY node_id
-        )
-        SELECT df.node_id, df.hop_count, df.energy_comp
-        FROM df JOIN latest ON df.node_id = latest.node_id AND df.time_s = latest.t
-        ORDER BY df.hop_count, df.node_id
-        """
-    ).df()
-
-
-def compute_cpu_usage_by_hop(data):
-    df = data["metrics"]
-    if df.empty:
-        return pd.DataFrame(columns=["node_id", "hop_count", "cpu_usage"])
-    return duckdb.sql(
-        """
-        WITH latest AS (
-            SELECT node_id, MAX(time_s) AS t FROM df WHERE hop_count <> 65535 GROUP BY node_id
-        )
-        SELECT df.node_id, df.hop_count,
-               (df.cpu_ticks / df.total_ticks) * 100 AS cpu_usage
-        FROM df JOIN latest ON df.node_id = latest.node_id AND df.time_s = latest.t
-        ORDER BY df.hop_count, df.node_id
-        """
-    ).df()
+        """,
+        data["metrics"],
+        ["time_s", "hop_count", "avg_energy"],
+    )
 
 
 def compute_latency(data):
-    lat = data["latency"]
-    if lat.empty:
-        return pd.DataFrame(columns=["node_id", "hop_count", "latency"])
-    return duckdb.sql(
+    return _query(
         """
-        SELECT node_id, hop_count, (server_receive_time - client_send_time) as latency
-        FROM lat
+        SELECT node_id, hop_count, (server_receive_time - client_send_time) AS latency
+        FROM df
         WHERE hop_count <> 65535
-        """
-    ).df()
+        """,
+        data["latency"],
+        ["node_id", "hop_count", "latency"],
+    )
 
 
 def compute_metrics(data):
+    latest = compute_latest(data)
     latency = compute_latency(data)
     return {
         "etx": compute_etx(data),
-        "energy": compute_energy(data),
+        "energy": compute_energy(latest),
         "pdr": compute_pdr(data),
         "latency": latency,
-        "latency_by_hop": latency.groupby(["node_id", "hop_count"])
-        .agg(avg_latency=("latency", "mean"))
-        .sort_values(by="hop_count")
-        .reset_index(),
+        "latency_by_hop": (
+            latency.groupby(["node_id", "hop_count"])
+            .agg(avg_latency=("latency", "mean"))
+            .sort_values(by="hop_count")
+            .reset_index()
+        ),
         "latency_by_node": latency.groupby("node_id")["latency"].mean(),
         "energy_by_hop": compute_energy_by_hop(data),
-        # TODO: could optimise this by aggr on energy_by_hop instead
-        "energy_usage_by_hop": compute_energy_usage_by_hop(data),
-        "cpu_usage_by_hop": compute_cpu_usage_by_hop(data),
+        "energy_usage_by_hop": compute_energy_usage_by_hop(latest),
+        "cpu_usage_by_hop": compute_cpu_usage_by_hop(latest),
     }
 
-
-NODE_COLORS = {
-    2: "#e6194b",
-    3: "#3cb44b",
-    4: "#4363d8",
-    5: "#f58231",
-    6: "#911eb4",
-    7: "#42d4f4",
-    8: "#f032e6",
-    9: "#bfef45",
-    10: "#fabed4",
-    11: "#469990",
-}
 
 GRAPH_COLORS = {
     "etx": "#636efa",
@@ -204,20 +179,37 @@ CPU_COLORSCALE = [[0.0, "darkblue"], [1.0, "red"]]
 HOP_COLORSCALE = "Plasma"
 
 
-def get_fig(
-    df,
-    x,
-    y,
-    kind,
-    title,
-    xlabel,
-    ylabel,
-    color=None,
-    width=None,
-    height=None,
-    category_x=False,
-    **plot_kwargs,
-):
+def _title(text):
+    return dict(text=text, font=dict(size=14, family="Arial", weight="bold"))
+
+
+def _axis(label, **extra):
+    return dict(
+        title=dict(text=label, font=dict(size=12)),
+        tickfont=dict(size=11),
+        showgrid=True,
+        gridwidth=1,
+        gridcolor="rgba(128,128,128,0.3)",
+        **extra,
+    )
+
+
+def _button_menu(buttons):
+    return [
+        dict(
+            type="buttons",
+            direction="right",
+            showactive=True,
+            x=0.5,
+            y=1.18,
+            xanchor="center",
+            yanchor="top",
+            buttons=buttons,
+        )
+    ]
+
+
+def get_fig(df, x, y, kind, title, xlabel, ylabel, color=None):
     fig = df.plot(x=x, y=y, kind=kind)
     if color is not None:
         for trace in fig.data:
@@ -228,38 +220,15 @@ def get_fig(
                 trace.line.color = color
             else:
                 trace.line.color = color
-    if category_x:
-        fig.update_xaxes(type="category")
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=14, family="Arial", weight="bold")),
-        xaxis=dict(
-            title=dict(text=xlabel, font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",  # alpha=0.3 equivalent
-        ),
-        yaxis=dict(
-            title=dict(text=ylabel, font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        width=width,
-        height=height,
-    )
+    fig.update_layout(title=_title(title), xaxis=_axis(xlabel), yaxis=_axis(ylabel))
     return fig
 
 
-def plot_etx(metrics, dpi):
-    df = metrics["etx"]
-    figs = []
-
+def plot_etx(metrics):
     print("  Add etx plots")
-    figs.append(
+    return [
         get_fig(
-            df,
+            metrics["etx"],
             x="time_s",
             y="avg_etx",
             kind="line",
@@ -268,14 +237,12 @@ def plot_etx(metrics, dpi):
             ylabel="Average ETX",
             color=GRAPH_COLORS["etx"],
         )
-    )
-    return figs
+    ]
 
 
-def plot_energy_usage(metrics, dpi):
+def plot_energy_usage(metrics):
     # TODO: include a hard number for average energy usage of all
     energy = metrics["energy"]
-    figs = []
 
     fig = go.Figure()
     fig.add_trace(
@@ -298,76 +265,50 @@ def plot_energy_usage(metrics, dpi):
         )
     )
     fig.update_layout(
-        title=dict(
-            text="Energy Usage after simulation",
-            font=dict(size=14, family="Arial", weight="bold"),
+        title=_title("Energy Usage after simulation"),
+        xaxis=_axis("Node ID", type="category"),
+        yaxis=_axis("Energy Usage (mAh)"),
+        updatemenus=_button_menu(
+            [
+                dict(
+                    label="Energy Usage (mAh)",
+                    method="update",
+                    args=[
+                        {"visible": [True, False]},
+                        {
+                            "yaxis": {"title": {"text": "Energy Usage (mAh)"}},
+                            "title": {"text": "Energy Usage after simulation"},
+                        },
+                    ],
+                ),
+                dict(
+                    label="CPU Usage (%)",
+                    method="update",
+                    args=[
+                        {"visible": [False, True]},
+                        {
+                            "yaxis": {"title": {"text": "CPU Usage (%)"}},
+                            "title": {"text": "CPU usage through the simulation"},
+                        },
+                    ],
+                ),
+            ]
         ),
-        xaxis=dict(
-            type="category",
-            title=dict(text="Node ID", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        yaxis=dict(
-            title=dict(text="Energy Usage (mAh)", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                showactive=True,
-                x=0.5,
-                y=1.18,
-                xanchor="center",
-                yanchor="top",
-                buttons=[
-                    dict(
-                        label="Energy Usage (mAh)",
-                        method="update",
-                        args=[
-                            {"visible": [True, False]},
-                            {
-                                "yaxis": {"title": {"text": "Energy Usage (mAh)"}},
-                                "title": {"text": "Energy Usage after simulation"},
-                            },
-                        ],
-                    ),
-                    dict(
-                        label="CPU Usage (%)",
-                        method="update",
-                        args=[
-                            {"visible": [False, True]},
-                            {
-                                "yaxis": {"title": {"text": "CPU Usage (%)"}},
-                                "title": {"text": "CPU usage through the simulation"},
-                            },
-                        ],
-                    ),
-                ],
-            )
-        ],
     )
-    figs.append(fig)
     print("  Add energy_comp / cpu_usage")
-    return figs
+    return [fig]
 
 
-def plot_energy_by_hop(metrics, dpi):
+def plot_energy_by_hop(metrics):
     df = metrics["energy_by_hop"]
-    figs = []
     if df.empty:
-        return figs
+        return []
     pivoted = df.pivot(
         index="time_s", columns="hop_count", values="avg_energy"
     ).reset_index()
     cols = [c for c in pivoted.columns if c != "time_s"]
-    figs.append(
+    print("  Add energy_by_hop")
+    return [
         get_fig(
             pivoted,
             x="time_s",
@@ -377,20 +318,29 @@ def plot_energy_by_hop(metrics, dpi):
             xlabel="Simulated time (s)",
             ylabel="Average Energy per Interval (mAh)",
         )
-    )
-    print("  Add energy_by_hop")
-    return figs
+    ]
 
 
-def plot_by_hop(metrics, dpi):
-    figs = []
+def _box_outliers(df, group, value):
+    outliers = []
+    for _, grp in df.groupby(group):
+        q1 = grp[value].quantile(0.25)
+        q3 = grp[value].quantile(0.75)
+        iqr = q3 - q1
+        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        outliers.append(grp[(grp[value] < lo) | (grp[value] > hi)])
+    if not outliers:
+        return pd.DataFrame(columns=[group, value])
+    return pd.concat(outliers)
+
+
+def plot_by_hop(metrics):
     specs = [
         ("energy_usage_by_hop", "energy_comp", "Energy Usage (mAh)", "#b8860b"),
         ("cpu_usage_by_hop", "cpu_usage", "CPU Usage (%)", "#e6194b"),
         ("latency_by_hop", "avg_latency", "One-way Latency (s)", "#636efa"),
     ]
-    traces = []
-    labels = []
+    traces, labels = [], []
     for key, ycol, label, color in specs:
         df = metrics[key]
         if df.empty:
@@ -408,7 +358,7 @@ def plot_by_hop(metrics, dpi):
             )
         )
     if not traces:
-        return figs
+        return []
 
     latency_df = metrics["latency_by_hop"]
     outlier_rows = (
@@ -441,69 +391,24 @@ def plot_by_hop(metrics, dpi):
             dict(
                 label=label,
                 method="update",
-                args=[
-                    {"visible": vis},
-                    {"yaxis": {"title": {"text": label}}},
-                ],
+                args=[{"visible": vis}, {"yaxis": {"title": {"text": label}}}],
             )
         )
     fig.update_layout(
-        title=dict(
-            text="Metrics by Hop Count",
-            font=dict(size=14, family="Arial", weight="bold"),
-        ),
-        xaxis=dict(
-            type="category",
-            title=dict(text="Hop Count", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        yaxis=dict(
-            title=dict(text=labels[0], font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
+        title=_title("Metrics by Hop Count"),
+        xaxis=_axis("Hop Count", type="category"),
+        yaxis=_axis(labels[0]),
         showlegend=False,
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                showactive=True,
-                x=0.5,
-                y=1.18,
-                xanchor="center",
-                yanchor="top",
-                buttons=buttons,
-            )
-        ],
+        updatemenus=_button_menu(buttons),
     )
-    figs.append(fig)
     print("  Add metrics_by_hop")
-    return figs
+    return [fig]
 
 
-def _box_outliers(df, group, value):
-    outliers = []
-    for _, grp in df.groupby(group):
-        q1 = grp[value].quantile(0.25)
-        q3 = grp[value].quantile(0.75)
-        iqr = q3 - q1
-        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        outliers.append(grp[(grp[value] < lo) | (grp[value] > hi)])
-    if not outliers:
-        return pd.DataFrame(columns=[group, value])
-    return pd.concat(outliers)
-
-
-def plot_packet_delivery(metrics, dpi):
+def plot_packet_delivery(metrics):
     df = metrics["pdr"]
-    figs = []
     if df.empty:
-        return figs
+        return []
 
     fig = go.Figure()
     fig.add_trace(
@@ -526,52 +431,18 @@ def plot_packet_delivery(metrics, dpi):
         )
     )
     fig.update_layout(
-        title=dict(
-            text="Packet Delivery / Loss Ratio",
-            font=dict(size=14, family="Arial", weight="bold"),
+        title=_title("Packet Delivery / Loss Ratio"),
+        xaxis=_axis("Node ID", type="category"),
+        yaxis=_axis("Ratio"),
+        updatemenus=_button_menu(
+            [
+                dict(label="PDR", method="restyle", args=[{"visible": [True, False]}]),
+                dict(label="PLR", method="restyle", args=[{"visible": [False, True]}]),
+            ]
         ),
-        xaxis=dict(
-            type="category",
-            title=dict(text="Node ID", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        yaxis=dict(
-            title=dict(text="Ratio", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-        ),
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                showactive=True,
-                x=0.5,
-                y=1.18,
-                xanchor="center",
-                yanchor="top",
-                buttons=[
-                    dict(
-                        label="PDR",
-                        method="restyle",
-                        args=[{"visible": [True, False]}],
-                    ),
-                    dict(
-                        label="PLR",
-                        method="restyle",
-                        args=[{"visible": [False, True]}],
-                    ),
-                ],
-            )
-        ],
     )
-    figs.append(fig)
     print("  Saved packet_delivery / packet_loss")
-    return figs
+    return [fig]
 
 
 def plot_topology(df_dir, metrics):
@@ -712,17 +583,28 @@ def plot_topology(df_dir, metrics):
     cpu_by_node = {
         int(row.node_id): float(row.cpu_usage) for row in energy["cpu"].itertuples()
     }
-    clients_pdr = [pdr_by_node.get(int(m["id"]), float("nan")) for m in clients]
-    clients_energy = [energy_by_node.get(int(m["id"]), float("nan")) for m in clients]
-    clients_cpu = [cpu_by_node.get(int(m["id"]), float("nan")) for m in clients]
-    clients_latency = [latency_by_node.get(int(m["id"]), float("nan")) for m in clients]
+    def _per_client(by_node):
+        return [by_node.get(int(m["id"]), float("nan")) for m in clients]
+
+    def _finite_bounds(values, default_min=0.0, default_max=1.0):
+        finite = [v for v in values if not math.isnan(v)]
+        if not finite:
+            return default_min, default_max
+        return min(finite), max(finite)
+
+    clients_pdr = _per_client(pdr_by_node)
+    pdr_cmin, pdr_cmax = _finite_bounds(clients_pdr, 0.0, 10.0)
+    pdr_cmin = min(pdr_cmin, 0.75)
+    clients_energy = _per_client(energy_by_node)
+    clients_cpu = _per_client(cpu_by_node)
+    clients_latency = _per_client(latency_by_node)
     hop_df = metrics.get("cpu_usage_by_hop")
     hop_by_node = (
         {int(row.node_id): int(row.hop_count) for row in hop_df.itertuples()}
         if hop_df is not None and not hop_df.empty
         else {}
     )
-    clients_hop = [hop_by_node.get(int(m["id"]), float("nan")) for m in clients]
+    clients_hop = _per_client(hop_by_node)
     clients_custom = [
         [int(m["id"]), m.get("role", "client"), pdr, eng, cpu, lat, hop]
         for m, pdr, eng, cpu, lat, hop in zip(
@@ -752,6 +634,8 @@ def plot_topology(df_dir, metrics):
                 size=14,
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
                 colorscale=PDR_COLORSCALE,
+                cmin=pdr_cmin,
+                cmax=pdr_cmax,
                 line=dict(width=1, color="black"),
                 showscale=has_pdr,
                 colorbar=dict(
@@ -820,8 +704,7 @@ def plot_topology(df_dir, metrics):
         "    tip.style.display = 'block';\n"
         "    if (!gd._fullLayout || !gd._fullLayout._size) return;\n"
         "    var sz = gd._fullLayout._size;\n"
-        "    var w = tip.offsetWidth || 120;\n"
-        "    tip.style.left = (sz.l + sz.w - w - 8) + 'px';\n"
+        "    tip.style.right = (gd._fullLayout.width - sz.l - sz.w + 8) + 'px';\n"
         "    tip.style.top = (sz.t + 8) + 'px';\n"
         "  }\n"
         "  function hideTip() { tip.style.display = 'none'; }\n"
@@ -918,8 +801,9 @@ def plot_topology(df_dir, metrics):
         "    var range = document.getElementById('topo_time_slider');\n"
         "    var label = document.getElementById('topo_time_label');\n"
         "    function rebuild(idx) {\n"
-        "      var st = {};\n"
-        "      for (var k = 1; k <= idx; k++) {\n"
+        "      var fwd = idx >= stepIdx;\n"
+        "      var st = fwd ? arrowState : {};\n"
+        "      for (var k = fwd ? stepIdx + 1 : 1; k <= idx; k++) {\n"
         "        var d = PARENT_STEPS[k][1];\n"
         "        for (var j = 0; j < d.length; j++) st[d[j][0]] = d[j][1];\n"
         "      }\n"
@@ -960,18 +844,10 @@ def plot_topology(df_dir, metrics):
         json.dumps(parent_steps),
     )
 
-    def _finite_bounds(values, default_min=0.0, default_max=1.0):
-        finite = [v for v in values if not math.isnan(v)]
-        if not finite:
-            return default_min, default_max
-        return min(finite), max(finite)
-
     energy_cmax = _finite_bounds(clients_energy)[1]
-    pdr_cmin, pdr_cmax = _finite_bounds(clients_pdr, 0.0, 10.0)
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
     real_latency = [v for v in clients_latency if not math.isnan(v)]
-    latency_cmax = max(real_latency) if real_latency else 1.0
-    latency_cmin_real = min(real_latency) if real_latency else 0.0
+    latency_cmin_real, latency_cmax = _finite_bounds(clients_latency, 0.0, 1.0)
     has_missing_latency = len(real_latency) < len(clients_latency)
     if has_missing_latency or latency_cmin_real == 0.0:
         clients_latency_color = [0.0 if math.isnan(v) else v for v in clients_latency]
@@ -988,122 +864,57 @@ def plot_topology(df_dir, metrics):
         latency_colorscale = "Blues"
     real_hop = [v for v in clients_hop if not math.isnan(v)]
     has_hop = len(real_hop) == len(clients_hop) and len(real_hop) > 0
-    hop_cmin = min(real_hop) if real_hop else 0
-    hop_cmax = max(real_hop) if real_hop else 1
+    hop_cmin, hop_cmax = _finite_bounds(clients_hop, 0, 1)
     layout: dict = dict(
-        title=dict(
-            text="Network Topology", font=dict(size=14, family="Arial", weight="bold")
-        ),
+        title=_title("Network Topology"),
         dragmode="pan",
-        xaxis=dict(
-            title=dict(text="X (m)", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-            range=x_axis,
-        ),
-        yaxis=dict(
-            title=dict(text="Y (m)", font=dict(size=12)),
-            tickfont=dict(size=11),
-            showgrid=True,
-            gridwidth=1,
-            gridcolor="rgba(128,128,128,0.3)",
-            range=y_axis,
-            scaleanchor="x",
-            scaleratio=1,
-        ),
+        xaxis=_axis("X (m)", range=x_axis),
+        yaxis=_axis("Y (m)", range=y_axis, scaleanchor="x", scaleratio=1),
     )
+
+    def _color_button(label, color, cmin, cmax, scale, bar_title):
+        return dict(
+            label=label,
+            method="restyle",
+            args=[
+                {
+                    "marker.color": [color],
+                    "marker.cmin": [cmin],
+                    "marker.cmax": [cmax],
+                    "marker.colorscale": [scale],
+                    "marker.colorbar.title.text": [bar_title],
+                },
+                [4],
+            ],
+        )
+
     buttons = []
     if has_pdr:
         buttons = [
-            dict(
-                label="PDR",
-                method="restyle",
-                args=[
-                    {
-                        "marker.color": [clients_pdr],
-                        "marker.cmin": [pdr_cmin],
-                        "marker.cmax": [pdr_cmax],
-                        "marker.colorscale": [PDR_COLORSCALE],
-                        "marker.colorbar.title.text": ["PDR"],
-                    },
-                    [4],
-                ],
+            _color_button("PDR", clients_pdr, pdr_cmin, pdr_cmax, PDR_COLORSCALE, "PDR"),
+            _color_button(
+                "Energy Usage", clients_energy, 0.0, energy_cmax, "Viridis", "Energy (mAh)"
             ),
-            dict(
-                label="Energy Usage",
-                method="restyle",
-                args=[
-                    {
-                        "marker.color": [clients_energy],
-                        "marker.cmin": [0.0],
-                        "marker.cmax": [energy_cmax],
-                        "marker.colorscale": ["Viridis"],
-                        "marker.colorbar.title.text": ["Energy (mAh)"],
-                    },
-                    [4],
-                ],
+            _color_button(
+                "CPU Util", clients_cpu, cpu_cmin, cpu_cmax, CPU_COLORSCALE, "CPU Usage (%)"
             ),
-            dict(
-                label="CPU Util",
-                method="restyle",
-                args=[
-                    {
-                        "marker.color": [clients_cpu],
-                        "marker.cmin": [cpu_cmin],
-                        "marker.cmax": [cpu_cmax],
-                        "marker.colorscale": [CPU_COLORSCALE],
-                        "marker.colorbar.title.text": ["CPU Usage (%)"],
-                    },
-                    [4],
-                ],
-            ),
-            dict(
-                label="Avg Latency",
-                method="restyle",
-                args=[
-                    {
-                        "marker.color": [clients_latency_color],
-                        "marker.cmin": [latency_cmin],
-                        "marker.cmax": [latency_cmax],
-                        "marker.colorscale": [latency_colorscale],
-                        "marker.colorbar.title.text": ["Avg Latency (s)"],
-                    },
-                    [4],
-                ],
+            _color_button(
+                "Avg Latency",
+                clients_latency_color,
+                latency_cmin,
+                latency_cmax,
+                latency_colorscale,
+                "Avg Latency (s)",
             ),
         ]
     if has_hop:
         buttons.append(
-            dict(
-                label="Hop Count",
-                method="restyle",
-                args=[
-                    {
-                        "marker.color": [clients_hop],
-                        "marker.cmin": [hop_cmin],
-                        "marker.cmax": [hop_cmax],
-                        "marker.colorscale": [HOP_COLORSCALE],
-                        "marker.colorbar.title.text": ["Hop Count"],
-                    },
-                    [4],
-                ],
+            _color_button(
+                "Hop Count", clients_hop, hop_cmin, hop_cmax, HOP_COLORSCALE, "Hop Count"
             )
         )
     if buttons:
-        layout["updatemenus"] = [
-            dict(
-                type="buttons",
-                direction="right",
-                showactive=True,
-                x=0.5,
-                y=1.18,
-                xanchor="center",
-                yanchor="top",
-                buttons=buttons,
-            )
-        ]
+        layout["updatemenus"] = _button_menu(buttons)
     fig.update_layout(layout)
     fig._topology_post_script = edge_script
     print("  Add topology")
@@ -1123,22 +934,21 @@ def save_metrics_csv(metrics, out_dir):
             print(f"  Saved {key}.csv")
 
 
-def plot_metrics(df_dir: str, output_dir: str, dpi: int = 150):
+def plot_metrics(df_dir: str, output_dir: str):
     data = load_data(df_dir)
     metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
     save_metrics_csv(metrics, output_dir)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
-    figs = []
-    figs.extend(plot_topology(df_dir, metrics))
-    # figs.extend(plot_etx(metrics, dpi))
-    figs.extend(plot_energy_usage(metrics, dpi))
-    figs.extend(plot_energy_by_hop(metrics, dpi))
-    figs.extend(plot_by_hop(metrics, dpi))
-    # plot average energy usage by children count (including all children of children)
-    # Plot packet delivery ratio by hop_count
-    figs.extend(plot_packet_delivery(metrics, dpi))
+    figs = [
+        *plot_topology(df_dir, metrics),
+        # *plot_etx(metrics),
+        *plot_energy_usage(metrics),
+        *plot_energy_by_hop(metrics),
+        *plot_by_hop(metrics),
+        *plot_packet_delivery(metrics),
+    ]
 
     html_config = {"toImageButtonOptions": {"format": "png", "scale": 8}}
 
@@ -1176,7 +986,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Parse COOJA simulation logs and generate metric plots."
     )
-
     parser.add_argument(
         "--df-dir",
         default=None,
@@ -1185,9 +994,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-dir",
         default="plots",
-        help="Output directory for PNG plots (default: plots/)",
+        help="Output directory for the dashboard (default: plots/)",
     )
-    parser.add_argument("--dpi", type=int, default=150, help="Image DPI")
     args = parser.parse_args()
 
-    plot_metrics(args.df_dir, args.output_dir, args.dpi)
+    plot_metrics(args.df_dir, args.output_dir)

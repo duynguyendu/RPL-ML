@@ -228,11 +228,12 @@ def random_positions(
         random.seed(seed)
 
     upper_x, upper_y = tx_range, tx_range
-    lower_x, lower_y = -tx_range, -tx_range / 4
+    lower_x, lower_y = -tx_range, -tx_range
     positions = [(0, 0)]
 
-    min_spacing_sqr = (tx_range * 0.3) ** 2
-    max_spacing_sqr = (tx_range * 0.7) ** 2
+    min_spacing_sqr = (tx_range * 0.45) ** 2
+    max_spacing_sqr = (tx_range * 0.75) ** 2
+    range_mul = 0.8
     for i in range(num_clients):
         for _ in range(max_attempts):
             x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
@@ -242,9 +243,10 @@ def random_positions(
                 (x - x0) ** 2 + (y - y0) ** 2 <= max_spacing_sqr for (x0, y0) in positions
             ):
                 positions.append((x, y))
-                upper_x = max(upper_x, x + tx_range)
-                lower_x = min(lower_x, x - tx_range)
-                upper_y = max(upper_y, y + tx_range)
+                upper_x = max(upper_x, x + tx_range * range_mul)
+                lower_x = min(lower_x, x - tx_range * range_mul)
+                upper_y = max(upper_y, y + tx_range * range_mul)
+                lower_y = min(lower_y, y - tx_range * range_mul)
                 break
         else:
             raise RuntimeError(

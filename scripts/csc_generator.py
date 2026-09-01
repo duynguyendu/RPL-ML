@@ -53,16 +53,16 @@ def make_header(
     seed: int,
     radio: Dict[str, Any],
     platform_spec: PlatformSpec,
-    cooja_spec: PlatformSpec,
+    server_spec: PlatformSpec,
 ) -> str:
     # Original repository root that contains src/ and Makefile
     target = platform_spec.target
 
     # tsch = "MAKE_MAC=MAKE_MAC_TSCH"
-    parameters = f"SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)}"
+    parameters = f"SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size}"
 
-    server_cmd = f"$(MAKE) -C {cooja_spec.server_base_dir()} -j$(CPUS) {cooja_spec.server_binary_name()} {parameters} NETWORK_SIZE={config.num_of_nodes} TARGET={cooja_spec.target}"
-    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} GATHER_METRICS={config.gather_metrics} BUFFER_SIZE={config.buffer_size} TARGET={target}"
+    server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target}"
+    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} GATHER_METRICS={config.gather_metrics} TARGET={target}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -82,13 +82,13 @@ def make_header(
     </events>
 
     <motetype>
-      {cooja_spec.mote_type}
-      <identifier>{cooja_spec.name}_server</identifier>
-      <description>RPL Server (Root) - {cooja_spec.name.upper()}</description>
-      <source>{cooja_spec.server_source_path()}</source>
+      {server_spec.mote_type}
+      <identifier>{server_spec.name}_server</identifier>
+      <description>RPL Server (Root) - {server_spec.name.upper()}</description>
+      <source>{server_spec.server_source_path()}</source>
       <commands>{server_cmd}</commands>
-      <firmware>{cooja_spec.server_firmware_path()}</firmware>
-{_join_interfaces(cooja_spec.interfaces)}
+      <firmware>{server_spec.server_firmware_path()}</firmware>
+{_join_interfaces(server_spec.interfaces)}
     </motetype>
 
     <motetype>
@@ -186,13 +186,13 @@ def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
     if build_dir.exists() and build_dir.is_dir():
         shutil.rmtree(build_dir)
 
-    cooja_spec = get_platform("cooja")
+    server_spec = get_platform("z1")
     header = make_header(
         title=topo.get("topology_id", topo.get("title", "cooja_run")),
         seed=topo.get("seed", 123456),
         radio=radio,
         platform_spec=platform_spec,
-        cooja_spec=cooja_spec,
+        server_spec=server_spec,
     )
 
     motes_xml = []
@@ -200,7 +200,7 @@ def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
         role = str(m.get("role", "client")).lower()
         motetype = f"{platform_spec.name}_{role}"
         if role == "server":
-            motetype = f"{cooja_spec.name}_{role}"
+            motetype = f"{server_spec.name}_{role}"
 
         motes_xml.append(
             mote_xml(
