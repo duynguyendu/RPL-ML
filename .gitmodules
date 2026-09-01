@@ -1,0 +1,3 @@
+[submodule "rpl/contiki-ng"]
+	path = rpl/contiki-ng
+	url = git@github.com:duynguyendu/contiki-ng.git
