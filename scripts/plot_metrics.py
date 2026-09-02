@@ -240,85 +240,26 @@ def plot_etx(metrics):
     ]
 
 
-def plot_energy_usage(metrics):
-    # TODO: include a hard number for average energy usage of all
-    energy = metrics["energy"]
+def plot_cpu_usage(metrics):
+    cpu = metrics["energy"]["cpu"]
 
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
-            x=energy["energy"]["node_id"],
-            y=energy["energy"]["energy_comp"],
-            name="Energy Usage (mAh)",
-            marker_color="#8ecae6",
-            hovertemplate="Node %{x}<br>Energy: %{y:.3f} mAh<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Bar(
-            x=energy["cpu"]["node_id"],
-            y=energy["cpu"]["cpu_usage"],
+            x=cpu["node_id"],
+            y=cpu["cpu_usage"],
             name="CPU Usage (%)",
             marker_color=GRAPH_COLORS["cpu"],
             hovertemplate="Node %{x}<br>CPU: %{y:.1f}%<extra></extra>",
-            visible=False,
         )
     )
     fig.update_layout(
-        title=_title("Energy Usage after simulation"),
+        title=_title("CPU usage through the simulation"),
         xaxis=_axis("Node ID", type="category"),
-        yaxis=_axis("Energy Usage (mAh)"),
-        updatemenus=_button_menu(
-            [
-                dict(
-                    label="Energy Usage (mAh)",
-                    method="update",
-                    args=[
-                        {"visible": [True, False]},
-                        {
-                            "yaxis": {"title": {"text": "Energy Usage (mAh)"}},
-                            "title": {"text": "Energy Usage after simulation"},
-                        },
-                    ],
-                ),
-                dict(
-                    label="CPU Usage (%)",
-                    method="update",
-                    args=[
-                        {"visible": [False, True]},
-                        {
-                            "yaxis": {"title": {"text": "CPU Usage (%)"}},
-                            "title": {"text": "CPU usage through the simulation"},
-                        },
-                    ],
-                ),
-            ]
-        ),
+        yaxis=_axis("CPU Usage (%)"),
     )
-    print("  Add energy_comp / cpu_usage")
+    print("  Add cpu_usage")
     return [fig]
-
-
-def plot_energy_by_hop(metrics):
-    df = metrics["energy_by_hop"]
-    if df.empty:
-        return []
-    pivoted = df.pivot(
-        index="time_s", columns="hop_count", values="avg_energy"
-    ).reset_index()
-    cols = [c for c in pivoted.columns if c != "time_s"]
-    print("  Add energy_by_hop")
-    return [
-        get_fig(
-            pivoted,
-            x="time_s",
-            y=cols,
-            kind="line",
-            title="Average Energy Usage by Hop Count",
-            xlabel="Simulated time (s)",
-            ylabel="Average Energy per Interval (mAh)",
-        )
-    ]
 
 
 def _box_outliers(df, group, value):
@@ -336,7 +277,6 @@ def _box_outliers(df, group, value):
 
 def plot_by_hop(metrics):
     specs = [
-        ("energy_usage_by_hop", "energy_comp", "Energy Usage (mAh)", "#b8860b"),
         ("cpu_usage_by_hop", "cpu_usage", "CPU Usage (%)", "#e6194b"),
         ("latency_by_hop", "avg_latency", "One-way Latency (s)", "#636efa"),
     ]
@@ -433,7 +373,7 @@ def plot_packet_delivery(metrics):
     fig.update_layout(
         title=_title("Packet Delivery / Loss Ratio"),
         xaxis=_axis("Node ID", type="category"),
-        yaxis=_axis("Ratio"),
+        yaxis=_axis("Ratio", range=[0, 1]),
         updatemenus=_button_menu(
             [
                 dict(label="PDR", method="restyle", args=[{"visible": [True, False]}]),
@@ -944,8 +884,7 @@ def plot_metrics(df_dir: str, output_dir: str):
     figs = [
         *plot_topology(df_dir, metrics),
         # *plot_etx(metrics),
-        *plot_energy_usage(metrics),
-        *plot_energy_by_hop(metrics),
+        *plot_cpu_usage(metrics),
         *plot_by_hop(metrics),
         *plot_packet_delivery(metrics),
     ]
