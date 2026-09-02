@@ -44,8 +44,10 @@ def convert_rpl_of_to_int(rpl_of):
         return 0
     elif rpl_of == "mhrof":
         return 1
-    # default to mhrof
-    return 1
+    elif rpl_of == "mlof":
+        return 2
+
+    return 1  # default to mhrof
 
 
 def make_header(
