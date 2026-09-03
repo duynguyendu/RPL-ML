@@ -1,3 +1,5 @@
+import json
+
 import config
 from cooja_simulation import simulate_csc
 from csc_generator import generate_csc
@@ -14,6 +16,13 @@ def pipeline() -> None:
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
+
+    # create the run_id directory and dump the resolved config (overrides applied) for this run
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_dump = {k: getattr(config, k) for k in config.config_keys}
+    with open(output_dir / "config.json", "w") as f:
+        json.dump(config_dump, f, indent=2, default=str)
+    print(f"Wrote config to {output_dir / 'config.json'}")
 
     if config.is_generate_topology:
         generate_topology(

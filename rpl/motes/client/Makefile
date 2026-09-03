@@ -23,5 +23,8 @@ ifeq ($(GATHER_METRICS), 1)
 PROJECT_SOURCEFILES += metrics.c
 endif
 
+# z1 has a hardware AES engine (cc2420); drop the unused software aes-128.c.
+MODULES_SOURCES_EXCLUDES += aes-128.c
+
 CONTIKI = ../../contiki-ng
 include $(CONTIKI)/Makefile.include

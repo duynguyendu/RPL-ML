@@ -699,8 +699,7 @@ def plot_topology(df_dir, metrics):
         "    var metricIdx = 2;\n"
         "    var cb = gd.data[CLIENTS_IDX].marker.colorbar;\n"
         "    var cbTitle = cb ? (cb.title ? cb.title.text : '') : '';\n"
-        "    if (cbTitle === 'Energy (mAh)') metricIdx = 3;\n"
-        "    else if (cbTitle === 'CPU Usage (%%)') metricIdx = 4;\n"
+        "    if (cbTitle === 'CPU Usage (%%)') metricIdx = 4;\n"
         "    else if (cbTitle === 'Avg Latency (s)') metricIdx = 5;\n"
         "    else if (cbTitle === 'Hop Count') metricIdx = 6;\n"
         "    var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
@@ -709,8 +708,7 @@ def plot_topology(df_dir, metrics):
         "      'Interference range: ' + INT_RANGE + ' m';\n"
         "    var v = pt.customdata[metricIdx];\n"
         "    if (v !== undefined && v !== null && !isNaN(v)) {\n"
-        "      if (metricIdx === 3) tipHtml += '<br>Energy: ' + v.toFixed(3) + ' mAh';\n"
-        "      else if (metricIdx === 4) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
+        "      if (metricIdx === 4) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
         "      else if (metricIdx === 5) tipHtml += '<br>Latency: ' + v.toFixed(3) + ' s';\n"
         "      else if (metricIdx === 6) tipHtml += '<br>Hop count: ' + v + ' hops';\n"
         "      else tipHtml += '<br>PDR: ' + (v * 100).toFixed(1) + '%%';\n"
@@ -784,7 +782,6 @@ def plot_topology(df_dir, metrics):
         json.dumps(parent_steps),
     )
 
-    energy_cmax = _finite_bounds(clients_energy)[1]
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
     real_latency = [v for v in clients_latency if not math.isnan(v)]
     latency_cmin_real, latency_cmax = _finite_bounds(clients_latency, 0.0, 1.0)
@@ -832,9 +829,6 @@ def plot_topology(df_dir, metrics):
     if has_pdr:
         buttons = [
             _color_button("PDR", clients_pdr, pdr_cmin, pdr_cmax, PDR_COLORSCALE, "PDR"),
-            _color_button(
-                "Energy Usage", clients_energy, 0.0, energy_cmax, "Viridis", "Energy (mAh)"
-            ),
             _color_button(
                 "CPU Util", clients_cpu, cpu_cmin, cpu_cmax, CPU_COLORSCALE, "CPU Usage (%)"
             ),

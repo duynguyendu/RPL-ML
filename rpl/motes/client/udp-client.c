@@ -25,7 +25,7 @@
 
 #define SEND_TICK (SEND_RATE * CLOCK_SECOND)
 
-#define MAX_PENDING 20
+#define MAX_PENDING 10
 
 static struct simple_udp_connection udp_conn;
 int hop_count = -1;

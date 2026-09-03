@@ -36,6 +36,14 @@ base_cooja = "../rpl/contiki-ng/tools/cooja/"
 add_overloading_client = False
 
 
+# capture the config variable names before applying any overrides
+config_keys: list[str] = sorted(
+    k
+    for k in list(globals())
+    if not k.startswith("_") and k not in ("sys", "literal_eval", "Path")
+)
+
+
 for arg in sys.argv[1:]:
     if "=" not in arg:
         # assume it's the name of a config file
