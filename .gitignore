@@ -399,5 +399,6 @@ plots/
 *.resc
 compile_commands.json
 runs/
+rpl/motes/**/*build*/**
 
 __pycache__/

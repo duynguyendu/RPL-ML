@@ -83,6 +83,14 @@ def rpl_of_symbol(rpl_of):
     }.get(rpl_of, "rpl_mrhof")
 
 
+def role_build_dirs(platform_spec: PlatformSpec, server_spec: PlatformSpec) -> Dict[str, str]:
+    name = getattr(config, "build_dir_name", "") or "build"
+    return {
+        "client": (platform_spec.client_base_dir() / name).as_posix(),
+        "server": (server_spec.server_base_dir() / name).as_posix(),
+    }
+
+
 def make_header(
     title: str,
     seed: int,
@@ -93,11 +101,16 @@ def make_header(
     # Original repository root that contains src/ and Makefile
     target = platform_spec.target
 
+    builds = role_build_dirs(platform_spec, server_spec)
+    client_build, server_build = builds["client"], builds["server"]
+    server_fw = f"{server_build}/{server_spec.target}/{server_spec.server_binary_name()}"
+    client_fw = f"{client_build}/{target}/{platform_spec.client_binary_name()}"
+
     # tsch = "MAKE_MAC=MAKE_MAC_TSCH"
     parameters = f"SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} BUFFER_SIZE={config.buffer_size}"
 
-    server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target}"
-    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target}"
+    server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target} BUILD_DIR={server_build}"
+    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={client_build}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -122,7 +135,7 @@ def make_header(
       <description>RPL Server (Root) - {server_spec.name.upper()}</description>
       <source>{server_spec.server_source_path()}</source>
       <commands>{server_cmd}</commands>
-      <firmware>{server_spec.server_firmware_path()}</firmware>
+      <firmware>{server_fw}</firmware>
 {_join_interfaces(server_spec.interfaces)}
     </motetype>
 
@@ -132,7 +145,7 @@ def make_header(
       <description>RPL Client - {platform_spec.name.upper()}</description>
       <source>{platform_spec.client_source_path()}</source>
       <commands>{client_cmd}</commands>
-      <firmware>{platform_spec.client_firmware_path()}</firmware>
+      <firmware>{client_fw}</firmware>
 {_join_interfaces(platform_spec.interfaces)}
     </motetype>
 
@@ -212,16 +225,15 @@ def mote_xml(
 
 def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
     platform_spec = get_platform(config.platform)
+    server_spec = get_platform(config.platform)
     radio = topo["radio"]
 
-    build_dir = platform_spec.server_base_dir() / "build"
-    if build_dir.exists() and build_dir.is_dir():
-        shutil.rmtree(build_dir)
-    build_dir = platform_spec.client_base_dir() / "build"
-    if build_dir.exists() and build_dir.is_dir():
-        shutil.rmtree(build_dir)
-
-    server_spec = get_platform(config.platform)
+    # Start each run from a clean build tree. With a distinct config.build_dir_name
+    # per worker these paths are unique, so concurrent runs never race on them.
+    for build_dir in role_build_dirs(platform_spec, server_spec).values():
+        p = Path(build_dir)
+        if p.is_dir():
+            shutil.rmtree(p)
     header = make_header(
         title=topo.get("topology_id", topo.get("title", "cooja_run")),
         seed=topo.get("seed", 123456),

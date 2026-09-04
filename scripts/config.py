@@ -52,6 +52,12 @@ base_mote_dir = "../rpl/motes"
 base_cooja = "../rpl/contiki-ng/tools/cooja/"
 add_overloading_client = False
 
+# Name of the firmware build directory created inside each mote project dir
+# (rpl/motes/client/<name> and rpl/motes/server/<name>). Default "build" matches
+# Contiki-NG. Give each parallel worker its own value (e.g. --build_dir_name=w1)
+# so concurrent runs never share/clobber a build tree.
+build_dir_name = "build"
+
 
 # capture the config variable names before applying any overrides
 config_keys: list[str] = sorted(
