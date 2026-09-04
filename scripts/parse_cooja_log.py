@@ -10,7 +10,7 @@ LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 
 # DODAG
 RE_DODAG_PARENT = re.compile(
-    r"^\[WARN: RPL       \] parent switch: ([0-9a-f:]+|\(NULL IP addr\)) -> ([0-9a-f:]+)"
+    r"^\[PRI : RPL       \] parent switch: ([0-9a-f:]+|\(NULL IP addr\)) -> ([0-9a-f:]+)"
 )
 
 # ENERGEST

@@ -9,6 +9,7 @@ is_plot_metrics = True
 is_train_model = False
 
 # topology config
+seed = 123456
 spacing = 40
 topo_type = "random"
 num_of_nodes = 60
@@ -33,7 +34,7 @@ rpl_of = "mhrof"
 # Modules mirror the LOG_CONF_LEVEL_* switches in rpl/motes/proj-logging-conf.h
 # (RPL, IPV6, 6LOWPAN, MAC, FRAMER). Client and server are configured separately.
 OTHER_LOG = "NONE"
-RPL_LOG = "WARN"
+RPL_LOG = "NONE"
 client_log_level_rpl = RPL_LOG
 client_log_level_ipv6 = OTHER_LOG
 client_log_level_sixlowpan = OTHER_LOG

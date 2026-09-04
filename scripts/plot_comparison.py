@@ -46,6 +46,7 @@ def collect_runs(runs_dir: Path) -> list[dict]:
                 "run_id": run_dir.name,
                 "num_of_nodes": cfg.get("num_of_nodes"),
                 "send_rate": cfg.get("send_rate"),
+                "seed": cfg.get("seed"),
                 "rpl_of": cfg.get("rpl_of"),
                 "topo_type": cfg.get("topo_type"),
                 "platform": cfg.get("platform"),
@@ -77,6 +78,9 @@ HTML_TEMPLATE = r"""<!doctype html>
   select{font-size:13px;padding:2px 4px;}
   .note{font-size:11px;color:#5a6b8c;padding:6px 16px;background:#f6f8fa;
     border-bottom:1px solid #e0e0e0;}
+  #pickLink{font-weight:bold;color:#4363d8;text-decoration:none;}
+  #pickLink:hover{text-decoration:underline;}
+  #pickMissing{color:#b00;}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px;}
   .chart{height:460px;border:1px solid #ececec;}
   @media (max-width:900px){.grid{grid-template-columns:1fr;}}
@@ -103,6 +107,17 @@ HTML_TEMPLATE = r"""<!doctype html>
     <legend>Aggregations</legend>
   </fieldset>
 </div>
+<div class="controls">
+  <fieldset>
+    <legend>Open run dashboard</legend>
+    <label>#nodes <select id="pickNodes"></select></label>
+    <label>send rate <select id="pickRate"></select></label>
+    <label>OF <select id="pickOf"></select></label>
+    <label>seed <select id="pickSeed"></select></label>
+  </fieldset>
+  <a id="pickLink" href="#" target="_blank" rel="noopener" hidden>Open dashboard &rarr;</a>
+  <span id="pickMissing" hidden>No matching run</span>
+</div>
 <div class="note">3D view: runs sharing a (nodes, send rate) cell are averaged (hover shows
   <code>n</code>); the checkboxes pick which aggregations to plot. Fixed views:
   a box-and-whisker candle per objective function (two per x value) &ndash; box =
@@ -127,6 +142,7 @@ const OF_FILL = {mhrof:'rgba(67,99,216,0.30)', of0:'rgba(230,25,75,0.28)'};
 
 const $ = s => document.querySelector(s);
 const uniqNums = a => [...new Set(a)].filter(v => v != null).sort((x, y) => x - y);
+const uniqStrs = a => [...new Set(a)].filter(v => v != null).sort();
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 const allNodes = () => uniqNums(RUNS.map(r => r.num_of_nodes));
 const allRates = () => uniqNums(RUNS.map(r => r.send_rate));
@@ -135,7 +151,8 @@ function init(){
   if(!RUNS.length){ $('#charts').hidden = true; $('#empty').hidden = false; return; }
   $('#meta').textContent =
     RUNS.length + ' runs · #nodes: ' + uniqNums(RUNS.map(r => r.num_of_nodes)).join(', ')
-    + ' · send rates: ' + uniqNums(RUNS.map(r => r.send_rate)).join(', ');
+    + ' · send rates: ' + uniqNums(RUNS.map(r => r.send_rate)).join(', ')
+    + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
 
   AGGS.forEach(a => {
     const l = document.createElement('label');
@@ -152,7 +169,49 @@ function init(){
   document.querySelectorAll('input[name=mode]').forEach(el => el.addEventListener('change', render));
   $('#fixed').addEventListener('change', render);
   document.querySelectorAll('.agg').forEach(el => el.addEventListener('change', render));
+  initRunPicker();
   render();
+}
+
+// dropdowns to pick one run's (#nodes, send rate, OF, seed) and link to its dashboard.html.
+// Each select is rebuilt from only the runs still matching the selects "above" it, so
+// every reachable combination corresponds to a real run -- no dead-end picks possible.
+const PICK_CHAIN = [
+  {id: '#pickNodes', key: 'num_of_nodes', uniq: uniqNums},
+  {id: '#pickRate', key: 'send_rate', uniq: uniqNums},
+  {id: '#pickOf', key: 'rpl_of', uniq: uniqStrs},
+  {id: '#pickSeed', key: 'seed', uniq: uniqNums},
+];
+
+function fillSelect(id, vals){
+  const el = $(id);
+  const prev = el.value;
+  el.innerHTML = vals.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+  if(vals.map(String).includes(prev)) el.value = prev;
+}
+
+// rebuild every select from `from` onward, each scoped by the (now-fixed) selects before it
+function cascadePicker(from){
+  let scoped = RUNS;
+  for(let i = 0; i < PICK_CHAIN.length; i++){
+    const f = PICK_CHAIN[i];
+    if(i >= from) fillSelect(f.id, f.uniq(scoped.map(r => r[f.key])));
+    scoped = scoped.filter(r => String(r[f.key]) === $(f.id).value);
+  }
+}
+
+function initRunPicker(){
+  cascadePicker(0);
+  PICK_CHAIN.forEach((f, i) => $(f.id).addEventListener('change', () => { cascadePicker(i + 1); updatePick(); }));
+  updatePick();
+}
+
+function updatePick(){
+  const match = RUNS.find(r => PICK_CHAIN.every(f => String(r[f.key]) === $(f.id).value));
+  const link = $('#pickLink'), missing = $('#pickMissing');
+  link.hidden = !match;
+  missing.hidden = !!match;
+  if(match) link.href = match.run_id + '/dashboard.html';
 }
 
 function mode(){ return document.querySelector('input[name=mode]:checked').value; }
@@ -261,8 +320,9 @@ function buildTraces(metric, m, fixedVal){
   return (m === '3d') ? traces3d(metric) : tracesCandle(metric, m, fixedVal);
 }
 
-function layout(metric, m, fixedVal){
+function layout(metric, m, fixedVal, chartHeight){
   const base = {
+    height:chartHeight,
     margin:{l:64, r:16, t:46, b:74},
     legend:{orientation:'h', y:-0.24},
     paper_bgcolor:'white', plot_bgcolor:'#E5ECF6',
@@ -305,7 +365,7 @@ function render(){
   METRICS.forEach((metric, i) => {
     const div = document.getElementById('chart' + i);
     div.style.height = chartHeight + 'px';
-    Plotly.react(div, buildTraces(metric, m, fixedVal), layout(metric, m, fixedVal),
+    Plotly.react(div, buildTraces(metric, m, fixedVal), layout(metric, m, fixedVal, chartHeight),
       {responsive:true, displaylogo:false});
   });
 }

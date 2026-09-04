@@ -231,8 +231,8 @@ def random_positions(
     lower_x, lower_y = -tx_range, -tx_range
     positions = [(0, 0)]
 
-    min_spacing_sqr = (tx_range * 0.45) ** 2
-    max_spacing_sqr = (tx_range * 0.75) ** 2
+    min_spacing_sqr = (tx_range * 0.35) ** 2
+    max_spacing_sqr = (tx_range * 0.65) ** 2
     range_mul = 0.8
     for i in range(num_clients):
         for _ in range(max_attempts):
