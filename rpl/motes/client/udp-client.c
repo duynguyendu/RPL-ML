@@ -85,7 +85,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
-    if (NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr)) {
+    if (NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr) && NETSTACK_ROUTING.node_is_reachable()) {
       printf("Sending request '%" PRIu32 "' to ", tx_count);
       LOG_INFO_6ADDR(&dest_ipaddr);
       printf("\n");
