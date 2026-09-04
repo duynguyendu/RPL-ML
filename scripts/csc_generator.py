@@ -107,7 +107,7 @@ def make_header(
     client_fw = f"{client_build}/{target}/{platform_spec.client_binary_name()}"
 
     # tsch = "MAKE_MAC=MAKE_MAC_TSCH"
-    parameters = f"SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} BUFFER_SIZE={config.buffer_size}"
+    parameters = f"PPM={config.ppm} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} BUFFER_SIZE={config.buffer_size}"
 
     server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target} BUILD_DIR={server_build}"
     client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={client_build}"

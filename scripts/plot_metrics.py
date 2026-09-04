@@ -388,7 +388,7 @@ def plot_packet_delivery(metrics):
 # config keys that make up the run_id (see pipeline.py); "etx" is derived
 RUN_ID_CONFIG_KEYS = [
     "num_of_nodes",
-    "send_rate",
+    "ppm",
     "packet_size",
     "buffer_size",
     "duration",

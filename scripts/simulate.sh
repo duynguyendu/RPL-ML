@@ -5,13 +5,30 @@
 set -u
 
 MAX_PARALLEL=4
+PLATFORM=cooja
+
+NODE_LIST=(40 60 80)
+PPM_LIST=(60 40 30 20 15)
+OF_LIST=(of0 mhrof)
+SEED_LIST=(12756 826352 927106)
+TOTAL=$(( ${#NODE_LIST[@]} * ${#PPM_LIST[@]} * ${#OF_LIST[@]} * ${#SEED_LIST[@]} ))
+RUN=0
+
+MAX_NODES=$(printf '%s\n' "${NODE_LIST[@]}" | sort -n | tail -1)
+MIN_RATE=$(printf '%s\n' "${PPM_LIST[@]}" | sort -n | head -1)
+
+# Every run from this invocation is written under its own timestamped directory
+# instead of the default runs/ so different simulate.sh sweeps never mix.
+RUN_DIR="runs/sim_${PLATFORM}_n${MAX_NODES}_ppm${MIN_RATE}_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_DIR"
+echo "=== Writing runs to $RUN_DIR ==="
 
 SECONDS=0
 fmt_dur() { printf '%dh%02dm%02ds' $(($1 / 3600)) $(($1 % 3600 / 60)) $(($1 % 60)); }
 
 # Pool of build-dir slots and the pid -> slot bookkeeping for in-flight runs.
 FREE_SLOTS=()
-for ((s = 1; s <= MAX_PARALLEL; s++)); do FREE_SLOTS+=("build_w$s"); done
+for ((s = 1; s <= MAX_PARALLEL; s++)); do FREE_SLOTS+=("build_${PLATFORM}_w${s}"); done
 declare -A SLOT_OF_PID
 INFLIGHT=0
 
@@ -23,15 +40,8 @@ reclaim() {                                    # return a finished pid's slot to
     (( INFLIGHT-- ))
 }
 
-NODE_LIST=(20 40 60 80)
-RATE_LIST=(1 2 3 5 7 10 15 20)
-OF_LIST=(of0 mhrof)
-SEED_LIST=(927104 927105 927106)
-TOTAL=$(( ${#NODE_LIST[@]} * ${#RATE_LIST[@]} * ${#OF_LIST[@]} * ${#SEED_LIST[@]} ))
-RUN=0
-
 for NUM_NODES in "${NODE_LIST[@]}"; do
-    for SEND_RATE in "${RATE_LIST[@]}"; do
+    for PPM in "${PPM_LIST[@]}"; do
         for RPL_OF in "${OF_LIST[@]}"; do
             for SEED in "${SEED_LIST[@]}"; do
                 (( RUN++ ))
@@ -46,7 +56,7 @@ for NUM_NODES in "${NODE_LIST[@]}"; do
 
                 (
                     SECONDS=0
-                    echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES rate=$SEND_RATE seed=$SEED ==="
+                    echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED ==="
                     python3 pipeline.py \
                         --duration=1800 \
                         --is_simulate=True \
@@ -54,11 +64,12 @@ for NUM_NODES in "${NODE_LIST[@]}"; do
                         --buffer_size=8 \
                         --rpl_of="$RPL_OF" \
                         --num_of_nodes="$NUM_NODES" \
-                        --send_rate="$SEND_RATE" \
-                        --platform=cooja \
+                        --ppm="$PPM" \
+                        --platform="$PLATFORM" \
                         --seed="$SEED" \
+                        --base_output_dir="$RUN_DIR" \
                         --build_dir_name="$slot" >/dev/null 2>&1
-                    echo "=== [$(date +%T)] DONE  ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES rate=$SEND_RATE seed=$SEED (took $(fmt_dur $SECONDS)) ==="
+                    echo "=== [$(date +%T)] DONE  ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED (took $(fmt_dur $SECONDS)) ==="
                 ) &
 
                 SLOT_OF_PID[$!]=$slot
@@ -76,6 +87,7 @@ done
 echo "=== All runs finished in $(fmt_dur $SECONDS) ==="
 
 echo "=== Building cross-run comparison dashboard ==="
-python3 plot_comparison.py
+python3 plot_comparison.py --runs-dir "$RUN_DIR"
 
 echo "=== Total elapsed (runs + dashboard): $(fmt_dur $SECONDS) ==="
+echo "=== Results in $RUN_DIR ==="

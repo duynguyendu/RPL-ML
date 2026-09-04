@@ -19,6 +19,10 @@
 #define RAMP_UP_DURATION 60
 #endif
 
+#ifdef PPM
+#define SEND_RATE (60 / PPM)
+#endif
+
 #ifndef SEND_RATE
 #define SEND_RATE 30
 #endif

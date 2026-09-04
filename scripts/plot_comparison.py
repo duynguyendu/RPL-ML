@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-run comparison plots: how #nodes and send rate affect each metric.
+"""Cross-run comparison plots: how #nodes and PPM affect each metric.
 
 Reads ``aggregate.json`` (written by plot_metrics.py) and ``config.json``
 (written by pipeline.py) from every run directory under ``--runs-dir`` and emits
@@ -7,8 +7,8 @@ a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
 Per metric (PDR / latency / CPU util / parent switch) the page offers:
   * checkboxes to pick which aggregations (avg / max / min / p95) to show;
-  * a 3D view (x = #nodes, y = send rate, z = metric); and
-  * two 2D views -- fix #nodes (x = send rate) or fix send rate (x = #nodes).
+  * a 3D view (x = #nodes, y = PPM, z = metric); and
+  * two 2D views -- fix #nodes (x = PPM) or fix PPM (x = #nodes).
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ def collect_runs(runs_dir: Path) -> list[dict]:
         except json.JSONDecodeError as exc:
             print(f"  Skipping {run_dir.name}: {exc}")
             continue
-        if cfg.get("num_of_nodes") is None or cfg.get("send_rate") is None:
-            print(f"  Skipping {run_dir.name}: missing num_of_nodes / send_rate")
+        if cfg.get("num_of_nodes") is None or cfg.get("ppm") is None:
+            print(f"  Skipping {run_dir.name}: missing num_of_nodes / ppm")
             continue
         runs.append(
             {
                 "run_id": run_dir.name,
                 "num_of_nodes": cfg.get("num_of_nodes"),
-                "send_rate": cfg.get("send_rate"),
+                "ppm": cfg.get("ppm"),
                 "seed": cfg.get("seed"),
                 "rpl_of": cfg.get("rpl_of"),
                 "topo_type": cfg.get("topo_type"),
@@ -95,9 +95,9 @@ HTML_TEMPLATE = r"""<!doctype html>
 <div class="controls">
   <fieldset>
     <legend>View</legend>
-    <label><input type="radio" name="mode" value="3d" checked> 3D (#nodes &times; send rate)</label>
+    <label><input type="radio" name="mode" value="3d" checked> 3D (#nodes &times; PPM)</label>
     <label><input type="radio" name="mode" value="fix_nodes"> Fix #nodes</label>
-    <label><input type="radio" name="mode" value="fix_rate"> Fix send rate</label>
+    <label><input type="radio" name="mode" value="fix_ppm"> Fix PPM</label>
   </fieldset>
   <fieldset id="fixedWrap">
     <legend id="fixedLabel">Value</legend>
@@ -111,14 +111,14 @@ HTML_TEMPLATE = r"""<!doctype html>
   <fieldset>
     <legend>Open run dashboard</legend>
     <label>#nodes <select id="pickNodes"></select></label>
-    <label>send rate <select id="pickRate"></select></label>
+    <label>PPM <select id="pickPpm"></select></label>
     <label>OF <select id="pickOf"></select></label>
     <label>seed <select id="pickSeed"></select></label>
   </fieldset>
   <a id="pickLink" href="#" target="_blank" rel="noopener" hidden>Open dashboard &rarr;</a>
   <span id="pickMissing" hidden>No matching run</span>
 </div>
-<div class="note">3D view: runs sharing a (nodes, send rate) cell are averaged (hover shows
+<div class="note">3D view: runs sharing a (nodes, PPM) cell are averaged (hover shows
   <code>n</code>); the checkboxes pick which aggregations to plot. Fixed views:
   a box-and-whisker candle per objective function (two per x value) &ndash; box =
   Q1&ndash;Q3, line = median, whiskers = min/max, dashed = mean; the checkboxes do
@@ -145,13 +145,13 @@ const uniqNums = a => [...new Set(a)].filter(v => v != null).sort((x, y) => x - 
 const uniqStrs = a => [...new Set(a)].filter(v => v != null).sort();
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 const allNodes = () => uniqNums(RUNS.map(r => r.num_of_nodes));
-const allRates = () => uniqNums(RUNS.map(r => r.send_rate));
+const allPpms = () => uniqNums(RUNS.map(r => r.ppm));
 
 function init(){
   if(!RUNS.length){ $('#charts').hidden = true; $('#empty').hidden = false; return; }
   $('#meta').textContent =
     RUNS.length + ' runs · #nodes: ' + uniqNums(RUNS.map(r => r.num_of_nodes)).join(', ')
-    + ' · send rates: ' + uniqNums(RUNS.map(r => r.send_rate)).join(', ')
+    + ' · PPM: ' + uniqNums(RUNS.map(r => r.ppm)).join(', ')
     + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
 
   AGGS.forEach(a => {
@@ -173,12 +173,12 @@ function init(){
   render();
 }
 
-// dropdowns to pick one run's (#nodes, send rate, OF, seed) and link to its dashboard.html.
+// dropdowns to pick one run's (#nodes, PPM, OF, seed) and link to its dashboard.html.
 // Each select is rebuilt from only the runs still matching the selects "above" it, so
 // every reachable combination corresponds to a real run -- no dead-end picks possible.
 const PICK_CHAIN = [
   {id: '#pickNodes', key: 'num_of_nodes', uniq: uniqNums},
-  {id: '#pickRate', key: 'send_rate', uniq: uniqNums},
+  {id: '#pickPpm', key: 'ppm', uniq: uniqNums},
   {id: '#pickOf', key: 'rpl_of', uniq: uniqStrs},
   {id: '#pickSeed', key: 'seed', uniq: uniqNums},
 ];
@@ -222,8 +222,8 @@ function syncFixed(){
   const wrap = $('#fixedWrap');
   if(m === '3d'){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
-  const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'send_rate';
-  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'Send rate';
+  const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'ppm';
+  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'PPM';
   const vals = uniqNums(RUNS.map(r => r[key]));
   const prev = $('#fixed').value;
   $('#fixed').innerHTML = vals.map(v => '<option value="' + v + '">' + v + '</option>').join('');
@@ -239,13 +239,13 @@ function series(metric, agg, m, fixedVal){
   const rows = RUNS.filter(r => {
     if(valueOf(r, agg, metric.key, metric.scale) == null) return false;
     if(m === 'fix_nodes') return r.num_of_nodes === fixedVal;
-    if(m === 'fix_rate')  return r.send_rate === fixedVal;
+    if(m === 'fix_ppm')  return r.ppm === fixedVal;
     return true;
   });
   const groups = new Map();
   for(const r of rows){
-    const gx = (m === 'fix_nodes') ? r.send_rate : r.num_of_nodes;
-    const gy = r.send_rate;
+    const gx = (m === 'fix_nodes') ? r.ppm : r.num_of_nodes;
+    const gy = r.ppm;
     const gkey = (m === '3d') ? (gx + '|' + gy) : String(gx);
     if(!groups.has(gkey)) groups.set(gkey, {x:gx, y:gy, v:[]});
     groups.get(gkey).v.push(valueOf(r, agg, metric.key, metric.scale));
@@ -265,18 +265,18 @@ function traces3d(metric){
       x:pts.map(p => p.x), y:pts.map(p => p.y), z:pts.map(p => p.v),
       marker:{size:4, color:AGG_COLORS[agg]},
       customdata:pts.map(p => p.n),
-      hovertemplate:agg + '<br>number of nodes: %{x}<br>send rate: %{y}<br>'
+      hovertemplate:agg + '<br>number of nodes: %{x}<br>PPM: %{y}<br>'
         + metric.label + ': %{z:.3f}' + metric.unit + ' (n=%{customdata})<extra></extra>',
     });
   }
   return out;
 }
 
-// free-axis values (send rates, or node counts) present for the current fixed view
+// free-axis values (PPM, or node counts) present for the current fixed view
 function fixedXs(m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'send_rate' : 'num_of_nodes';
+  const freeKey = (m === 'fix_nodes') ? 'ppm' : 'num_of_nodes';
   const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.send_rate === fixedVal;
+                                           : r.ppm === fixedVal;
   return uniqNums(RUNS.filter(inScope).map(r => r[freeKey]));
 }
 
@@ -284,9 +284,9 @@ function fixedXs(m, fixedVal){
 // Box = Q1..Q3, line = median, whiskers = min/max, dashed = mean. Runs that
 // share the same (fixed value, free value, OF) are averaged stat-by-stat.
 function tracesCandle(metric, m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'send_rate' : 'num_of_nodes';
+  const freeKey = (m === 'fix_nodes') ? 'ppm' : 'num_of_nodes';
   const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.send_rate === fixedVal;
+                                           : r.ppm === fixedVal;
   const xs = fixedXs(m, fixedVal);
   const out = [];
   for(const of_ of RPL_OFS){
@@ -329,17 +329,17 @@ function layout(metric, m, fixedVal, chartHeight){
     title:{text:'', font:{size:14}},
   };
   if(m === '3d'){
-    base.title.text = metric.label + ' vs number of nodes & send rate';
+    base.title.text = metric.label + ' vs number of nodes & PPM';
     base.scene = {
       xaxis:{title:{text:'number of nodes'}, tickmode:'array', tickvals:allNodes()},
-      yaxis:{title:{text:'send rate'}, tickmode:'array', tickvals:allRates()},
+      yaxis:{title:{text:'PPM'}, tickmode:'array', tickvals:allPpms()},
       zaxis:{title:{text:metric.axis}},
     };
     return base;
   }
-  const xtitle = (m === 'fix_nodes') ? 'send rate' : 'number of nodes';
+  const xtitle = (m === 'fix_nodes') ? 'PPM' : 'number of nodes';
   const fixtxt = (m === 'fix_nodes')
-    ? ('number of nodes = ' + fixedVal) : ('send rate = ' + fixedVal);
+    ? ('number of nodes = ' + fixedVal) : ('PPM = ' + fixedVal);
   const cats = fixedXs(m, fixedVal).map(String);
   base.title.text = metric.label + ' vs ' + xtitle + '  (' + fixtxt + ')';
   base.boxmode = 'group';

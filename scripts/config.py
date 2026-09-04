@@ -22,7 +22,7 @@ side_length = 600  # For random topology
 # csc config
 gather_metrics = 1
 platform = "z1"
-send_rate = 10
+ppm = 6  # packets per minute; drives the client's send cadence (see udp-client.c)
 buffer_size = 8
 ramp_up_duration = 120
 duration = 3600
@@ -83,14 +83,15 @@ for arg in sys.argv[1:]:
         key, val = arg.split("=")
         key = key[2:]
         if key in globals():
-            try:
-                # attempt to eval it (e.g. if bool, number, or etc)
-                attempt = literal_eval(val)
-            except (SyntaxError, ValueError):
-                # if that goes wrong, just use the string
-                attempt = val
-            # ensure the types match ok
-            assert type(attempt) is type(globals()[key])
+            current = globals()[key]
+            if isinstance(current, Path):
+                attempt = Path(val).resolve()
+            else:
+                try:
+                    attempt = literal_eval(val)
+                except (SyntaxError, ValueError):
+                    attempt = val
+                assert type(attempt) is type(current)
             # cross fingers
             print(f"Overriding: {key} = {attempt}")
             globals()[key] = attempt
