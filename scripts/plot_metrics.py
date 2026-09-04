@@ -385,6 +385,54 @@ def plot_packet_delivery(metrics):
     return [fig]
 
 
+# config keys that make up the run_id (see pipeline.py); "etx" is derived
+RUN_ID_CONFIG_KEYS = [
+    "num_of_nodes",
+    "send_rate",
+    "packet_size",
+    "buffer_size",
+    "duration",
+    "rpl_of",
+    "interference_range",
+    "topo_type",
+    "platform",
+]
+
+
+def load_run_config(df_dir):
+    """Return the subset of config.json that is encoded in the run_id."""
+    path = os.path.join(df_dir, "config.json")
+    if not os.path.exists(path):
+        print(f"  Warning: {path} not found, skipping run config panel")
+        return {}
+    with open(path) as fh:
+        cfg = json.load(fh)
+    run_cfg = {k: cfg[k] for k in RUN_ID_CONFIG_KEYS if k in cfg}
+    try:
+        run_cfg["etx"] = round(1 / (cfg["success_tx"] * cfg["success_rx"]), 2)
+    except (KeyError, TypeError, ZeroDivisionError):
+        pass
+    return run_cfg
+
+
+def render_run_config_html(run_config):
+    """Render the run config as a header strip for the dashboard."""
+    if not run_config:
+        return ""
+    items = "".join(
+        f'<span style="margin-right:18px;white-space:nowrap;">'
+        f'<b>{k}</b>: {v}</span>'
+        for k, v in run_config.items()
+    )
+    return (
+        '<div style="font-family:Arial;font-size:13px;color:#2a3f5f;'
+        'padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #e0e0e0;'
+        'display:flex;flex-wrap:wrap;align-items:center;">'
+        '<b style="margin-right:18px;">Run config</b>'
+        f"{items}</div>"
+    )
+
+
 def plot_topology(df_dir, metrics):
     path = os.path.join(df_dir, "topology.json")
     if not os.path.exists(path):
@@ -889,16 +937,19 @@ def plot_metrics(df_dir: str, output_dir: str):
         fig.update_layout(template=None)
         fig.update_layout(plot_bgcolor="#E5ECF6", paper_bgcolor="white")
 
+    config_html = render_run_config_html(load_run_config(df_dir))
+
     with open(f"{output_dir}/dashboard.html", "w") as f:
-        f.write(
-            figs[0].to_html(
-                full_html=True,
-                include_plotlyjs="directory",
-                div_id="topology_plot",
-                post_script=getattr(figs[0], "_topology_post_script", None),
-                config=html_config,
-            )
+        topo_html = figs[0].to_html(
+            full_html=True,
+            include_plotlyjs="directory",
+            div_id="topology_plot",
+            post_script=getattr(figs[0], "_topology_post_script", None),
+            config=html_config,
         )
+        if config_html:
+            topo_html = topo_html.replace("<body>", f"<body>\n{config_html}", 1)
+        f.write(topo_html)
         for fig in figs[1:]:
             f.write(
                 fig.to_html(

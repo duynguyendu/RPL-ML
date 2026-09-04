@@ -29,6 +29,23 @@ with_dao_ack = 1
 packet_size = 64
 rpl_of = "mhrof"
 
+# log level config (Contiki-NG levels: NONE, ERR, WARN, INFO, DBG), per module.
+# Modules mirror the LOG_CONF_LEVEL_* switches in rpl/motes/proj-logging-conf.h
+# (RPL, IPV6, 6LOWPAN, MAC, FRAMER). Client and server are configured separately.
+OTHER_LOG = "INFO"
+RPL_LOG = "WARN"
+client_log_level_rpl = RPL_LOG
+client_log_level_ipv6 = OTHER_LOG
+client_log_level_sixlowpan = OTHER_LOG
+client_log_level_mac = OTHER_LOG
+client_log_level_framer = OTHER_LOG
+
+server_log_level_rpl = RPL_LOG
+server_log_level_ipv6 = OTHER_LOG
+server_log_level_sixlowpan = OTHER_LOG
+server_log_level_mac = OTHER_LOG
+server_log_level_framer = OTHER_LOG
+
 # output dir
 base_output_dir = Path("runs").resolve()
 base_mote_dir = "../rpl/motes"

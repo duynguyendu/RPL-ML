@@ -66,6 +66,8 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   static uint32_t tx_count;
 
   PROCESS_BEGIN();
+  etimer_set(&periodic_timer, 5 * CLOCK_SECOND);
+  PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
   /* Initialize UDP connection */
   simple_udp_register(&udp_conn, UDP_CLIENT_PORT, NULL, UDP_SERVER_PORT,
@@ -83,17 +85,20 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
-    NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr);
-    printf("Sending request '%" PRIu32 "' to ", tx_count);
-    LOG_INFO_6ADDR(&dest_ipaddr);
-    printf("\n");
+    if (NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr)) {
+      printf("Sending request '%" PRIu32 "' to ", tx_count);
+      LOG_INFO_6ADDR(&dest_ipaddr);
+      printf("\n");
 
-    snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
+      snprintf(str, sizeof(str), "%" PRIu32 "", tx_count);
 #if GATHER_METRICS
-    send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
+      send_times[tx_count % MAX_PENDING] = metrics_get_timestamp();
 #endif
 
-    simple_udp_sendto(&udp_conn, str, PACKET_SIZE, &dest_ipaddr);
+      simple_udp_sendto(&udp_conn, str, PACKET_SIZE, &dest_ipaddr);
+    } else {
+      printf("Skipping request '%" PRIu32 "': root not registered\n", tx_count);
+    }
     tx_count++;
 
     // 20% jitter

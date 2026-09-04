@@ -50,6 +50,30 @@ def convert_rpl_of_to_int(rpl_of):
     return 1  # default to mhrof
 
 
+# (config suffix, make var / LOG_CONF_LEVEL_* suffix) for each log module in
+# rpl/motes/proj-logging-conf.h
+LOG_MODULES = [
+    ("rpl", "RPL"),
+    ("ipv6", "IPV6"),
+    ("sixlowpan", "6LOWPAN"),
+    ("mac", "MAC"),
+    ("framer", "FRAMER"),
+]
+
+
+def log_level_params(role: str) -> str:
+    """Build ``LOG_CONF_LEVEL_<MODULE>=LOG_LEVEL_<LEVEL>`` make args for a role.
+
+    ``role`` is ``"client"`` or ``"server"``; levels are read from the
+    ``<role>_log_level_<module>`` entries in config.py.
+    """
+    parts = []
+    for cfg_suffix, make_suffix in LOG_MODULES:
+        level = getattr(config, f"{role}_log_level_{cfg_suffix}").upper()
+        parts.append(f"LOG_CONF_LEVEL_{make_suffix}=LOG_LEVEL_{level}")
+    return " ".join(parts)
+
+
 def rpl_of_symbol(rpl_of):
     return {
         "of0": "rpl_of0",
@@ -72,8 +96,8 @@ def make_header(
     # tsch = "MAKE_MAC=MAKE_MAC_TSCH"
     parameters = f"SEND_RATE={config.send_rate} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} BUFFER_SIZE={config.buffer_size}"
 
-    server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target}"
-    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} GATHER_METRICS={config.gather_metrics} TARGET={target}"
+    server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target}"
+    client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target}"
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -197,7 +221,7 @@ def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
     if build_dir.exists() and build_dir.is_dir():
         shutil.rmtree(build_dir)
 
-    server_spec = get_platform("z1")
+    server_spec = get_platform(config.platform)
     header = make_header(
         title=topo.get("topology_id", topo.get("title", "cooja_run")),
         seed=topo.get("seed", 123456),

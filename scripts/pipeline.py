@@ -12,7 +12,8 @@ from topology_generator import generate_topology
 
 def pipeline() -> None:
     etx = round(1 / (config.success_tx * config.success_rx), 2)
-    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx}_int_range{config.interference_range}_{config.topo_type}"
+    etx_tag = str(etx).replace(".", "")
+    run_id = f"node{config.num_of_nodes}_sendrate{config.send_rate}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx_tag}_int_range{config.interference_range}_{config.topo_type}_{config.platform}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
