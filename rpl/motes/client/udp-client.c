@@ -85,7 +85,11 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
-    if (NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr) && NETSTACK_ROUTING.node_is_reachable()) {
+    if (!NETSTACK_ROUTING.get_root_ipaddr(&dest_ipaddr)) {
+      printf("Skipping request '%" PRIu32 "': root not registered\n", tx_count);
+    } else if (!NETSTACK_ROUTING.node_is_reachable()) {
+      printf("Skipping request '%" PRIu32 "': root not reachable\n", tx_count);
+    } else {
       printf("Sending request '%" PRIu32 "' to ", tx_count);
       LOG_INFO_6ADDR(&dest_ipaddr);
       printf("\n");
@@ -96,8 +100,6 @@ PROCESS_THREAD(udp_client_process, ev, data) {
 #endif
 
       simple_udp_sendto(&udp_conn, str, PACKET_SIZE, &dest_ipaddr);
-    } else {
-      printf("Skipping request '%" PRIu32 "': root not registered\n", tx_count);
     }
     tx_count++;
 
