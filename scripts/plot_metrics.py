@@ -396,6 +396,7 @@ RUN_ID_CONFIG_KEYS = [
     "interference_range",
     "topo_type",
     "platform",
+    "seed",
 ]
 
 
@@ -457,14 +458,26 @@ def _isnan(v):
 
 
 def _packet_totals(data):
-    """(packets sent by clients, packets received by the root)."""
+    """(sent, received by root, lost: not-joined, root-unreachable, in-network).
+
+    ``not_joined`` / ``root_unreachable`` are requests the client dropped before
+    transmitting (root not registered / not reachable, tagged via the ``status``
+    column). ``in_network`` is everything else that never reached the root:
+    total - not_joined - root_unreachable - received_by_root.
+    """
+    nan = float("nan")
     lat = data.get("latency") if data else None
     if lat is None or lat.empty:
-        return float("nan"), float("nan")
+        return nan, nan, nan, nan, nan
     sent = len(lat)
+    status = lat["status"] if "status" in lat else pd.Series(dtype=object)
+    not_joined = int((status == "not_joined").sum())
+    unreachable = int((status == "unreachable").sum())
     if "server_receive_time" not in lat:
-        return sent, float("nan")
-    return sent, int((lat["server_receive_time"] != 0).sum())
+        return sent, nan, not_joined, unreachable, nan
+    recv = int((lat["server_receive_time"] != 0).sum())
+    in_network = sent - not_joined - unreachable - recv
+    return sent, recv, not_joined, unreachable, in_network
 
 
 # per-node metric key -> (strip label, value formatter)
@@ -533,12 +546,17 @@ def compute_aggregate(metrics, data, df_dir):
         return out
 
     switch = series_map["parent_switch"]
-    sent, recv = _packet_totals(data)
+    sent, recv, not_joined, unreachable, in_network = _packet_totals(data)
     result = {
         "total": {
             "parent_switch": int(switch.sum()) if len(switch) else None,
             "packets_sent": None if _isnan(sent) else int(sent),
             "packets_received_by_root": None if _isnan(recv) else int(recv),
+            "packets_lost_not_joined": None if _isnan(not_joined) else int(not_joined),
+            "packets_lost_root_unreachable": (
+                None if _isnan(unreachable) else int(unreachable)
+            ),
+            "packets_lost_in_network": None if _isnan(in_network) else int(in_network),
         }
     }
     for name, fn in _AGGREGATIONS.items():
@@ -557,21 +575,18 @@ def render_summary_html(aggregate):
         return items
 
     total = aggregate.get("total", {})
+
+    def _n(key):
+        v = total.get(key)
+        return "n/a" if v is None else str(v)
+
     total_items = [
-        (
-            "Total parent switches",
-            "n/a" if total.get("parent_switch") is None else str(total["parent_switch"]),
-        ),
-        (
-            "Packets sent",
-            "n/a" if total.get("packets_sent") is None else str(total["packets_sent"]),
-        ),
-        (
-            "Packets received by root",
-            "n/a"
-            if total.get("packets_received_by_root") is None
-            else str(total["packets_received_by_root"]),
-        ),
+        ("Total parent switches", _n("parent_switch")),
+        ("Packets sent", _n("packets_sent")),
+        ("Packets received by root", _n("packets_received_by_root")),
+        ("Packets lost (not joined)", _n("packets_lost_not_joined")),
+        ("Packets lost (root unreachable)", _n("packets_lost_root_unreachable")),
+        ("Packets lost (in network)", _n("packets_lost_in_network")),
     ]
 
     strips = [_render_strip("Total", total_items)]

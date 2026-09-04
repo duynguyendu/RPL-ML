@@ -21,6 +21,8 @@ RE_METRICS_LOG = re.compile(
 # LATENCY
 RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+)")
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
+RE_CLIENT_SKIP = re.compile(r"Skipping request '(\d+)': root not (registered|reachable)")
+SKIP_STATUS = {"registered": "not_joined", "reachable": "unreachable"}
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
@@ -92,6 +94,23 @@ def process_log(log_path):
                         "seqno": int(client_send.group(1)),
                         "rtt_ticks": 0,
                         "hop_count": 65535,
+                        "status": "sent",
+                    }
+                )
+                continue
+
+            client_skip = RE_CLIENT_SKIP.match(content)
+            if client_skip:
+                rows_client_send.append(
+                    {
+                        "client_send_time": time_s,
+                        "server_receive_time": 0,
+                        "client_receive_time": 0,
+                        "node_id": node_id,
+                        "seqno": int(client_skip.group(1)),
+                        "rtt_ticks": 0,
+                        "hop_count": 65535,
+                        "status": SKIP_STATUS[client_skip.group(2)],
                     }
                 )
                 continue
