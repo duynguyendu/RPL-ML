@@ -415,22 +415,170 @@ def load_run_config(df_dir):
     return run_cfg
 
 
-def render_run_config_html(run_config):
-    """Render the run config as a header strip for the dashboard."""
-    if not run_config:
-        return ""
-    items = "".join(
-        f'<span style="margin-right:18px;white-space:nowrap;">'
-        f'<b>{k}</b>: {v}</span>'
-        for k, v in run_config.items()
+def _render_strip(title, items, bg="#eef2f7"):
+    """Render one labelled key/value strip for the dashboard header."""
+    body = "".join(
+        f'<span style="margin-right:18px;white-space:nowrap;"><b>{k}</b>: {v}</span>'
+        for k, v in items
     )
     return (
         '<div style="font-family:Arial;font-size:13px;color:#2a3f5f;'
-        'padding:10px 16px;background:#f6f8fa;border-bottom:1px solid #e0e0e0;'
+        f"padding:10px 16px;background:{bg};border-bottom:1px solid #e0e0e0;"
         'display:flex;flex-wrap:wrap;align-items:center;">'
-        '<b style="margin-right:18px;">Run config</b>'
-        f"{items}</div>"
+        f'<b style="margin-right:18px;">{title}</b>'
+        f"{body}</div>"
     )
+
+
+def render_run_config_html(run_config):
+    """Render the run config as the top header strip of the dashboard."""
+    if not run_config:
+        return ""
+    return _render_strip("Run config", list(run_config.items()), bg="#f6f8fa")
+
+
+def _parent_switches_by_node(df_dir):
+    """Parent switches per node as a Series indexed by node_id.
+
+    Each node's first ``parent switch`` log line is its initial DODAG join and
+    is not counted as a switch.
+    """
+    path = os.path.join(df_dir, "dodag.csv")
+    if not os.path.exists(path):
+        return pd.Series(dtype=float)
+    dodag = pd.read_csv(path)
+    if dodag.empty or "node_id" not in dodag:
+        return pd.Series(dtype=float)
+    return (dodag.groupby("node_id").size() - 1).clip(lower=0)
+
+
+def _isnan(v):
+    return isinstance(v, float) and math.isnan(v)
+
+
+def _packet_totals(data):
+    """(packets sent by clients, packets received by the root)."""
+    lat = data.get("latency") if data else None
+    if lat is None or lat.empty:
+        return float("nan"), float("nan")
+    sent = len(lat)
+    if "server_receive_time" not in lat:
+        return sent, float("nan")
+    return sent, int((lat["server_receive_time"] != 0).sum())
+
+
+# per-node metric key -> (strip label, value formatter)
+_SUMMARY_METRICS = {
+    "pdr": ("PDR", lambda v: f"{v * 100:.1f}%"),
+    "latency": ("latency", lambda v: f"{v:.3f} s"),
+    "cpu_util": ("CPU util", lambda v: f"{v:.1f}%"),
+    "parent_switch": (
+        "parent switch",
+        lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
+    ),
+}
+
+# aggregation name -> reducer over a per-node Series. avg/max/min/p95 are shown
+# in the dashboard strips; q1/median/q3 are extra box-plot stats kept only in
+# aggregate.json (consumed by plot_comparison.py's candle charts).
+_AGGREGATIONS = {
+    "min": lambda s: s.min(),
+    "q1": lambda s: s.quantile(0.25),
+    "median": lambda s: s.quantile(0.5),
+    "avg": lambda s: s.mean(),
+    "q3": lambda s: s.quantile(0.75),
+    "p95": lambda s: s.quantile(0.95),
+    "max": lambda s: s.max(),
+}
+
+# subset of _AGGREGATIONS rendered as dashboard header strips, in display order
+_STRIP_AGGREGATIONS = ["avg", "max", "min", "p95"]
+
+
+def _summary_node_series(metrics, df_dir):
+    """Per-node Series for each summary metric, keyed as in ``_SUMMARY_METRICS``."""
+
+    def _col(df, col):
+        if df is None or getattr(df, "empty", True) or col not in df:
+            return pd.Series(dtype=float)
+        return df.set_index("node_id")[col]
+
+    lat = metrics.get("latency_by_node")
+    if lat is None or len(lat) == 0:
+        lat = pd.Series(dtype=float)
+    return {
+        "pdr": _col(metrics.get("pdr"), "pdr"),
+        "latency": lat,
+        "cpu_util": _col(metrics.get("energy", {}).get("cpu"), "cpu_usage"),
+        "parent_switch": _parent_switches_by_node(df_dir),
+    }
+
+
+def compute_aggregate(metrics, data, df_dir):
+    """Per-run summary as a plain (JSON-able) dict.
+
+    ``total`` holds packet / parent-switch counts; the remaining keys
+    (min, q1, median, avg, q3, p95, max) each map every summary metric to that
+    statistic taken across nodes. Metric values are raw numbers -- pdr as a 0..1
+    fraction, latency in seconds, cpu_util in percent, parent_switch as a count
+    -- and missing values are ``None``.
+    """
+    series_map = _summary_node_series(metrics, df_dir)
+
+    def _agg(agg_fn):
+        out = {}
+        for key in _SUMMARY_METRICS:
+            s = series_map[key].dropna()
+            out[key] = None if s.empty else float(agg_fn(s))
+        return out
+
+    switch = series_map["parent_switch"]
+    sent, recv = _packet_totals(data)
+    result = {
+        "total": {
+            "parent_switch": int(switch.sum()) if len(switch) else None,
+            "packets_sent": None if _isnan(sent) else int(sent),
+            "packets_received_by_root": None if _isnan(recv) else int(recv),
+        }
+    }
+    for name, fn in _AGGREGATIONS.items():
+        result[name] = _agg(fn)
+    return result
+
+
+def render_summary_html(aggregate):
+    """Render Total / Avg / Max / Min / P95 header strips from ``compute_aggregate``."""
+
+    def _fmt_row(prefix, values):
+        items = []
+        for key, (label, fmt) in _SUMMARY_METRICS.items():
+            v = values.get(key)
+            items.append((f"{prefix} {label}", "n/a" if v is None else fmt(v)))
+        return items
+
+    total = aggregate.get("total", {})
+    total_items = [
+        (
+            "Total parent switches",
+            "n/a" if total.get("parent_switch") is None else str(total["parent_switch"]),
+        ),
+        (
+            "Packets sent",
+            "n/a" if total.get("packets_sent") is None else str(total["packets_sent"]),
+        ),
+        (
+            "Packets received by root",
+            "n/a"
+            if total.get("packets_received_by_root") is None
+            else str(total["packets_received_by_root"]),
+        ),
+    ]
+
+    strips = [_render_strip("Total", total_items)]
+    for name in _STRIP_AGGREGATIONS:
+        title = name.capitalize()
+        strips.append(_render_strip(title, _fmt_row(title, aggregate.get(name, {}))))
+    return "".join(strips)
 
 
 def plot_topology(df_dir, metrics):
@@ -937,7 +1085,14 @@ def plot_metrics(df_dir: str, output_dir: str):
         fig.update_layout(template=None)
         fig.update_layout(plot_bgcolor="#E5ECF6", paper_bgcolor="white")
 
-    config_html = render_run_config_html(load_run_config(df_dir))
+    aggregate = compute_aggregate(metrics, data, df_dir)
+    with open(os.path.join(output_dir, "aggregate.json"), "w") as f:
+        json.dump(aggregate, f, indent=2)
+    print(f"  Wrote {os.path.join(output_dir, 'aggregate.json')}")
+
+    header_html = render_run_config_html(load_run_config(df_dir)) + render_summary_html(
+        aggregate
+    )
 
     with open(f"{output_dir}/dashboard.html", "w") as f:
         topo_html = figs[0].to_html(
@@ -947,8 +1102,8 @@ def plot_metrics(df_dir: str, output_dir: str):
             post_script=getattr(figs[0], "_topology_post_script", None),
             config=html_config,
         )
-        if config_html:
-            topo_html = topo_html.replace("<body>", f"<body>\n{config_html}", 1)
+        if header_html:
+            topo_html = topo_html.replace("<body>", f"<body>\n{header_html}", 1)
         f.write(topo_html)
         for fig in figs[1:]:
             f.write(
