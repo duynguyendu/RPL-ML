@@ -2,8 +2,7 @@
 # Run pipeline.py for a range of node counts / send rates / objective functions.
 # Up to MAX_PARALLEL runs execute concurrently. Every concurrent run is given its
 # own --build_dir_name (a free "slot") so their firmware build trees never collide.
-set -um  # -m: give each background run its own process group, so it can be
-         # killed as a whole (it plus python3/gradlew/java) when we terminate.
+set -u
 
 MAX_PARALLEL=4
 PLATFORM=cooja
@@ -60,6 +59,26 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+run_job() {
+    local RUN=$1 TOTAL=$2 slot=$3 RPL_OF=$4 NUM_NODES=$5 PPM=$6 SEED=$7 RUN_DIR=$8 PLATFORM=$9
+    SECONDS=0
+    echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED ==="
+    python3 pipeline.py \
+        --duration=1800 \
+        --is_simulate=True \
+        --packet_size=64 \
+        --buffer_size=8 \
+        --rpl_of="$RPL_OF" \
+        --num_of_nodes="$NUM_NODES" \
+        --ppm="$PPM" \
+        --platform="$PLATFORM" \
+        --seed="$SEED" \
+        --base_output_dir="$RUN_DIR" \
+        --build_dir_name="$slot" >/dev/null 2>&1
+    echo "=== [$(date +%T)] DONE  ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED (took $(fmt_dur $SECONDS)) ==="
+}
+export -f run_job fmt_dur
+
 for NUM_NODES in "${NODE_LIST[@]}"; do
     for PPM in "${PPM_LIST[@]}"; do
         for RPL_OF in "${OF_LIST[@]}"; do
@@ -74,23 +93,8 @@ for NUM_NODES in "${NODE_LIST[@]}"; do
                 slot="${FREE_SLOTS[-1]}"
                 FREE_SLOTS=("${FREE_SLOTS[@]:0:${#FREE_SLOTS[@]} - 1}")
 
-                (
-                    SECONDS=0
-                    echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED ==="
-                    python3 pipeline.py \
-                        --duration=1800 \
-                        --is_simulate=True \
-                        --packet_size=64 \
-                        --buffer_size=8 \
-                        --rpl_of="$RPL_OF" \
-                        --num_of_nodes="$NUM_NODES" \
-                        --ppm="$PPM" \
-                        --platform="$PLATFORM" \
-                        --seed="$SEED" \
-                        --base_output_dir="$RUN_DIR" \
-                        --build_dir_name="$slot" >/dev/null 2>&1
-                    echo "=== [$(date +%T)] DONE  ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED (took $(fmt_dur $SECONDS)) ==="
-                ) &
+                setsid bash -c 'run_job "$@"' _ \
+                    "$RUN" "$TOTAL" "$slot" "$RPL_OF" "$NUM_NODES" "$PPM" "$SEED" "$RUN_DIR" "$PLATFORM" &
 
                 SLOT_OF_PID[$!]=$slot
                 (( INFLIGHT++ ))
