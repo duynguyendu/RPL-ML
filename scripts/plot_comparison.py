@@ -41,6 +41,10 @@ def collect_runs(runs_dir: Path) -> list[dict]:
         if cfg.get("num_of_nodes") is None or cfg.get("ppm") is None:
             print(f"  Skipping {run_dir.name}: missing num_of_nodes / ppm")
             continue
+        try:
+            etx = round(1 / (cfg["success_tx"] * cfg["success_rx"]), 2)
+        except (KeyError, TypeError, ZeroDivisionError):
+            etx = None
         runs.append(
             {
                 "run_id": run_dir.name,
@@ -51,11 +55,56 @@ def collect_runs(runs_dir: Path) -> list[dict]:
                 "topo_type": cfg.get("topo_type"),
                 "platform": cfg.get("platform"),
                 "packet_size": cfg.get("packet_size"),
+                "buffer_size": cfg.get("buffer_size"),
                 "duration": cfg.get("duration"),
+                "interference_range": cfg.get("interference_range"),
+                "etx": etx,
                 "agg": {k: agg.get(k, {}) for k in AGGREGATIONS},
             }
         )
     return runs
+
+
+# Config keys not swept by simulate.sh (those are num_of_nodes / ppm / rpl_of /
+# seed, already surfaced by the page's own controls) but still worth knowing
+# at a glance, mirroring dashboard.html's "Run config" strip.
+FIXED_CONFIG_KEYS = [
+    "packet_size",
+    "buffer_size",
+    "duration",
+    "interference_range",
+    "topo_type",
+    "platform",
+    "etx",
+]
+
+
+def compute_fixed_config(runs: list[dict]) -> list[tuple[str, object]]:
+    """Values of FIXED_CONFIG_KEYS, or "mixed" where runs disagree."""
+    items = []
+    for key in FIXED_CONFIG_KEYS:
+        values = {r[key] for r in runs if r.get(key) is not None}
+        if not values:
+            continue
+        items.append((key, values.pop() if len(values) == 1 else "mixed"))
+    return items
+
+
+def _render_strip(title: str, items: list[tuple[str, object]], bg: str = "#f6f8fa") -> str:
+    """Render one labelled key/value strip, styled like dashboard.html's."""
+    if not items:
+        return ""
+    body = "".join(
+        f'<span style="margin-right:18px;white-space:nowrap;"><b>{k}</b>: {v}</span>'
+        for k, v in items
+    )
+    return (
+        '<div style="font-family:Arial;font-size:13px;color:#2a3f5f;'
+        f"padding:10px 16px;background:{bg};border-bottom:1px solid #e0e0e0;"
+        'display:flex;flex-wrap:wrap;align-items:center;">'
+        f'<b style="margin-right:18px;">{title}</b>'
+        f"{body}</div>"
+    )
 
 
 HTML_TEMPLATE = r"""<!doctype html>
@@ -92,6 +141,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   <h1>Metric comparison across runs</h1>
   <div class="meta" id="meta"></div>
 </header>
+__FIXED_CONFIG_HTML__
 <div class="controls">
   <fieldset>
     <legend>View</legend>
@@ -120,7 +170,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 </div>
 <div class="note">3D view: runs sharing a (nodes, PPM) cell are averaged (hover shows
   <code>n</code>); the checkboxes pick which aggregations to plot. Fixed views:
-  a box-and-whisker candle per objective function (two per x value) &ndash; box =
+  a box-and-whisker candle per objective function (one per x value) &ndash; box =
   Q1&ndash;Q3, line = median, whiskers = min/max, dashed = mean; the checkboxes do
   not apply here.</div>
 <div id="charts" class="grid"></div>
@@ -136,9 +186,16 @@ const METRICS = [
 ];
 const AGGS = ['avg','max','min','p95'];          // 3D checkbox traces
 const AGG_COLORS = {avg:'#4363d8', max:'#e6194b', min:'#3cb44b', p95:'#f58231'};
-const RPL_OFS = ['mhrof', 'of0'];
-const OF_COLORS = {mhrof:'#4363d8', of0:'#e6194b'};
-const OF_FILL = {mhrof:'rgba(67,99,216,0.30)', of0:'rgba(230,25,75,0.28)'};
+// Cycled by index rather than keyed by name, so any number of distinct
+// rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
+const OF_PALETTE = [
+  {color:'#4363d8', fill:'rgba(67,99,216,0.30)'},
+  {color:'#e6194b', fill:'rgba(230,25,75,0.28)'},
+  {color:'#3cb44b', fill:'rgba(60,180,75,0.28)'},
+  {color:'#f58231', fill:'rgba(245,130,49,0.28)'},
+  {color:'#911eb4', fill:'rgba(145,30,180,0.28)'},
+  {color:'#46f0f0', fill:'rgba(70,240,240,0.28)'},
+];
 
 const $ = s => document.querySelector(s);
 const uniqNums = a => [...new Set(a)].filter(v => v != null).sort((x, y) => x - y);
@@ -146,6 +203,8 @@ const uniqStrs = a => [...new Set(a)].filter(v => v != null).sort();
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 const allNodes = () => uniqNums(RUNS.map(r => r.num_of_nodes));
 const allPpms = () => uniqNums(RUNS.map(r => r.ppm));
+const RPL_OFS = uniqStrs(RUNS.map(r => r.rpl_of));
+const ofStyle = of_ => OF_PALETTE[RPL_OFS.indexOf(of_) % OF_PALETTE.length];
 
 function init(){
   if(!RUNS.length){ $('#charts').hidden = true; $('#empty').hidden = false; return; }
@@ -280,7 +339,7 @@ function fixedXs(m, fixedVal){
   return uniqNums(RUNS.filter(inScope).map(r => r[freeKey]));
 }
 
-// one box-and-whisker candle per objective function, grouped 2-per-x-value.
+// one box-and-whisker candle per objective function, grouped per-x-value.
 // Box = Q1..Q3, line = median, whiskers = min/max, dashed = mean. Runs that
 // share the same (fixed value, free value, OF) are averaged stat-by-stat.
 function tracesCandle(metric, m, fixedVal){
@@ -304,13 +363,14 @@ function tracesCandle(metric, m, fixedVal){
       lo.push(s[0]); q1.push(s[1]); med.push(s[2]); q3.push(s[3]); hi.push(s[4]); mn.push(s[5]);
     }
     if(!xArr.length) continue;
+    const style = ofStyle(of_);
     out.push({
       type:'box', name:of_, x:xArr,
       lowerfence:lo, q1:q1, median:med, q3:q3, upperfence:hi, mean:mn,
       boxmean:true, whiskerwidth:0.5,
-      marker:{color:OF_COLORS[of_]},
-      line:{color:OF_COLORS[of_], width:1.5},
-      fillcolor:OF_FILL[of_],
+      marker:{color:style.color},
+      line:{color:style.color, width:1.5},
+      fillcolor:style.fill,
     });
   }
   return out;
@@ -378,9 +438,11 @@ init();
 
 
 def build_html(runs: list[dict], plotly_src: str) -> str:
+    fixed_config_html = _render_strip("Fixed config", compute_fixed_config(runs))
     return (
         HTML_TEMPLATE.replace("__TITLE__", "Metric comparison across runs")
         .replace("__PLOTLY_SRC__", plotly_src)
+        .replace("__FIXED_CONFIG_HTML__", fixed_config_html)
         .replace("__RUNS_JSON__", json.dumps(runs).replace("</", "<\\/"))
     )
 

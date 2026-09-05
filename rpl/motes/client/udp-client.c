@@ -19,15 +19,7 @@
 #define RAMP_UP_DURATION 60
 #endif
 
-#ifdef PPM
-#define SEND_RATE (60 / PPM)
-#endif
-
-#ifndef SEND_RATE
-#define SEND_RATE 30
-#endif
-
-#define SEND_TICK (SEND_RATE * CLOCK_SECOND)
+#define SEND_TICK (60 * CLOCK_SECOND / PPM)
 
 #define MAX_PENDING 10
 
@@ -85,7 +77,7 @@ PROCESS_THREAD(udp_client_process, ev, data) {
   metrics_start();
 #endif
 
-  etimer_set(&periodic_timer, (random_rand() % SEND_RATE) * CLOCK_SECOND);
+  etimer_set(&periodic_timer, (random_rand() % SEND_TICK));
   while (1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
