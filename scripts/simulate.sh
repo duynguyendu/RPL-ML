@@ -2,7 +2,8 @@
 # Run pipeline.py for a range of node counts / send rates / objective functions.
 # Up to MAX_PARALLEL runs execute concurrently. Every concurrent run is given its
 # own --build_dir_name (a free "slot") so their firmware build trees never collide.
-set -u
+set -um  # -m: give each background run its own process group, so it can be
+         # killed as a whole (it plus python3/gradlew/java) when we terminate.
 
 MAX_PARALLEL=4
 PLATFORM=cooja
@@ -39,6 +40,25 @@ reclaim() {                                    # return a finished pid's slot to
     unset 'SLOT_OF_PID[$pid]'
     (( INFLIGHT-- ))
 }
+
+# Ctrl+C (or a kill/TERM of this script) only signals simulate.sh itself -
+# background jobs aren't in its foreground process group, so they'd otherwise
+# keep running as orphans. Forward the signal to each job's whole process
+# group (negative pid) instead, so pipeline.py/gradlew/java all die with us.
+cleanup() {
+    trap - INT TERM                            # don't re-enter on a second signal
+    echo
+    echo "=== Interrupted: terminating ${#SLOT_OF_PID[@]} in-flight run(s) ==="
+    for pid in "${!SLOT_OF_PID[@]}"; do
+        kill -TERM -- "-$pid" 2>/dev/null
+    done
+    sleep 2
+    for pid in "${!SLOT_OF_PID[@]}"; do
+        kill -KILL -- "-$pid" 2>/dev/null
+    done
+    exit 130
+}
+trap cleanup INT TERM
 
 for NUM_NODES in "${NODE_LIST[@]}"; do
     for PPM in "${PPM_LIST[@]}"; do

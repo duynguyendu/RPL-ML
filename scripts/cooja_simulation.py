@@ -18,6 +18,8 @@ def simulate_csc(csc_file: str, cooja_base: str, output_dir: str | None = None) 
     subprocess.run(
         [
             "./gradlew",
+            "--no-daemon",  # keep the build's JVM in our process group so a
+                            # kill of the parent script actually terminates it
             "run",
             f"--args=--no-gui {csc_file} --logdir={output_dir}",
         ],
