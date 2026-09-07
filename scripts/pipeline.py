@@ -7,7 +7,7 @@ from parse_cooja_log import parse_log
 from plot_metrics import plot_metrics
 from topology_generator import generate_topology
 
-# from ..models.train import train_model
+# from models.train import train_model
 
 
 def pipeline() -> None:
