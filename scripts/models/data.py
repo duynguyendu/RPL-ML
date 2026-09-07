@@ -19,6 +19,8 @@ import pandas as pd
 # TODO: if comparing between current parent and potential parent should take it's current load affecting parent's CPU into account
 # TODO: number of successful transmit per dropped packet, should be weighted when changing parents
 # TODO: let's include RSSI
+# TODO: how to process missing data
+# TODO: parent switch since when
 FEATURE_COLUMNS = ["etx", "hop_count", "ppm", "cpu_util", "num_neighbours"]
 LABEL_COLUMN = "pdr"
 
