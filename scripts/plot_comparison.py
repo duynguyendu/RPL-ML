@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 from pathlib import Path
 
-import plotly
+from plotly_utils import plotly_src
 
 # statistics kept per metric in aggregate.json (written by plot_metrics.py)
 AGGREGATIONS = ["min", "q1", "median", "avg", "q3", "p95", "max"]
@@ -437,11 +436,11 @@ init();
 """
 
 
-def build_html(runs: list[dict], plotly_src: str) -> str:
+def build_html(runs: list[dict], plotly_js_src: str) -> str:
     fixed_config_html = _render_strip("Fixed config", compute_fixed_config(runs))
     return (
         HTML_TEMPLATE.replace("__TITLE__", "Metric comparison across runs")
-        .replace("__PLOTLY_SRC__", plotly_src)
+        .replace("__PLOTLY_SRC__", plotly_js_src)
         .replace("__FIXED_CONFIG_HTML__", fixed_config_html)
         .replace("__RUNS_JSON__", json.dumps(runs).replace("</", "<\\/"))
     )
@@ -469,13 +468,7 @@ def main() -> None:
     print(f"Collected {len(runs)} run(s) with aggregate.json from {args.runs_dir}/")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    plotly_src = "https://cdn.plot.ly/plotly-2.35.2.min.js"
-    bundled = Path(plotly.__file__).parent / "package_data" / "plotly.min.js"
-    if bundled.exists():
-        shutil.copy(bundled, out_path.parent / "plotly.min.js")
-        plotly_src = "plotly.min.js"
-
-    out_path.write_text(build_html(runs, plotly_src))
+    out_path.write_text(build_html(runs, plotly_src(out_path.parent)))
     print(f"Wrote {out_path}")
 
 

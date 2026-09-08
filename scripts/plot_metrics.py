@@ -4,13 +4,12 @@ import argparse
 import json
 import math
 import os
-import shutil
 
 import duckdb
 import pandas as pd
-import plotly
 import plotly.graph_objects as go
 
+from plotly_utils import plotly_src
 from topology_utils import build_connectivity_graph
 
 pd.options.plotting.backend = "plotly"
@@ -1112,7 +1111,7 @@ def plot_metrics(df_dir: str, output_dir: str):
     with open(f"{output_dir}/dashboard.html", "w") as f:
         topo_html = figs[0].to_html(
             full_html=True,
-            include_plotlyjs="directory",
+            include_plotlyjs=plotly_src(output_dir),
             div_id="topology_plot",
             post_script=getattr(figs[0], "_topology_post_script", None),
             config=html_config,
@@ -1128,11 +1127,6 @@ def plot_metrics(df_dir: str, output_dir: str):
                     config=html_config,
                 )
             )
-    plotly_js = os.path.join(
-        os.path.dirname(plotly.__file__), "package_data", "plotly.min.js"
-    )
-    if os.path.exists(plotly_js):
-        shutil.copy(plotly_js, os.path.join(output_dir, "plotly.min.js"))
     print("\nDone.")
 
 
