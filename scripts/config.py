@@ -5,6 +5,7 @@ from pathlib import Path
 # pipeline config
 is_generate_topology = True
 is_simulate = True
+is_parse_log = True
 is_plot_metrics = True
 is_train_model = False
 

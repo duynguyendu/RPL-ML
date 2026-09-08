@@ -16,7 +16,7 @@ RE_DODAG_PARENT = re.compile(
 # ENERGEST
 RE_METRICS_LOG = re.compile(
     r"^ENERGEST: CPU=(\d+) LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) ENERGY_COMP=(\d+)uA HOP_COUNT=(\d+) "
-    r"ETX=(\d+\.\d{2}) RSSI=(-?\d+) TX=\d+ RX=\d+ ACKED=\d+ DROPPED=(\d+)"
+    r"ETX=(\d+\.\d{2}) RSSI=(-?\d+) TX=(\d+) RX=(\d+) ACKED=(\d+) DROPPED=(\d+)"
 )
 
 # LATENCY
@@ -81,7 +81,10 @@ def process_log(log_path):
                         "hop_count": int(metrics.group(8)),
                         "etx": float(metrics.group(9)),
                         "rssi": int(metrics.group(10)),
-                        "dropped": int(metrics.group(11)),
+                        "tx_packets": int(metrics.group(11)),
+                        "rx_packets": int(metrics.group(12)),
+                        "acked_packets": int(metrics.group(13)),
+                        "dropped_packets": int(metrics.group(14)),
                     }
                 )
                 continue

@@ -9,7 +9,7 @@
 set -u
 
 LABEL="${1:-}"
-MAX_PARALLEL=1
+MAX_PARALLEL=8
 PLATFORM=z1
 
 NODE_LIST=(30 60)
@@ -25,7 +25,8 @@ MIN_RATE=$(printf '%s\n' "${PPM_LIST[@]}" | sort -n | head -1)
 
 # Every run from this invocation is written under its own timestamped directory
 # instead of the default runs/ so different simulate.sh sweeps never mix.
-RUN_DIR="runs/sim_${PLATFORM}_n${MAX_NODES}_ppm${MIN_RATE}_buffer${BUFFER_SIZE}${LABEL:+_$LABEL}_$(date +%Y%m%d_%H%M%S)"
+# RUN_DIR="runs/sim_${PLATFORM}_n${MAX_NODES}_ppm${MIN_RATE}_buffer${BUFFER_SIZE}${LABEL:+_$LABEL}_$(date +%Y%m%d_%H%M%S)"
+RUN_DIR="./runs/done_sim_z1_n60_ppm15_buffer8_20260908_100656"
 mkdir -p "$RUN_DIR"
 echo "=== Writing runs to $RUN_DIR ==="
 
@@ -71,7 +72,10 @@ run_job() {
     echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED ==="
     python3 pipeline.py \
         --duration=1800 \
-        --is_simulate=True \
+        --is_simulate=False \
+        --is_generate_topology=False \
+        --is_plot_metrics=False \
+        --is_simulate=False \
         --packet_size=64 \
         --buffer_size="$BUFFER_SIZE" \
         --rpl_of="$RPL_OF" \

@@ -56,8 +56,10 @@ def pipeline() -> None:
             output_dir=output_dir,
         )
 
-    if config.is_plot_metrics:
+    if config.is_parse_log:
         parse_log(log_dir=output_dir, output_dir=output_dir)
+
+    if config.is_plot_metrics:
         plot_metrics(df_dir=output_dir, output_dir=output_dir)
 
     print(f"{run_id}")
