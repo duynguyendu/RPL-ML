@@ -9,8 +9,8 @@ import pandas as pd
 
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 RE_MLOF_METRICS = re.compile(
-    r"^\[PRI : RPL       \] MLOF metrics: is_new=(\d+) cpu=(\d+) p_cpu=(\d+) "
-    r"etx=(\d+) rssi=(-?\d+) ppm=(\d+) drop_rate=(\d+) hop_count=(\d+) "
+    r"^\[PRI : RPL       \] MLOF metrics: is_new=(\d+) parent_id=(\d+) cpu=(\d+) "
+    r"p_cpu=(\d+) etx=(\d+) rssi=(-?\d+) ppm=(\d+) drop_rate=(\d+) hop_count=(\d+) "
     r"nbr_count=(\d+)"
 )
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
@@ -72,14 +72,15 @@ def _parse_log(log_path: Path):
                         "time_s": time_s,
                         "node_id": node_id,
                         "is_new": int(mlof.group(1)),
-                        "cpu": int(mlof.group(2)),
-                        "p_cpu": int(mlof.group(3)),
-                        "etx": int(mlof.group(4)),
-                        "rssi": int(mlof.group(5)),
-                        "ppm": int(mlof.group(6)),
-                        "drop_rate": int(mlof.group(7)),
-                        "hop_count": int(mlof.group(8)),
-                        "nbr_count": int(mlof.group(9)),
+                        "parent_id": int(mlof.group(2)),
+                        "cpu": int(mlof.group(3)),
+                        "p_cpu": int(mlof.group(4)),
+                        "etx": int(mlof.group(5)),
+                        "rssi": int(mlof.group(6)),
+                        "ppm": int(mlof.group(7)),
+                        "drop_rate": int(mlof.group(8)),
+                        "hop_count": int(mlof.group(9)),
+                        "nbr_count": int(mlof.group(10)),
                     }
                 )
                 continue
@@ -120,6 +121,7 @@ def _chunk_pdr(
 
 _OUTPUT_COLUMNS = [
     "node_id",
+    "parent_id",
     "chunk_start",
     "chunk_end",
     "chunk_duration",
@@ -159,6 +161,7 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
             rows.append(
                 {
                     "node_id": node_id,
+                    "parent_id": row["parent_id"],
                     "chunk_start": chunk_start,
                     "chunk_end": chunk_end,
                     "chunk_duration": chunk_end - chunk_start,
