@@ -34,6 +34,8 @@ num_leaves = 31
 min_child_samples = 20
 min_split_gain = 0.0
 max_depth = -1
+n_jobs = -1
+lgbm_n_jobs = 1
 
 param_grid = {
     "n_estimators": [50, 100, 200],

@@ -28,11 +28,13 @@ def grid_search() -> list[dict]:
         raise ValueError(f"No rows with a labeled {LABEL_COLUMN} in {train_csv}")
     y = df[LABEL_COLUMN]
 
-    cv = ShuffleSplit(n_splits=len(train_config.seeds), test_size=test_size, random_state=0)
+    cv = ShuffleSplit(
+        n_splits=len(train_config.seeds), test_size=test_size, random_state=0
+    )
     hyperparam_names = list(train_config.param_grid.keys())
 
     results = []
-    for num_included in range(1, len(FEATURE_COLUMNS) + 1):
+    for num_included in range(4, len(FEATURE_COLUMNS) + 1):
         for included_features in combinations(FEATURE_COLUMNS, num_included):
             included_features = list(included_features)
             X = df[included_features]
@@ -44,16 +46,21 @@ def grid_search() -> list[dict]:
                     bagging_fraction=0.8,
                     bagging_freq=1,
                     random_state=0,
+                    n_jobs=train_config.lgbm_n_jobs,
                 ),
                 train_config.param_grid,
                 scoring="neg_mean_absolute_error",
                 cv=cv,
+                n_jobs=train_config.n_jobs,
             )
             search.fit(X, y)
 
             avg_mae = -search.best_score_
             avg_importance = dict(
-                zip(included_features, search.best_estimator_.feature_importances_.tolist())
+                zip(
+                    included_features,
+                    search.best_estimator_.feature_importances_.tolist(),
+                )
             )
             results.append(
                 {
