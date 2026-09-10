@@ -46,6 +46,7 @@ def process_log(log_path):
     rows_metrics = []
     rows_dodag = []
     rows_client_send = []
+    send_by_node_seqno = {}
 
     with open(log_path) as fh:
         for raw in fh:
@@ -94,44 +95,42 @@ def process_log(log_path):
 
             client_send = RE_CLIENT_SEND.match(content)
             if client_send:
-                rows_client_send.append(
-                    {
-                        "client_send_time": time_s,
-                        "server_receive_time": 0,
-                        "client_receive_time": 0,
-                        "node_id": node_id,
-                        "seqno": int(client_send.group(1)),
-                        "rtt_ticks": 0,
-                        "hop_count": 65535,
-                        "status": "sent",
-                    }
-                )
+                seqno = int(client_send.group(1))
+                row = {
+                    "client_send_time": time_s,
+                    "server_receive_time": 0,
+                    "client_receive_time": 0,
+                    "node_id": node_id,
+                    "seqno": seqno,
+                    "rtt_ticks": 0,
+                    "hop_count": 65535,
+                    "status": "sent",
+                }
+                rows_client_send.append(row)
+                send_by_node_seqno[(node_id, seqno)] = row
                 continue
 
             client_skip = RE_CLIENT_SKIP.match(content)
             if client_skip:
-                rows_client_send.append(
-                    {
-                        "client_send_time": time_s,
-                        "server_receive_time": 0,
-                        "client_receive_time": 0,
-                        "node_id": node_id,
-                        "seqno": int(client_skip.group(1)),
-                        "rtt_ticks": 0,
-                        "hop_count": 65535,
-                        "status": SKIP_STATUS[client_skip.group(2)],
-                    }
-                )
+                seqno = int(client_skip.group(1))
+                row = {
+                    "client_send_time": time_s,
+                    "server_receive_time": 0,
+                    "client_receive_time": 0,
+                    "node_id": node_id,
+                    "seqno": seqno,
+                    "rtt_ticks": 0,
+                    "hop_count": 65535,
+                    "status": SKIP_STATUS[client_skip.group(2)],
+                }
+                rows_client_send.append(row)
+                send_by_node_seqno[(node_id, seqno)] = row
                 continue
 
             latency = RE_LATENCY_LOG.match(content)
             if latency:
                 seqno = int(latency.group(1))
-                row = [
-                    item
-                    for item in rows_client_send
-                    if item["node_id"] == node_id and item["seqno"] == seqno
-                ][0]
+                row = send_by_node_seqno[(node_id, seqno)]
                 row["rtt_ticks"] = int(latency.group(2))
                 continue
 
@@ -139,23 +138,14 @@ def process_log(log_path):
             if server_receive:
                 node_id_from_log = int(server_receive.group(2).split(":")[5], 16)
                 seqno = int(server_receive.group(1))
-                row = [
-                    item
-                    for item in rows_client_send
-                    if item["node_id"] == node_id_from_log and item["seqno"] == seqno
-                ]
-                row = row[0]
+                row = send_by_node_seqno[(node_id_from_log, seqno)]
                 row["server_receive_time"] = time_s
                 continue
 
             client_receive = RE_CLIENT_RECEIVE.match(content)
             if client_receive:
                 seqno = int(client_receive.group(2))
-                row = [
-                    item
-                    for item in rows_client_send
-                    if item["node_id"] == node_id and item["seqno"] == seqno
-                ][0]
+                row = send_by_node_seqno[(node_id, seqno)]
                 row["client_receive_time"] = time_s
                 row["hop_count"] = int(client_receive.group(1))
                 continue

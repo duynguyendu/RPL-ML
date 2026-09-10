@@ -1,460 +1,202 @@
-"""Feature/label schema and training-data gathering for the PDR-predicting
-LightGBM model used by the "mlof" RPL objective function (see
-rpl/contiki-ng/os/net/routing/rpl-lite/rpl-mlof.c).
-
-Each training row is one (node, time chunk) within one run: the node's
-link/system state averaged over that chunk, paired with the PDR it achieved
-during it.
-
-Chunking (per node, per run): a chunk starts at every parent switch (each
-dodag.csv row) and is split into consecutive <=MAX_CHUNK_SECONDS sub-chunks;
-the last interval in a run runs to config["duration"] + config["ramp_up_duration"].
-The ramp-up period (config["ramp_up_duration"]) is excluded, since network
-formation then isn't representative of steady-state behavior. Chunks shorter
-than config["metric_log_interval"] (the mote's metrics.c log period, in
-seconds) are dropped, since they're too narrow to reliably contain even one
-metrics.csv row.
-
-# TODO: missing/invalid data (NaN) is left unhandled -- see _own_metrics(),
-# _node_chunk_features() and _chunk_pdr() for where/why NaNs occur. Decide
-# drop vs. impute vs. something else before training on this.
-# TODO: metrics.c leaves etx/rssi at raw sentinel values (etx ~4.29e9, rssi
-# -1) and packet counters at 0 when a node has no preferred parent --
-# confirmed on 46% of metrics.csv rows in one real run, corrupting every
-# own-node feature (and _window_delta() packet counts) whenever it lands in
-# a chunk's window. Left unresolved.
-# TODO: parent comparison should account for the load switching would add to
-# the potential parent's CPU.
-# TODO: track how long the current parent has been held.
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-RAW_CSV_NAMES = ["dodag.csv", "latency.csv", "metrics.csv"]
+LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
+RE_MLOF_METRICS = re.compile(
+    r"^\[PRI : RPL       \] MLOF metrics: is_new=(\d+) cpu=(\d+) p_cpu=(\d+) "
+    r"etx=(\d+) rssi=(-?\d+) ppm=(\d+) drop_rate=(\d+) hop_count=(\d+) "
+    r"nbr_count=(\d+)"
+)
+RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
+RE_CLIENT_SKIP = re.compile(
+    r"Skipping request '(\d+)': root not (registered|reachable)"
+)
+RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
 FEATURE_COLUMNS = [
+    "is_new",
+    "cpu",
+    "p_cpu",
     "etx",
-    "hop_count",
-    "ppm",
-    "cpu_util",
-    "parent_cpu_util",
     "rssi",
-    "tx_packets",
-    "acked_packets",
-    "dropped_packets",
+    "ppm",
+    "drop_rate",
+    "hop_count",
+    "nbr_count",
 ]
 LABEL_COLUMN = "pdr"
-MAX_CHUNK_SECONDS = 60.0
-# Fallback for config.json files predating metric_log_interval; matches
-# metrics.c's own default (see rpl/motes/client/metrics.c's METRIC_LOG_INTERVAL).
-DEFAULT_METRIC_LOG_INTERVAL = 10.0
+
+MIN_CHUNK_SECONDS = 15.0
+
+# TODO: missing/invalid data. metrics.c/rpl-mlof.c report deliberate sentinel
+# values instead of NaN, and this file doesn't currently detect or filter
+# them:
+#   - cpu/p_cpu: 255 means unknown (the capped max is 254). Own cpu is never
+#     255, but p_cpu was 255 in ~33% of MLOF log lines in one real run.
+#   - etx/rssi/ppm: 32767 means unknown (no parent yet, the parent's own
+#     value is itself unknown, or -- for ppm -- the 30s traffic window
+#     hasn't elapsed since the last parent change/counter wrap). etx=32767
+#     in ~1% of MLOF log lines in that run.
+#   - drop_rate: 255 means unknown, same conditions as ppm; ~82% of MLOF log
+#     lines in that run.
+#   - hop_count: 255 means unknown/no parent.
+# Also, "MLOF metrics: null parent" lines (no preferred parent at all -- 293
+# in that run) are skipped entirely, so a chunk boundary can silently span a
+# period where the node had no parent.
 
 
-def _chunk_bounds(
-    start: float, end: float, max_len: float
-) -> list[tuple[float, float]]:
-    """Split [start, end) into consecutive max_len-wide windows (a shorter
-    final window covers the remainder)."""
-    bounds = []
-    t = start
-    while t < end:
-        t2 = min(t + max_len, end)
-        bounds.append((t, t2))
-        t = t2
-    return bounds
+def _parse_log(log_path: Path):
+    rows_mlof = []
+    rows_send = []
+    rows_recv = []
+
+    with open(log_path) as fh:
+        for raw in fh:
+            m = LINE_RE.match(raw.rstrip("\n"))
+            if not m:
+                continue
+            time_s = int(m.group(1)) / 1_000_000.0
+            node_id = int(m.group(2))
+            content = m.group(3)
+
+            mlof = RE_MLOF_METRICS.match(content)
+            if mlof:
+                rows_mlof.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "is_new": int(mlof.group(1)),
+                        "cpu": int(mlof.group(2)),
+                        "p_cpu": int(mlof.group(3)),
+                        "etx": int(mlof.group(4)),
+                        "rssi": int(mlof.group(5)),
+                        "ppm": int(mlof.group(6)),
+                        "drop_rate": int(mlof.group(7)),
+                        "hop_count": int(mlof.group(8)),
+                        "nbr_count": int(mlof.group(9)),
+                    }
+                )
+                continue
+
+            send = RE_CLIENT_SEND.match(content)
+            if send:
+                rows_send.append({"time_s": time_s, "node_id": node_id})
+                continue
+
+            skip = RE_CLIENT_SKIP.match(content)
+            if skip:
+                rows_send.append({"time_s": time_s, "node_id": node_id})
+                continue
+
+            recv = RE_CLIENT_RECEIVE.match(content)
+            if recv:
+                rows_recv.append({"time_s": time_s, "node_id": node_id})
+                continue
+
+    return pd.DataFrame(rows_mlof), pd.DataFrame(rows_send), pd.DataFrame(rows_recv)
 
 
-def _window_delta(rows: pd.DataFrame, col: str) -> float:
-    """Change in rows[col] over the window (last row minus first row), rather
-    than its raw cumulative-since-boot magnitude. NaN if fewer than two rows
-    fall in the window."""
-    if len(rows) < 2:
-        return float("nan")
-    return float(rows[col].iloc[-1] - rows[col].iloc[0])
+def _window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:
+    if df.empty:
+        return df
+    return df[(df["time_s"] >= start) & (df["time_s"] < end)]
 
 
-def _cpu_util_delta(rows: pd.DataFrame) -> float:
-    """CPU utilization (%) during the rows' span: delta(cpu_ticks) /
-    delta(total_ticks) * 100, matching rpl-mlof.c's on-mote
-    cpu_usage_percent(). NaN if fewer than two rows fall in the window, or
-    ticks don't advance."""
-    delta_cpu = _window_delta(rows, "cpu_ticks")
-    delta_total = _window_delta(rows, "total_ticks")
-    if pd.isna(delta_total) or delta_total <= 0:
-        return float("nan")
-    return delta_cpu / delta_total * 100
-
-
-def _window(
-    df: pd.DataFrame, start: float, end: float, col: str = "time_s"
-) -> pd.DataFrame:
-    """Rows of df (already filtered to one node_id) with df[col] in [start, end)."""
-    return df[(df[col] >= start) & (df[col] < end)]
-
-
-def _own_metrics(own_rows: pd.DataFrame) -> dict:
-    """etx/hop_count/rssi (mean) and tx_packets/acked_packets/dropped_packets
-    (delta over the window, see _window_delta()) from one node's own
-    metrics.csv rows, already filtered to one chunk window. NaN wherever the
-    node has no metrics.csv rows in that window; does not include cpu_util
-    (see _node_chunk_features() / add_metrics())."""
-
-    def _mean(col):
-        return float(own_rows[col].mean()) if len(own_rows) else float("nan")
-
-    return {
-        "etx": _mean("etx"),
-        "hop_count": _mean("hop_count"),
-        "rssi": _mean("rssi"),
-        # Cumulative-since-boot, per-preferred-parent link_stats counters
-        # (see rpl/motes/client/metrics.c), delta'd to this chunk's own
-        # contribution -- safe since callers scope own_rows to one parent
-        # interval (see build_chunks()), so the delta never crosses a switch.
-        "tx_packets": _window_delta(own_rows, "tx_packets"),
-        "acked_packets": _window_delta(own_rows, "acked_packets"),
-        "dropped_packets": _window_delta(own_rows, "dropped_packets"),
-    }
-
-
-def _node_chunk_features(
-    metrics_by_node: dict, node_id: int, parent_id: int, start: float, end: float
-) -> dict:
-    """_own_metrics() for node_id, plus cpu_util/parent_cpu_util (delta'd
-    over [start, end), see _cpu_util_delta()). parent_cpu_util is 0 rather
-    than NaN when unknown (e.g. the parent is the root, which never logs
-    metrics, or has too few rows in the window)."""
-    own = metrics_by_node.get(node_id)
-    own_rows = _window(own, start, end) if own is not None else pd.DataFrame()
-    parent = metrics_by_node.get(parent_id)
-    parent_rows = _window(parent, start, end) if parent is not None else pd.DataFrame()
-
-    # TODO: parent CPU util should be weighted for the whole path
-    parent_cpu_util = _cpu_util_delta(parent_rows)
-    if pd.isna(parent_cpu_util):
-        parent_cpu_util = 0.0
-
-    return {
-        **_own_metrics(own_rows),
-        "cpu_util": _cpu_util_delta(own_rows),
-        "parent_cpu_util": parent_cpu_util,
-    }
-
-
-def _chunk_pdr(latency_node: pd.DataFrame, start: float, end: float) -> float:
-    """PDR over [start, end): received / sent, bucketed by client_send_time
-    (mirrors plot_metrics.py's compute_pdr(), applied per chunk). NaN if
-    nothing was sent in the window (0/0)."""
-    rows = _window(latency_node, start, end, col="client_send_time")
-    sent = len(rows)
+def _chunk_pdr(
+    send_node: pd.DataFrame, recv_node: pd.DataFrame, start: float, end: float
+) -> float:
+    sent = len(_window(send_node, start, end))
     if sent == 0:
         return float("nan")
-    received = int((rows["server_receive_time"] != 0).sum())
-    return received / sent
+    received = len(_window(recv_node, start, end))
+    return received / sent * 100
+
+
+_OUTPUT_COLUMNS = [
+    "node_id",
+    "chunk_start",
+    "chunk_end",
+    "chunk_duration",
+    *FEATURE_COLUMNS,
+    LABEL_COLUMN,
+]
 
 
 def build_chunks(run_dir: Path) -> pd.DataFrame:
-    """Build the (node, chunk) boundary table for one run: parent held plus
-    chunk start/end/duration (see the module docstring for the chunking
-    rule), from dodag.csv + config.json only -- no etx/cpu_util/rssi/pdr yet
-    (see _gather_run(), which layers those on top).
-
-    Rows carry no run_id; callers tracing a chunk back to its run (e.g.
-    gather_chunks()) should attach one themselves (e.g. run_dir.name).
-    """
     with open(run_dir / "config.json") as fh:
         cfg = json.load(fh)
     ramp_up_end = cfg["ramp_up_duration"]
     run_end = cfg["duration"] + ramp_up_end
-    min_chunk_seconds = cfg.get("metric_log_interval", DEFAULT_METRIC_LOG_INTERVAL)
 
-    dodag = pd.read_csv(run_dir / "dodag.csv")
+    mlof, send, recv = _parse_log(run_dir / "COOJA.testlog")
+    if mlof.empty:
+        return pd.DataFrame(columns=_OUTPUT_COLUMNS)
 
     rows = []
-    for node_id, switches in dodag.groupby("node_id"):
-        switches = switches.sort_values("time_s")
-        starts = switches["time_s"].tolist()
-        parents = switches["parent_id"].tolist()
+    for node_id, node_rows in mlof.groupby("node_id"):
+        node_rows = node_rows.sort_values("time_s").reset_index(drop=True)
+        send_node = send[send["node_id"] == node_id] if not send.empty else send
+        recv_node = recv[recv["node_id"] == node_id] if not recv.empty else recv
 
-        for i, (interval_start, parent_id) in enumerate(zip(starts, parents)):
-            interval_end = starts[i + 1] if i + 1 < len(starts) else run_end
-            interval_start = max(interval_start, ramp_up_end)
-            if interval_end <= interval_start:
+        for i in range(len(node_rows)):
+            row = node_rows.iloc[i]
+            chunk_start = row["time_s"]
+            if i + 1 < len(node_rows):
+                chunk_end = node_rows.iloc[i + 1]["time_s"]
+            else:
+                chunk_end = run_end
+
+            chunk_start = max(chunk_start, ramp_up_end)
+            if chunk_end - chunk_start < MIN_CHUNK_SECONDS:
                 continue
-            for chunk_start, chunk_end in _chunk_bounds(
-                interval_start, interval_end, MAX_CHUNK_SECONDS
-            ):
-                if chunk_end - chunk_start < min_chunk_seconds:
-                    continue
-                rows.append(
-                    {
-                        "node_id": node_id,
-                        "parent_id": parent_id,
-                        "chunk_start": chunk_start,
-                        "chunk_end": chunk_end,
-                        "chunk_duration": chunk_end - chunk_start,
-                    }
-                )
 
-    return pd.DataFrame(rows)
-
-
-def add_metrics(chunks: pd.DataFrame, run_dir: Path) -> pd.DataFrame:
-    """Merge each chunk's own-node and parent metrics.csv stats onto chunks
-    (as returned by build_chunks()) -- see _node_chunk_features() for how
-    etx/hop_count/rssi/cpu_util/parent_cpu_util/tx_packets/acked_packets/
-    dropped_packets are computed."""
-    metric_cols = [
-        "etx",
-        "hop_count",
-        "rssi",
-        "tx_packets",
-        "acked_packets",
-        "dropped_packets",
-        "cpu_util",
-        "parent_cpu_util",
-    ]
-    if chunks.empty:
-        return chunks.assign(**{col: pd.Series(dtype=float) for col in metric_cols})
-
-    metrics = pd.read_csv(run_dir / "metrics.csv")
-    metrics_by_node = {
-        node_id: grp.sort_values("time_s") for node_id, grp in metrics.groupby("node_id")
-    }
-
-    def _row_metrics(row) -> pd.Series:
-        return pd.Series(
-            _node_chunk_features(
-                metrics_by_node, row.node_id, row.parent_id, row.chunk_start, row.chunk_end
+            rows.append(
+                {
+                    "node_id": node_id,
+                    "chunk_start": chunk_start,
+                    "chunk_end": chunk_end,
+                    "chunk_duration": chunk_end - chunk_start,
+                    **{col: row[col] for col in FEATURE_COLUMNS},
+                    "pdr": _chunk_pdr(send_node, recv_node, chunk_start, chunk_end),
+                }
             )
-        )
 
-    return pd.concat(
-        [chunks.reset_index(drop=True), chunks.apply(_row_metrics, axis=1)], axis=1
-    )
-
-
-def add_pdr(chunks: pd.DataFrame, run_dir: Path) -> pd.DataFrame:
-    """Merge each chunk's PDR (see _chunk_pdr()) from latency.csv onto
-    chunks (as returned by build_chunks() / add_metrics())."""
-    if chunks.empty:
-        return chunks.assign(pdr=pd.Series(dtype=float))
-
-    latency = pd.read_csv(run_dir / "latency.csv")
-    latency_by_node = {
-        node_id: grp.sort_values("client_send_time")
-        for node_id, grp in latency.groupby("node_id")
-    }
-
-    def _row_pdr(row) -> float:
-        latency_node = latency_by_node.get(row.node_id)
-        if latency_node is None:
-            return float("nan")
-        return _chunk_pdr(latency_node, row.chunk_start, row.chunk_end)
-
-    return chunks.assign(pdr=chunks.apply(_row_pdr, axis=1))
+    return pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
 
 
 def find_dirs_with_data(data_dir: Path):
-    """Immediate subdirectories of data_dir with dodag.csv, config.json,
-    metrics.csv and latency.csv -- everything build_chunks() + add_metrics()
-    + add_pdr() need."""
-    needed = ["dodag.csv", "config.json", "metrics.csv", "latency.csv"]
+    needed = ["COOJA.testlog", "config.json"]
     for sub_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
         if all((sub_dir / name).exists() for name in needed):
             yield sub_dir
 
 
 def gather_chunks(data_dir: Path) -> pd.DataFrame:
-    """build_chunks() + add_metrics() + add_pdr() across every run
-    subdirectory found under data_dir (one level deep, see
-    find_dirs_with_data())."""
     data_dir = Path(data_dir)
-    frames = [
-        add_pdr(add_metrics(build_chunks(run_dir), run_dir), run_dir)
-        for run_dir in find_dirs_with_data(data_dir)
-    ]
-    cols = [
-        "node_id",
-        "parent_id",
-        "chunk_start",
-        "chunk_end",
-        "chunk_duration",
-        "etx",
-        "hop_count",
-        "rssi",
-        "tx_packets",
-        "acked_packets",
-        "dropped_packets",
-        "cpu_util",
-        "parent_cpu_util",
-        "pdr",
-    ]
+    frames = [build_chunks(run_dir) for run_dir in find_dirs_with_data(data_dir)]
     if not frames:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=_OUTPUT_COLUMNS)
     return pd.concat(frames, ignore_index=True)
 
 
-def _iter_run_dirs(runs_dir: Path):
-    """Run directories under runs_dir with config.json, metrics.csv,
-    latency.csv and dodag.csv (mirrors plot_comparison.py's
-    collect_runs())."""
-    for run_dir in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
-        needed = ["config.json", "metrics.csv", "latency.csv", "dodag.csv"]
-        if all((run_dir / name).exists() for name in needed):
-            yield run_dir
-
-
-def _gather_run(run_dir: Path) -> pd.DataFrame:
-    with open(run_dir / "config.json") as fh:
-        cfg = json.load(fh)
-    ppm = cfg["ppm"]
-
-    metrics = pd.read_csv(run_dir / "metrics.csv")
-    latency = pd.read_csv(run_dir / "latency.csv")
-
-    metrics_by_node = {
-        node_id: grp.sort_values("time_s")
-        for node_id, grp in metrics.groupby("node_id")
-    }
-    latency_by_node = {
-        node_id: grp.sort_values("client_send_time")
-        for node_id, grp in latency.groupby("node_id")
-    }
-
-    rows = []
-    for chunk in build_chunks(run_dir).itertuples():
-        latency_node = latency_by_node.get(
-            chunk.node_id, pd.DataFrame(columns=latency.columns)
-        )
-        features = _node_chunk_features(
-            metrics_by_node,
-            chunk.node_id,
-            chunk.parent_id,
-            chunk.chunk_start,
-            chunk.chunk_end,
-        )
-        rows.append(
-            {
-                "run_id": run_dir.name,
-                "node_id": chunk.node_id,
-                "parent_id": chunk.parent_id,
-                "chunk_start": chunk.chunk_start,
-                "chunk_end": chunk.chunk_end,
-                "ppm": ppm,
-                **features,
-                "pdr": _chunk_pdr(latency_node, chunk.chunk_start, chunk.chunk_end),
-            }
-        )
-
-    return pd.DataFrame(rows)
-
-
 def gather_training_data(runs_dir: Path) -> pd.DataFrame:
-    """Build a (node, time chunk) feature/label table across every run under
-    runs_dir (see module docstring for the chunking rule). Includes
-    identifying columns (run_id, node_id, parent_id, chunk_start, chunk_end)
-    alongside FEATURE_COLUMNS + LABEL_COLUMN; select FEATURE_COLUMNS
-    explicitly for model inputs (as models/train.py does).
-    """
-    runs_dir = Path(runs_dir)
-    run_frames = [_gather_run(run_dir) for run_dir in _iter_run_dirs(runs_dir)]
-    if not run_frames:
-        print(f"No usable run directories found under {runs_dir} -- returning no rows.")
-        cols = (
-            ["run_id", "node_id", "parent_id", "chunk_start", "chunk_end"]
-            + FEATURE_COLUMNS
-            + [LABEL_COLUMN]
-        )
-        return pd.DataFrame(columns=cols)
-    return pd.concat(run_frames, ignore_index=True)
-
-
-def make_dummy_training_data(n: int = 200, seed: int = 0) -> pd.DataFrame:
-    """Synthetic stand-in for gather_training_data(), so training/eval code
-    can be exercised end-to-end before real training data exists. Not a
-    substitute for real data — values are random within plausible ranges and
-    have no relationship to real network behavior.
-    """
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "etx": rng.uniform(1.0, 4.0, n),
-            "hop_count": rng.integers(1, 6, n),
-            "ppm": rng.choice([15, 20, 30, 40, 60], n),
-            "cpu_util": rng.uniform(0.0, 100.0, n),
-            "parent_cpu_util": rng.uniform(0.0, 100.0, n),
-            "rssi": rng.uniform(-95.0, -40.0, n),
-            "tx_packets": rng.integers(0, 5000, n),
-            "acked_packets": rng.integers(0, 5000, n),
-            "dropped_packets": rng.integers(0, 100, n),
-        }
-    )
-    df[LABEL_COLUMN] = np.clip(
-        1.0 - 0.15 * df["etx"] - 0.05 * df["hop_count"] + rng.normal(0, 0.05, n),
-        0.0,
-        1.0,
-    )
-    return df
-
-
-def _find_raw_run_dirs(data_dir: Path):
-    for sub_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
-        if all((sub_dir / name).exists() for name in RAW_CSV_NAMES):
-            yield sub_dir
-
-
-def load_raw_csvs(data_dir: Path) -> dict[str, pd.DataFrame]:
-    data_dir = Path(data_dir)
-    rows_by_name: dict[str, list[pd.DataFrame]] = {name: [] for name in RAW_CSV_NAMES}
-    for run_dir in _find_raw_run_dirs(data_dir):
-        for name in RAW_CSV_NAMES:
-            print(name)
-            df = pd.read_csv(run_dir / name)
-            df.insert(0, "run_id", run_dir.name)
-            rows_by_name[name].append(df)
-
-    return {
-        name: pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-        for name, parts in rows_by_name.items()
-    }
-
-
-def save_raw_csvs(combined: dict[str, pd.DataFrame], data_dir: Path) -> None:
-    """Write each combined CSV (as returned by load_raw_csvs()) back into
-    data_dir, under its original filename (e.g. data_dir/dodag.csv)."""
-    data_dir = Path(data_dir)
-    for name, df in combined.items():
-        out_path = data_dir / name
-        df.to_csv(out_path, index=False)
-        print(f"  Saved {out_path} ({len(df)} rows)")
+    return gather_chunks(runs_dir)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description=(
-            "Build train.csv: the (node_id, parent_id, chunk_start, "
-            "chunk_end, chunk_duration) chunk-boundary table (see "
-            "build_chunks()) plus each chunk's etx/hop_count/rssi/cpu_util/"
-            "parent_cpu_util/tx_packets/acked_packets/dropped_packets from "
-            "metrics.csv (see add_metrics()) and pdr from latency.csv (see "
-            "add_pdr()), across every run subdirectory found under "
-            "--data-dir that has dodag.csv + config.json + metrics.csv + "
-            "latency.csv (one level deep)."
-        )
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--data-dir",
         required=True,
         type=Path,
         help="Directory whose immediate subdirectories each hold one run's "
-        "dodag.csv + config.json + metrics.csv + latency.csv",
+        "COOJA.testlog + config.json",
     )
     args = parser.parse_args()
 

@@ -25,12 +25,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.data import (
-    FEATURE_COLUMNS,
-    LABEL_COLUMN,
-    gather_training_data,
-    make_dummy_training_data,
-)
+from models.data import FEATURE_COLUMNS, LABEL_COLUMN, gather_training_data
 
 
 def train_model(
@@ -42,11 +37,7 @@ def train_model(
     """Gather training data, fit an LGBMRegressor on it, and optionally save it."""
     df = gather_training_data(Path(runs_dir))
     if df.empty:
-        print(
-            "No training data yet (gather_training_data is a TODO stub) — "
-            "using dummy synthetic data so this script is runnable end-to-end."
-        )
-        df = make_dummy_training_data()
+        raise ValueError(f"No training data found under {runs_dir}")
 
     X = df[FEATURE_COLUMNS]
     y = df[LABEL_COLUMN]
