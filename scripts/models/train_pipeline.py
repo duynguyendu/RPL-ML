@@ -6,10 +6,10 @@ this process (not subprocesses):
   - is_processing_data: models/data.py's process_data() builds train.csv
     from COOJA.testlog files under train_config.data_dir.
   - is_training_model: models/train.py's grid_search() sweeps every
-    combination of train_config.features_to_test crossed with every
-    combination of train_config.param_grid (see models/train.py), then
-    retrains and saves (to train_config.data_dir/pdr_model.txt) a model on
-    whichever combination had the lowest avg MAE.
+    combination of FEATURE_COLUMNS crossed with every combination of
+    train_config.param_grid (see models/train.py), then retrains and saves
+    (to train_config.data_dir/pdr_model.txt) a model on whichever
+    combination had the lowest avg MAE.
   - is_porting: converts train_config.data_dir/pdr_model.txt to C (see
     models/to_c.py) -- reads whatever model is already saved there, so this
     can run on its own against a model saved by an earlier invocation.
@@ -23,14 +23,12 @@ import os
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import train_config
 from models.data import process_data
 from models.to_c import convert_to_c, measure_size
-from models.train import LABEL_COLUMN, fit_one, grid_search
+from models.train import grid_search
 
 
 def run_pipeline() -> None:
@@ -40,31 +38,14 @@ def run_pipeline() -> None:
     model_path = Path(train_config.data_dir) / "pdr_model.txt"
 
     if train_config.is_training_model:
-        train_csv = Path(train_config.data_dir) / "train.csv"
-        output_path = Path(train_config.data_dir) / "grid_search.csv"
-        rows = grid_search(
-            str(train_csv),
-            features_to_test=train_config.features_to_test,
-            param_grid=train_config.param_grid,
-            seeds=train_config.seeds,
-            output_path=str(output_path),
-        )
+        rows = grid_search()
 
         best = rows[0]
-        print(f"\nBest combination for porting: {best}")
-
-        df = pd.read_csv(train_csv).dropna(subset=[LABEL_COLUMN])
-        X = df[best["features"]]
-        y = df[LABEL_COLUMN]
-        model, mae = fit_one(
-            X,
-            y,
-            train_config.seeds[0],
-            0.2,
-            **{k: v for k, v in best.items() if k in train_config.param_grid},
+        print(
+            f"\nBest combination for porting: { {k: v for k, v in best.items() if k != '_model'} }"
         )
-        model.booster_.save_model(str(model_path))
-        print(f"Validation MAE: {mae:.4f}")
+
+        best["_model"].booster_.save_model(str(model_path))
         print(f"Model saved to {model_path}")
 
     if train_config.is_porting:
