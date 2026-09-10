@@ -29,10 +29,17 @@ FEATURE_COLUMNS = [
 # training label
 LABEL_COLUMN = "pdr"
 
-# features to test for importance (see train.py's test_feature_importance()):
-# every non-empty combination of these -- one at a time, two at a time, ...,
-# up to all of them at once -- is dropped from FEATURE_COLUMNS and retrained
 features_to_test = list(FEATURE_COLUMNS)
+
+n_estimators = 200
+num_leaves = 31
+min_child_samples = 20
+min_split_gain = 0.0
+
+param_grid = {
+    "n_estimators": [50, 100, 200],
+    "num_leaves": [7, 15, 31],
+}
 
 
 # capture the config variable names before applying any overrides

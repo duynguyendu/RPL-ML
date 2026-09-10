@@ -1,33 +1,5 @@
-#!/usr/bin/env python3
-"""
-Convert a trained LightGBM PDR model (see models.train) into C code via
-m2cgen, for eventual embedding into the mote firmware's "mlof" RPL
-objective function (rpl/contiki-ng/os/net/routing/rpl-lite/rpl-mlof.c).
-
-The generated <func_name>(double *input) takes features as a positional
-array, in booster.feature_name() order (see the manifest comment written
-into the header), and returns the raw predicted PDR (0..100, double) --
-plain double arithmetic throughout, no fixed-point scaling (unlike this
-file's previous hand-rolled generator, which needed a manually-maintained
-scale per feature and couldn't represent a negative feature like rssi).
-
-This only emits a standalone predictor .c/.h pair -- it does NOT touch
-rpl-mlof.c's best_parent() TODOs; wiring the generated predictor in there is
-separate, later work, and doesn't touch the "no float" convention the rest
-of the firmware follows -- that's a tradeoff of using m2cgen instead of a
-fixed-point generator.
-
-Usage as CLI:
-    python models/to_c.py --model pdr_model.txt --out-dir generated
-
-Usage as module:
-    from models.to_c import convert_to_c
-    convert_to_c("pdr_model.txt", "generated")
-"""
-
 from __future__ import annotations
 
-import argparse
 import shutil
 import subprocess
 import tempfile
@@ -35,20 +7,14 @@ from pathlib import Path
 
 import lightgbm as lgb
 import m2cgen
-import numpy as np
 
 
 def convert_to_c(
     model_path: str | Path, out_dir: str | Path, func_name: str = "mlof_predict_pdr"
 ) -> tuple[Path, Path]:
-    """Load a trained LightGBM model and write <func_name>.c/.h under
-    out_dir, via m2cgen.export_to_c()."""
     booster = lgb.Booster(model_file=str(model_path))
     feature_names = booster.feature_name()
 
-    # m2cgen only recognizes the sklearn wrapper (LGBMRegressor), not a raw
-    # Booster loaded from a model file -- wrap it in an (unfitted-by-name,
-    # but functional) LGBMRegressor whose booster_ property it can call.
     model = lgb.LGBMRegressor()
     model._Booster = booster
     model.fitted_ = True
@@ -80,8 +46,7 @@ double {func_name}(double *input);
         "trained LightGBM model.\n"
         " * DO NOT EDIT BY HAND -- retrain and re-run the converter "
         "instead. */\n"
-        f'#include "{func_name}.h"\n\n'
-        + source_body
+        f'#include "{func_name}.h"\n\n' + source_body
     )
 
     c_path.write_text(source)
@@ -89,80 +54,37 @@ double {func_name}(double *input);
     return c_path, h_path
 
 
-def verify(model_path: str | Path, out_dir: str | Path, func_name: str, n_samples: int = 50) -> None:
-    """Sanity-check the generated C against the trained model: if a C
-    compiler is available, compiles and runs it on random feature rows and
-    confirms it matches booster.predict() (within floating-point tolerance)
-    -- a mismatch here would mean a bug in how this file drives m2cgen (e.g.
-    feature-order mixups), not in m2cgen itself."""
-    booster = lgb.Booster(model_file=str(model_path))
-    feature_names = booster.feature_name()
+def measure_size(c_path: str | Path, mcu: str = "msp430f2617") -> str | None:
+    gcc = shutil.which("msp430-gcc")
+    size_tool = shutil.which("msp430-size")
+    if gcc is None or size_tool is None:
+        print("msp430-gcc/msp430-size not found -- skipping size measurement.")
+        return None
 
-    cc = shutil.which("cc") or shutil.which("gcc")
-    if cc is None:
-        print("No C compiler found -- skipping compiled-C cross-check.")
-        return
-
-    rng = np.random.default_rng(0)
-    rows = rng.uniform(-100.0, 30000.0, size=(n_samples, len(feature_names)))
-    expected = booster.predict(rows)
-
+    c_path = Path(c_path)
     with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        c_path, h_path = convert_to_c(model_path, tmp_path, func_name)
-        harness = tmp_path / "harness.c"
-        harness.write_text(
-            f"""\
-#include <stdio.h>
-#include <stdlib.h>
-#include "{h_path.name}"
-int main(int argc, char **argv) {{
-  (void)argc;
-  double input[{len(feature_names)}];
-  for (int i = 0; i < {len(feature_names)}; i++) {{
-    input[i] = atof(argv[i + 1]);
-  }}
-  printf("%.10f\\n", {func_name}(input));
-  return 0;
-}}
-"""
-        )
-        binary = tmp_path / "harness"
+        o_path = Path(tmp) / (c_path.stem + ".o")
         result = subprocess.run(
-            [cc, "-std=c99", "-O1", str(c_path), str(harness), "-lm", "-o", str(binary)],
+            [
+                gcc,
+                f"-mmcu={mcu}",
+                "-Os",
+                "-I",
+                str(c_path.parent),
+                "-c",
+                str(c_path),
+                "-o",
+                str(o_path),
+            ],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
-            print("Compiled-C cross-check FAILED to build:\n" + result.stderr)
-            return
+            print("msp430-gcc FAILED to compile:\n" + result.stderr)
+            return None
 
-        max_error = 0.0
-        for row, expected_value in zip(rows, expected):
-            args = [str(v) for v in row]
-            out = subprocess.run([str(binary), *args], capture_output=True, text=True)
-            actual = float(out.stdout.strip())
-            max_error = max(max_error, abs(actual - expected_value))
-
-        print(
-            f"Compiled-C cross-check vs. booster.predict(): max error "
-            f"{max_error:.2e} over {n_samples} samples"
+        size_result = subprocess.run(
+            [size_tool, str(o_path)], capture_output=True, text=True
         )
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Convert a trained LightGBM PDR model to C via m2cgen."
-    )
-    parser.add_argument("--model", type=str, required=True, help="Path to a saved LightGBM model")
-    parser.add_argument("--out-dir", type=str, default="generated", help="Output directory for the .c/.h")
-    parser.add_argument("--func-name", type=str, default="mlof_predict_pdr")
-    parser.add_argument("--samples", type=int, default=50, help="Number of random samples to verify with")
-    parser.add_argument("--skip-verify", action="store_true")
-
-    args = parser.parse_args()
-    c_path, h_path = convert_to_c(args.model, args.out_dir, args.func_name)
-    print(f"Wrote {c_path}\nWrote {h_path}")
-
-    if not args.skip_verify:
-        verify(args.model, args.out_dir, args.func_name, args.samples)
+        print(size_result.stdout)
+        return size_result.stdout
