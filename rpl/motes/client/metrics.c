@@ -3,7 +3,7 @@
  *
  * Collects and prints metrics for Contiki-NG / Cooja simulations:
  *   - ETX to the preferred RPL parent
- *   - Energy consumption (via Energest)
+ *   - Energest activity times (CPU / LPM / radio listen / transmit)
  *   - Latency (per packet, sender-embedded timestamp)
  *   - Computing time (rtimer-based stopwatch)
  *   - Hop count (from the IPv6 hop limit field)
@@ -29,20 +29,16 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define METRICS_PERIOD 10 * CLOCK_SECOND
-
-// These numbers are from
-// https://github.com/YerevaNN/Cooja-Automation-ML/blob/main/case_study_rpl/firmware/battery_client.c
-#define CPU_CURRENT_MA 5.4             // 1.8 * 3
-#define LPM_CURRENT_MA 0.1635          // 0.0545 * 3
-#define RADIO_LISTEN_CURRENT_MA 60.0   // 20 * 3
-#define RADIO_TRANSMIT_CURRENT_MA 52.2 // 17.4 * 3
+#ifndef METRIC_LOG_INTERVAL
+#define METRIC_LOG_INTERVAL 10
+#endif
+#define METRICS_PERIOD (METRIC_LOG_INTERVAL * CLOCK_SECOND)
 
 /// -------------------- METRICS LOG -----------------------------------
 
 #define METRICS_LOG                                                            \
   "ENERGEST: CPU=%lu LPM=%lu LISTEN=%lu "                                      \
-  "TRANSMIT=%lu OFF=%lu TOTAL=%lu ENERGY_COMP=%luuA HOP_COUNT=%u "             \
+  "TRANSMIT=%lu OFF=%lu TOTAL=%lu HOP_COUNT=%u "                               \
   "ETX=%u.%02u RSSI=%d TX=%d RX=%d ACKED=%d DROPPED=%d\n"
 
 #define LATENCY_LOG "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 "\n"
@@ -89,12 +85,6 @@ PROCESS_THREAD(metrics_process, ev, data) {
     unsigned long off =
         total > (listen + transmit) ? total - listen - transmit : 0;
 
-    double energy_comp = (cpu * CPU_CURRENT_MA + lpm * LPM_CURRENT_MA +
-                          listen * RADIO_LISTEN_CURRENT_MA +
-                          transmit * RADIO_TRANSMIT_CURRENT_MA) /
-                         ENERGEST_SECOND;
-    unsigned long energy_comp_microA = (unsigned long)(energy_comp * 1000);
-
     unsigned etx_int = -1, etx_frac = 0;
     unsigned rssi = -1;
     unsigned tx_packets = 0, rx_packets = 0, ack_packets = 0,
@@ -109,17 +99,17 @@ PROCESS_THREAD(metrics_process, ev, data) {
           etx_frac = etx % 100;
 
           rssi = stats->rssi;
-          tx_packets = stats->cnt_total.num_packets_tx;
-          rx_packets = stats->cnt_total.num_packets_rx;
-          ack_packets = stats->cnt_total.num_packets_acked;
-          dropped_packets = stats->cnt_total.num_queue_drops;
+          tx_packets = stats->cnt_current.num_packets_tx;
+          rx_packets = stats->cnt_current.num_packets_rx;
+          ack_packets = stats->cnt_current.num_packets_acked;
+          dropped_packets = stats->cnt_current.num_queue_drops;
         }
       }
     }
 
-    printf(METRICS_LOG, cpu, lpm, listen, transmit, off, total,
-           energy_comp_microA, hop_count, etx_int, etx_frac, rssi, tx_packets,
-           rx_packets, ack_packets, dropped_packets);
+    printf(METRICS_LOG, cpu, lpm, listen, transmit, off, total, hop_count,
+           etx_int, etx_frac, rssi, tx_packets, rx_packets, ack_packets,
+           dropped_packets);
 
     etimer_reset(&metrics_timer);
   }

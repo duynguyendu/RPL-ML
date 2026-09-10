@@ -15,7 +15,7 @@ RE_DODAG_PARENT = re.compile(
 
 # ENERGEST
 RE_METRICS_LOG = re.compile(
-    r"^ENERGEST: CPU=(\d+) LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) ENERGY_COMP=(\d+)uA HOP_COUNT=(\d+) "
+    r"^ENERGEST: CPU=(\d+) LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) HOP_COUNT=(\d+) "
     r"ETX=(\d+\.\d{2}) RSSI=(-?\d+) TX=(\d+) RX=(\d+) ACKED=(\d+) DROPPED=(\d+)"
 )
 
@@ -28,6 +28,10 @@ RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
 
+# TODO: must match config["metric_log_interval"] (see scripts/config.py,
+# rpl/motes/client/metrics.c) -- hardcoded here since this script doesn't
+# read config.json; a run built with a different interval will bucket
+# metrics.csv timestamps wrong.
 METRIC_PERIOD = 10
 
 
@@ -77,14 +81,13 @@ def process_log(log_path):
                         "rx_ticks": int(metrics.group(4)),
                         "off_ticks": int(metrics.group(5)),
                         "total_ticks": int(metrics.group(6)),
-                        "energy_comp": int(metrics.group(7)) / 1000.0 / 3600.0,
-                        "hop_count": int(metrics.group(8)),
-                        "etx": float(metrics.group(9)),
-                        "rssi": int(metrics.group(10)),
-                        "tx_packets": int(metrics.group(11)),
-                        "rx_packets": int(metrics.group(12)),
-                        "acked_packets": int(metrics.group(13)),
-                        "dropped_packets": int(metrics.group(14)),
+                        "hop_count": int(metrics.group(7)),
+                        "etx": float(metrics.group(8)),
+                        "rssi": int(metrics.group(9)),
+                        "tx_packets": int(metrics.group(10)),
+                        "rx_packets": int(metrics.group(11)),
+                        "acked_packets": int(metrics.group(12)),
+                        "dropped_packets": int(metrics.group(13)),
                     }
                 )
                 continue

@@ -58,22 +58,19 @@ def compute_latest(data):
     """State of every node at the end of the simulation (its last metrics row)."""
     return _query(
         """
-        SELECT node_id, hop_count, energy_comp,
+        SELECT node_id, hop_count,
                (cpu_ticks / total_ticks) * 100 AS cpu_usage
         FROM df
         QUALIFY row_number() OVER (PARTITION BY node_id ORDER BY time_s DESC) = 1
         ORDER BY node_id
         """,
         data["metrics"],
-        ["node_id", "hop_count", "energy_comp", "cpu_usage"],
+        ["node_id", "hop_count", "cpu_usage"],
     )
 
 
-def compute_energy(latest):
-    return {
-        "energy": latest[["node_id", "energy_comp"]].reset_index(drop=True),
-        "cpu": latest[["node_id", "cpu_usage"]].reset_index(drop=True),
-    }
+def compute_cpu(latest):
+    return latest[["node_id", "cpu_usage"]].reset_index(drop=True)
 
 
 def _latest_by_hop(latest, value):
@@ -83,10 +80,6 @@ def _latest_by_hop(latest, value):
         .sort_values(["hop_count", "node_id"])
         .reset_index(drop=True)
     )
-
-
-def compute_energy_usage_by_hop(latest):
-    return _latest_by_hop(latest, "energy_comp")
 
 
 def compute_cpu_usage_by_hop(latest):
@@ -111,27 +104,6 @@ def compute_pdr(data):
     )
 
 
-def compute_energy_by_hop(data):
-    return _query(
-        """
-        WITH deltas AS (
-            SELECT time_s, hop_count,
-                   energy_comp - LAG(energy_comp)
-                       OVER (PARTITION BY node_id ORDER BY time_s) AS energy_delta
-            FROM df
-            WHERE hop_count <> 65535
-        )
-        SELECT time_s, hop_count, AVG(energy_delta) AS avg_energy
-        FROM deltas
-        WHERE energy_delta IS NOT NULL
-        GROUP BY time_s, hop_count
-        ORDER BY time_s, hop_count
-        """,
-        data["metrics"],
-        ["time_s", "hop_count", "avg_energy"],
-    )
-
-
 def compute_latency(data):
     return _query(
         """
@@ -149,7 +121,7 @@ def compute_metrics(data):
     latency = compute_latency(data)
     return {
         "etx": compute_etx(data),
-        "energy": compute_energy(latest),
+        "cpu": compute_cpu(latest),
         "pdr": compute_pdr(data),
         "latency": latency,
         "latency_by_hop": (
@@ -159,15 +131,13 @@ def compute_metrics(data):
             .reset_index()
         ),
         "latency_by_node": latency.groupby("node_id")["latency"].mean(),
-        "energy_by_hop": compute_energy_by_hop(data),
-        "energy_usage_by_hop": compute_energy_usage_by_hop(latest),
         "cpu_usage_by_hop": compute_cpu_usage_by_hop(latest),
     }
 
 
 GRAPH_COLORS = {
     "etx": "#636efa",
-    "energy": "#e6194b",
+    "server": "#e6194b",
     "cpu": "#3cb44b",
     "pdr": "#4363d8",
     "plr": "#f58231",
@@ -240,7 +210,7 @@ def plot_etx(metrics):
 
 
 def plot_cpu_usage(metrics):
-    cpu = metrics["energy"]["cpu"]
+    cpu = metrics["cpu"]
 
     fig = go.Figure()
     fig.add_trace(
@@ -521,7 +491,7 @@ def _summary_node_series(metrics, df_dir):
     return {
         "pdr": _col(metrics.get("pdr"), "pdr"),
         "latency": lat,
-        "cpu_util": _col(metrics.get("energy", {}).get("cpu"), "cpu_usage"),
+        "cpu_util": _col(metrics.get("cpu"), "cpu_usage"),
         "parent_switch": _parent_switches_by_node(df_dir),
     }
 
@@ -717,7 +687,7 @@ def plot_topology(df_dir, metrics):
             x=[sx],
             y=[sy],
             mode="markers+text",
-            marker=dict(symbol="star", size=22, color=GRAPH_COLORS["energy"]),
+            marker=dict(symbol="star", size=22, color=GRAPH_COLORS["server"]),
             text=[f"{int(server[0]['id'])}"],
             textposition="top center",
             customdata=[[int(server[0]["id"]), "server"]],
@@ -725,13 +695,9 @@ def plot_topology(df_dir, metrics):
             name="Server",
         )
     )
-    energy = metrics["energy"]
-    energy_by_node = {
-        int(row.node_id): float(row.energy_comp)
-        for row in energy["energy"].itertuples()
-    }
     cpu_by_node = {
-        int(row.node_id): float(row.cpu_usage) for row in energy["cpu"].itertuples()
+        int(row.node_id): float(row.cpu_usage)
+        for row in metrics["cpu"].itertuples()
     }
     def _per_client(by_node):
         return [by_node.get(int(m["id"]), float("nan")) for m in clients]
@@ -745,7 +711,6 @@ def plot_topology(df_dir, metrics):
     clients_pdr = _per_client(pdr_by_node)
     pdr_cmin, pdr_cmax = _finite_bounds(clients_pdr, 0.0, 10.0)
     pdr_cmin = min(pdr_cmin, 0.75)
-    clients_energy = _per_client(energy_by_node)
     clients_cpu = _per_client(cpu_by_node)
     clients_latency = _per_client(latency_by_node)
     hop_df = metrics.get("cpu_usage_by_hop")
@@ -756,11 +721,10 @@ def plot_topology(df_dir, metrics):
     )
     clients_hop = _per_client(hop_by_node)
     clients_custom = [
-        [int(m["id"]), m.get("role", "client"), pdr, eng, cpu, lat, hop]
-        for m, pdr, eng, cpu, lat, hop in zip(
+        [int(m["id"]), m.get("role", "client"), pdr, cpu, lat, hop]
+        for m, pdr, cpu, lat, hop in zip(
             clients,
             clients_pdr,
-            clients_energy,
             clients_cpu,
             clients_latency,
             clients_hop,
@@ -909,18 +873,18 @@ def plot_topology(df_dir, metrics):
         "    var metricIdx = 2;\n"
         "    var cb = gd.data[CLIENTS_IDX].marker.colorbar;\n"
         "    var cbTitle = cb ? (cb.title ? cb.title.text : '') : '';\n"
-        "    if (cbTitle === 'CPU Usage (%%)') metricIdx = 4;\n"
-        "    else if (cbTitle === 'Avg Latency (s)') metricIdx = 5;\n"
-        "    else if (cbTitle === 'Hop Count') metricIdx = 6;\n"
+        "    if (cbTitle === 'CPU Usage (%%)') metricIdx = 3;\n"
+        "    else if (cbTitle === 'Avg Latency (s)') metricIdx = 4;\n"
+        "    else if (cbTitle === 'Hop Count') metricIdx = 5;\n"
         "    var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "      'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "      'TX range: ' + TX_RANGE + ' m<br>' +\n"
         "      'Interference range: ' + INT_RANGE + ' m';\n"
         "    var v = pt.customdata[metricIdx];\n"
         "    if (v !== undefined && v !== null && !isNaN(v)) {\n"
-        "      if (metricIdx === 4) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
-        "      else if (metricIdx === 5) tipHtml += '<br>Latency: ' + v.toFixed(3) + ' s';\n"
-        "      else if (metricIdx === 6) tipHtml += '<br>Hop count: ' + v + ' hops';\n"
+        "      if (metricIdx === 3) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
+        "      else if (metricIdx === 4) tipHtml += '<br>Latency: ' + v.toFixed(3) + ' s';\n"
+        "      else if (metricIdx === 5) tipHtml += '<br>Hop count: ' + v + ' hops';\n"
         "      else tipHtml += '<br>PDR: ' + (v * 100).toFixed(1) + '%%';\n"
         "    }\n"
         "    showTip(tipHtml);\n"

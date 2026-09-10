@@ -10,7 +10,10 @@ Chunking (per node, per run): a chunk starts at every parent switch (each
 dodag.csv row) and is split into consecutive <=MAX_CHUNK_SECONDS sub-chunks;
 the last interval in a run runs to config["duration"] + config["ramp_up_duration"].
 The ramp-up period (config["ramp_up_duration"]) is excluded, since network
-formation then isn't representative of steady-state behavior.
+formation then isn't representative of steady-state behavior. Chunks shorter
+than config["metric_log_interval"] (the mote's metrics.c log period, in
+seconds) are dropped, since they're too narrow to reliably contain even one
+metrics.csv row.
 
 # TODO: missing/invalid data (NaN) is left unhandled -- see _own_metrics(),
 # _node_chunk_features() and _chunk_pdr() for where/why NaNs occur. Decide
@@ -23,8 +26,6 @@ formation then isn't representative of steady-state behavior.
 # TODO: parent comparison should account for the load switching would add to
 # the potential parent's CPU.
 # TODO: track how long the current parent has been held.
-# TODO: cpu_util is not yet computed for add_metrics()/train.csv (unlike
-# gather_training_data(), which has _cpu_util_delta()) -- see add_metrics().
 """
 
 from __future__ import annotations
@@ -51,6 +52,9 @@ FEATURE_COLUMNS = [
 ]
 LABEL_COLUMN = "pdr"
 MAX_CHUNK_SECONDS = 60.0
+# Fallback for config.json files predating metric_log_interval; matches
+# metrics.c's own default (see rpl/motes/client/metrics.c's METRIC_LOG_INTERVAL).
+DEFAULT_METRIC_LOG_INTERVAL = 10.0
 
 
 def _chunk_bounds(
@@ -123,16 +127,23 @@ def _node_chunk_features(
     metrics_by_node: dict, node_id: int, parent_id: int, start: float, end: float
 ) -> dict:
     """_own_metrics() for node_id, plus cpu_util/parent_cpu_util (delta'd
-    over [start, end), see _cpu_util_delta())."""
+    over [start, end), see _cpu_util_delta()). parent_cpu_util is 0 rather
+    than NaN when unknown (e.g. the parent is the root, which never logs
+    metrics, or has too few rows in the window)."""
     own = metrics_by_node.get(node_id)
     own_rows = _window(own, start, end) if own is not None else pd.DataFrame()
     parent = metrics_by_node.get(parent_id)
     parent_rows = _window(parent, start, end) if parent is not None else pd.DataFrame()
 
+    # TODO: parent CPU util should be weighted for the whole path
+    parent_cpu_util = _cpu_util_delta(parent_rows)
+    if pd.isna(parent_cpu_util):
+        parent_cpu_util = 0.0
+
     return {
         **_own_metrics(own_rows),
         "cpu_util": _cpu_util_delta(own_rows),
-        "parent_cpu_util": _cpu_util_delta(parent_rows),
+        "parent_cpu_util": parent_cpu_util,
     }
 
 
@@ -161,6 +172,7 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
         cfg = json.load(fh)
     ramp_up_end = cfg["ramp_up_duration"]
     run_end = cfg["duration"] + ramp_up_end
+    min_chunk_seconds = cfg.get("metric_log_interval", DEFAULT_METRIC_LOG_INTERVAL)
 
     dodag = pd.read_csv(run_dir / "dodag.csv")
 
@@ -178,6 +190,8 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
             for chunk_start, chunk_end in _chunk_bounds(
                 interval_start, interval_end, MAX_CHUNK_SECONDS
             ):
+                if chunk_end - chunk_start < min_chunk_seconds:
+                    continue
                 rows.append(
                     {
                         "node_id": node_id,
@@ -192,15 +206,20 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
 
 
 def add_metrics(chunks: pd.DataFrame, run_dir: Path) -> pd.DataFrame:
-    """Merge each chunk's own-node metrics.csv stats onto chunks (as
-    returned by build_chunks()): see _own_metrics() for how etx/hop_count/
-    rssi/tx_packets/acked_packets/dropped_packets are computed.
-
-    # TODO: cpu_util is not added here -- decide whether to reuse
-    # gather_training_data()'s _cpu_util_delta() (and, if so, whether to
-    # also add parent_cpu_util, see _node_chunk_features()).
-    """
-    metric_cols = ["etx", "hop_count", "rssi", "tx_packets", "acked_packets", "dropped_packets"]
+    """Merge each chunk's own-node and parent metrics.csv stats onto chunks
+    (as returned by build_chunks()) -- see _node_chunk_features() for how
+    etx/hop_count/rssi/cpu_util/parent_cpu_util/tx_packets/acked_packets/
+    dropped_packets are computed."""
+    metric_cols = [
+        "etx",
+        "hop_count",
+        "rssi",
+        "tx_packets",
+        "acked_packets",
+        "dropped_packets",
+        "cpu_util",
+        "parent_cpu_util",
+    ]
     if chunks.empty:
         return chunks.assign(**{col: pd.Series(dtype=float) for col in metric_cols})
 
@@ -210,30 +229,55 @@ def add_metrics(chunks: pd.DataFrame, run_dir: Path) -> pd.DataFrame:
     }
 
     def _row_metrics(row) -> pd.Series:
-        own = metrics_by_node.get(row.node_id)
-        own_rows = _window(own, row.chunk_start, row.chunk_end) if own is not None else pd.DataFrame()
-        return pd.Series(_own_metrics(own_rows))
+        return pd.Series(
+            _node_chunk_features(
+                metrics_by_node, row.node_id, row.parent_id, row.chunk_start, row.chunk_end
+            )
+        )
 
     return pd.concat(
         [chunks.reset_index(drop=True), chunks.apply(_row_metrics, axis=1)], axis=1
     )
 
 
+def add_pdr(chunks: pd.DataFrame, run_dir: Path) -> pd.DataFrame:
+    """Merge each chunk's PDR (see _chunk_pdr()) from latency.csv onto
+    chunks (as returned by build_chunks() / add_metrics())."""
+    if chunks.empty:
+        return chunks.assign(pdr=pd.Series(dtype=float))
+
+    latency = pd.read_csv(run_dir / "latency.csv")
+    latency_by_node = {
+        node_id: grp.sort_values("client_send_time")
+        for node_id, grp in latency.groupby("node_id")
+    }
+
+    def _row_pdr(row) -> float:
+        latency_node = latency_by_node.get(row.node_id)
+        if latency_node is None:
+            return float("nan")
+        return _chunk_pdr(latency_node, row.chunk_start, row.chunk_end)
+
+    return chunks.assign(pdr=chunks.apply(_row_pdr, axis=1))
+
+
 def find_dirs_with_data(data_dir: Path):
-    """Immediate subdirectories of data_dir with dodag.csv, config.json and
-    metrics.csv -- everything build_chunks() + add_metrics() need."""
-    needed = ["dodag.csv", "config.json", "metrics.csv"]
+    """Immediate subdirectories of data_dir with dodag.csv, config.json,
+    metrics.csv and latency.csv -- everything build_chunks() + add_metrics()
+    + add_pdr() need."""
+    needed = ["dodag.csv", "config.json", "metrics.csv", "latency.csv"]
     for sub_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
         if all((sub_dir / name).exists() for name in needed):
             yield sub_dir
 
 
 def gather_chunks(data_dir: Path) -> pd.DataFrame:
-    """build_chunks() + add_metrics() across every run subdirectory found
-    under data_dir (one level deep, see find_dirs_with_data())."""
+    """build_chunks() + add_metrics() + add_pdr() across every run
+    subdirectory found under data_dir (one level deep, see
+    find_dirs_with_data())."""
     data_dir = Path(data_dir)
     frames = [
-        add_metrics(build_chunks(run_dir), run_dir)
+        add_pdr(add_metrics(build_chunks(run_dir), run_dir), run_dir)
         for run_dir in find_dirs_with_data(data_dir)
     ]
     cols = [
@@ -248,6 +292,9 @@ def gather_chunks(data_dir: Path) -> pd.DataFrame:
         "tx_packets",
         "acked_packets",
         "dropped_packets",
+        "cpu_util",
+        "parent_cpu_util",
+        "pdr",
     ]
     if not frames:
         return pd.DataFrame(columns=cols)
@@ -394,12 +441,12 @@ if __name__ == "__main__":
         description=(
             "Build train.csv: the (node_id, parent_id, chunk_start, "
             "chunk_end, chunk_duration) chunk-boundary table (see "
-            "build_chunks()) plus each chunk's own-node etx/hop_count/rssi/"
-            "tx_packets/acked_packets/dropped_packets from metrics.csv (see "
-            "add_metrics() -- cpu_util is a TODO, not included yet), across "
-            "every run subdirectory found under --data-dir that has "
-            "dodag.csv + config.json + metrics.csv (one level deep). PDR is "
-            "a separate, later step."
+            "build_chunks()) plus each chunk's etx/hop_count/rssi/cpu_util/"
+            "parent_cpu_util/tx_packets/acked_packets/dropped_packets from "
+            "metrics.csv (see add_metrics()) and pdr from latency.csv (see "
+            "add_pdr()), across every run subdirectory found under "
+            "--data-dir that has dodag.csv + config.json + metrics.csv + "
+            "latency.csv (one level deep)."
         )
     )
     parser.add_argument(
@@ -407,7 +454,7 @@ if __name__ == "__main__":
         required=True,
         type=Path,
         help="Directory whose immediate subdirectories each hold one run's "
-        "dodag.csv + config.json + metrics.csv",
+        "dodag.csv + config.json + metrics.csv + latency.csv",
     )
     args = parser.parse_args()
 

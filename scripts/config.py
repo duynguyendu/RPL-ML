@@ -30,10 +30,8 @@ duration = 3600
 with_dao_ack = 0
 packet_size = 64
 rpl_of = "mhrof"
+metric_log_interval = 10
 
-# log level config (Contiki-NG levels: NONE, ERR, WARN, INFO, DBG), per module.
-# Modules mirror the LOG_CONF_LEVEL_* switches in rpl/motes/proj-logging-conf.h
-# (RPL, IPV6, 6LOWPAN, MAC, FRAMER). Client and server are configured separately.
 OTHER_LOG = "NONE"
 RPL_LOG = "NONE"
 client_log_level_rpl = RPL_LOG
