@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from train_config import FEATURE_COLUMNS, LABEL_COLUMN
 
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 RE_MLOF_METRICS = re.compile(
@@ -18,19 +21,6 @@ RE_CLIENT_SKIP = re.compile(
     r"Skipping request '(\d+)': root not (registered|reachable)"
 )
 RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
-
-FEATURE_COLUMNS = [
-    "is_new",
-    "cpu",
-    "p_cpu",
-    "etx",
-    "rssi",
-    "ppm",
-    "drop_rate",
-    "hop_count",
-    "nbr_count",
-]
-LABEL_COLUMN = "pdr"
 
 MIN_CHUNK_SECONDS = 15.0
 
@@ -182,23 +172,21 @@ def gather_training_data(runs_dir: Path) -> pd.DataFrame:
     return gather_chunks(runs_dir)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--data-dir",
-        required=True,
-        type=Path,
-        help="Directory whose immediate subdirectories each hold one run's "
-        "COOJA.testlog + config.json",
-    )
-    args = parser.parse_args()
-
-    run_dirs = list(find_dirs_with_data(args.data_dir))
-    print(f"Found {len(run_dirs)} run dir(s) under {args.data_dir}:")
+def process_data(data_dir: Path) -> pd.DataFrame:
+    data_dir = Path(data_dir)
+    run_dirs = list(find_dirs_with_data(data_dir))
+    print(f"Found {len(run_dirs)} run dir(s) under {data_dir}:")
     for run_dir in run_dirs:
         print(f"  {run_dir.name}")
 
-    chunks = gather_chunks(args.data_dir)
-    train_path = args.data_dir / "train.csv"
+    chunks = gather_chunks(data_dir)
+    train_path = data_dir / "train.csv"
     chunks.to_csv(train_path, index=False)
     print(f"  Saved {train_path} ({len(chunks)} rows)")
+    return chunks
+
+
+if __name__ == "__main__":
+    import train_config
+
+    process_data(train_config.data_dir)
