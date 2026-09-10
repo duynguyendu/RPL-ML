@@ -34,21 +34,11 @@ LABEL_COLUMN = "pdr"
 
 MIN_CHUNK_SECONDS = 15.0
 
-# TODO: missing/invalid data. metrics.c/rpl-mlof.c report deliberate sentinel
-# values instead of NaN, and this file doesn't currently detect or filter
-# them:
-#   - cpu/p_cpu: 255 means unknown (the capped max is 254). Own cpu is never
-#     255, but p_cpu was 255 in ~33% of MLOF log lines in one real run.
+# TODO: missing data
 #   - etx/rssi/ppm: 32767 means unknown (no parent yet, the parent's own
 #     value is itself unknown, or -- for ppm -- the 30s traffic window
 #     hasn't elapsed since the last parent change/counter wrap). etx=32767
 #     in ~1% of MLOF log lines in that run.
-#   - drop_rate: 255 means unknown, same conditions as ppm; ~82% of MLOF log
-#     lines in that run.
-#   - hop_count: 255 means unknown/no parent.
-# Also, "MLOF metrics: null parent" lines (no preferred parent at all -- 293
-# in that run) are skipped entirely, so a chunk boundary can silently span a
-# period where the node had no parent.
 
 
 def _parse_log(log_path: Path):
