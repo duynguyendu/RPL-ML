@@ -78,10 +78,6 @@ def grid_search() -> list[dict]:
 
     results.sort(key=lambda result: result["avg_mae"])
 
-    print("\nTop 5 smallest avg MAE:")
-    for result in results[:5]:
-        print(f"  { {k: v for k, v in result.items() if k != '_model'} }")
-
     out_df = pd.DataFrame(
         [
             {
