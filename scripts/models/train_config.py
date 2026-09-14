@@ -36,11 +36,30 @@ min_split_gain = 0.0
 max_depth = -1
 n_jobs = -1
 lgbm_n_jobs = 1
+min_features = 9
 
 param_grid = {
     "n_estimators": [50, 100, 200],
     "num_leaves": [7, 15, 31],
     "max_depth": [3, 5, -1],
+}
+
+ridge_param_grid = {
+    "alpha": [0.1, 1.0, 10.0],
+}
+
+dtree_param_grid = {
+    "max_depth": [3, 5, 10, None],
+    "min_samples_leaf": [1, 5, 10],
+}
+
+svr_param_grid = {
+    "C": [0.1, 1.0, 10.0],
+    "epsilon": [0.01, 0.1, 1.0],
+}
+
+gp_param_grid = {
+    "alpha": [1e-10, 1e-5, 1e-2],
 }
 
 
