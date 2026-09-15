@@ -13,8 +13,8 @@ from train_config import FEATURE_COLUMNS, LABEL_COLUMN
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
 RE_MLOF_METRICS = re.compile(
     r"^\[PRI : RPL       \] MLOF metrics: is_new=(\d+) parent_id=(\d+) cpu=(\d+) "
-    r"p_cpu=(\d+) etx=(\d+) rssi=(-?\d+) ppm=(\d+) drop_rate=(\d+) hop_count=(\d+) "
-    r"nbr_count=(\d+)"
+    r"p_cpu=(\d+) etx=(\d+) rssi=(-?\d+) ppm=(\d+) drop_rate=(\d+) "
+    r"parent_ppm=(\d+) parent_drop_rate=(\d+) hop_count=(\d+) nbr_count=(\d+)"
 )
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_CLIENT_SKIP = re.compile(
@@ -23,12 +23,7 @@ RE_CLIENT_SKIP = re.compile(
 RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
 MIN_CHUNK_SECONDS = 15.0
-
-# TODO: missing data
-#   - etx/rssi/ppm: 32767 means unknown (no parent yet, the parent's own
-#     value is itself unknown, or -- for ppm -- the 30s traffic window
-#     hasn't elapsed since the last parent change/counter wrap). etx=32767
-#     in ~1% of MLOF log lines in that run.
+MAXUINT16 = 65535
 
 
 def _parse_log(log_path: Path):
@@ -59,8 +54,10 @@ def _parse_log(log_path: Path):
                         "rssi": int(mlof.group(6)),
                         "ppm": int(mlof.group(7)),
                         "drop_rate": int(mlof.group(8)),
-                        "hop_count": int(mlof.group(9)),
-                        "nbr_count": int(mlof.group(10)),
+                        "parent_ppm": int(mlof.group(9)),
+                        "parent_drop_rate": int(mlof.group(10)),
+                        "hop_count": int(mlof.group(11)),
+                        "nbr_count": int(mlof.group(12)),
                     }
                 )
                 continue
@@ -96,7 +93,7 @@ def _chunk_pdr(
     if sent == 0:
         return float("nan")
     received = len(_window(recv_node, start, end))
-    return received / sent * 100
+    return received / sent * MAXUINT16
 
 
 _OUTPUT_COLUMNS = [

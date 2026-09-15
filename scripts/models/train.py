@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, ShuffleSplit
-from sklearn.svm import SVR
+from sklearn.svm import LinearSVR
 from sklearn.tree import DecisionTreeRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,9 +29,14 @@ def grid_search() -> list[dict]:
     test_size = 0.2
 
     df = pd.read_csv(train_csv)
+    total_rows = len(df)
     df = df.dropna(subset=[LABEL_COLUMN])
+    for col, sentinel in train_config.UNKNOWN_SENTINELS.items():
+        if col in df.columns:
+            df = df[df[col] != sentinel]
+    print(f"Dropped {total_rows - len(df)} of {total_rows} rows (missing label or unknown feature)")
     if df.empty:
-        raise ValueError(f"No rows with a labeled {LABEL_COLUMN} in {train_csv}")
+        raise ValueError(f"No fully-labeled rows in {train_csv}")
     y = df[LABEL_COLUMN]
 
     cv = ShuffleSplit(
@@ -53,8 +58,8 @@ def grid_search() -> list[dict]:
         ),
         ("ridge", Ridge(), train_config.ridge_param_grid),
         ("dtree", DecisionTreeRegressor(random_state=0), train_config.dtree_param_grid),
-        ("svr", SVR(), train_config.svr_param_grid),
-        ("gp", GaussianProcessRegressor(random_state=0), train_config.gp_param_grid),
+        ("svr", LinearSVR(random_state=0), train_config.svr_param_grid),
+        # ("gp", GaussianProcessRegressor(random_state=0), train_config.gp_param_grid),
     ]
     hyperparam_names = sorted({name for _, _, grid in model_configs for name in grid})
 

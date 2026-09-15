@@ -25,8 +25,7 @@ MIN_RATE=$(printf '%s\n' "${PPM_LIST[@]}" | sort -n | head -1)
 
 # Every run from this invocation is written under its own timestamped directory
 # instead of the default runs/ so different simulate.sh sweeps never mix.
-# RUN_DIR="runs/sim_${PLATFORM}_n${MAX_NODES}_ppm${MIN_RATE}_buffer${BUFFER_SIZE}${LABEL:+_$LABEL}_$(date +%Y%m%d_%H%M%S)"
-RUN_DIR="./runs/done_sim_z1_n60_ppm15_buffer8_20260908_100656"
+RUN_DIR="runs/sim_${PLATFORM}_n${MAX_NODES}_ppm${MIN_RATE}_buffer${BUFFER_SIZE}${LABEL:+_$LABEL}_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_DIR"
 echo "=== Writing runs to $RUN_DIR ==="
 

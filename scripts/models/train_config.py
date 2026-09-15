@@ -22,9 +22,23 @@ FEATURE_COLUMNS = [
     "rssi",
     "ppm",
     "drop_rate",
+    "parent_ppm",
+    "parent_drop_rate",
     "hop_count",
     "nbr_count",
 ]
+
+# unknown-value sentinels (see rpl-mlof.c)
+UNKNOWN_SENTINELS = {
+    "etx": 32767,
+    "rssi": 32767,
+    "ppm": 32767,
+    "parent_ppm": 32767,
+    "p_cpu": 255,
+    "drop_rate": 255,
+    "parent_drop_rate": 255,
+    "hop_count": 255,
+}
 
 # training label
 LABEL_COLUMN = "pdr"
@@ -36,7 +50,7 @@ min_split_gain = 0.0
 max_depth = -1
 n_jobs = -1
 lgbm_n_jobs = 1
-min_features = 9
+min_features = 11
 
 param_grid = {
     "n_estimators": [50, 100, 200],
