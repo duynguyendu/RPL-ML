@@ -66,6 +66,7 @@ lgbm_param_grid = {
     "n_estimators": [10, 25, 50],
     "num_leaves": [7, 15, 31],
     "max_depth": [3, 5],
+    "min_data_in_leaf": [5, 10, 20],
 }
 
 ridge_param_grid = {

@@ -74,7 +74,7 @@ def run_pipeline() -> None:
             _, _, rank, model_type = model_path.stem.split("_", 3)
             print(f"\n=== {model_path.name} (model={model_type}) ===")
 
-            func_name = f"mlof_predict_pdr_{rank}"
+            func_name = f"mlof_predict_pdr_{rank}_{model_type}"
             try:
                 c_path, _ = convert_to_c(str(model_path), str(train_config.data_dir), func_name)
                 print("[m2cgen]")
@@ -82,7 +82,7 @@ def run_pipeline() -> None:
             except Exception as e:
                 print(f"[m2cgen] FAILED to convert: {e!r} -- skipped")
 
-            emlearn_func_name = f"mlof_predict_pdr_emlearn_{rank}"
+            emlearn_func_name = f"mlof_predict_pdr_emlearn_{rank}_{model_type}"
             try:
                 emlearn_result = convert_to_c_emlearn(
                     str(model_path), str(train_config.data_dir), emlearn_func_name
@@ -97,7 +97,7 @@ def run_pipeline() -> None:
                 print("[emlearn]")
                 measure_size(emlearn_c_path)
 
-            fixed_func_name = f"mlof_predict_pdr_fixed_{rank}"
+            fixed_func_name = f"mlof_predict_pdr_fixed_{rank}_{model_type}"
             try:
                 fixed_result = convert_to_c_fixed(
                     str(model_path), str(train_config.data_dir), fixed_func_name
