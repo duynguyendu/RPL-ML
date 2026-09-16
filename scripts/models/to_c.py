@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
 import tempfile
@@ -8,7 +9,12 @@ from pathlib import Path
 import emlearn
 import joblib
 import m2cgen
+import numpy as np
+import pandas as pd
 from emlearn.trees import SUPPORTED_ESTIMATORS as EMLEARN_SUPPORTED_ESTIMATORS
+
+FIXED_SUPPORTED_ESTIMATORS = {"DecisionTreeRegressor", "LGBMRegressor"}
+_TREE_LEAF = -1  # see sklearn/tree/_tree.pyx
 
 
 def convert_to_c(
@@ -96,6 +102,189 @@ float {func_name}_predict(const float *features, int32_t features_length);
     c_path.write_text(source)
     h_path.write_text(header)
     return c_path, h_path
+
+
+def _int_threshold(threshold: float) -> int:
+    return math.floor(threshold + 1e-6)
+
+
+def _feature_expr(feature_idx: int, feature_names: list[str]) -> str:
+    if feature_names[feature_idx] == "rssi":
+        return f"(int16_t)input[{feature_idx}]"
+    return f"input[{feature_idx}]"
+
+
+def _dtree_body(model, feature_names: list[str], func_name: str) -> str:
+    tree = model.tree_
+    lines = [f"uint16_t {func_name}(const uint16_t *input) {{"]
+
+    def walk(node_id: int, indent: str) -> None:
+        if tree.children_left[node_id] == _TREE_LEAF:
+            leaf_value = max(0, min(65535, round(tree.value[node_id][0][0])))
+            lines.append(f"{indent}return {leaf_value};")
+            return
+        feature_idx = tree.feature[node_id]
+        threshold = _int_threshold(tree.threshold[node_id])
+        lines.append(f"{indent}if ({_feature_expr(feature_idx, feature_names)} <= {threshold}) {{")
+        walk(tree.children_left[node_id], indent + "    ")
+        lines.append(f"{indent}}} else {{")
+        walk(tree.children_right[node_id], indent + "    ")
+        lines.append(f"{indent}}}")
+
+    walk(0, "    ")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _dtree_predict_fixed(model, rows: np.ndarray) -> np.ndarray:
+    tree = model.tree_
+    preds = []
+    for row in rows:
+        node_id = 0
+        while tree.children_left[node_id] != _TREE_LEAF:
+            threshold = _int_threshold(tree.threshold[node_id])
+            if row[tree.feature[node_id]] <= threshold:
+                node_id = tree.children_left[node_id]
+            else:
+                node_id = tree.children_right[node_id]
+        preds.append(max(0, min(65535, round(tree.value[node_id][0][0]))))
+    return np.array(preds)
+
+
+def _lgbm_tree_body(tree_node: dict, feature_names: list[str], tree_func_name: str) -> str:
+    lines = [f"static int32_t {tree_func_name}(const uint16_t *input) {{"]
+
+    def walk(node: dict, indent: str) -> None:
+        if "leaf_value" in node:
+            lines.append(f"{indent}return {round(node['leaf_value'])};")
+            return
+        feature_idx = node["split_feature"]
+        threshold = _int_threshold(node["threshold"])
+        lines.append(f"{indent}if ({_feature_expr(feature_idx, feature_names)} <= {threshold}) {{")
+        walk(node["left_child"], indent + "    ")
+        lines.append(f"{indent}}} else {{")
+        walk(node["right_child"], indent + "    ")
+        lines.append(f"{indent}}}")
+
+    walk(tree_node, "    ")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _lgbm_tree_predict(tree_node: dict, row: np.ndarray) -> int:
+    node = tree_node
+    while "leaf_value" not in node:
+        threshold = _int_threshold(node["threshold"])
+        node = node["left_child"] if row[node["split_feature"]] <= threshold else node["right_child"]
+    return round(node["leaf_value"])
+
+
+def _lgbm_body(model, feature_names: list[str], func_name: str) -> str:
+    trees = [t["tree_structure"] for t in model.booster_.dump_model()["tree_info"]]
+
+    parts = []
+    tree_func_names = []
+    for i, tree_node in enumerate(trees):
+        tree_func_name = f"{func_name}_tree{i}"
+        tree_func_names.append(tree_func_name)
+        parts.append(_lgbm_tree_body(tree_node, feature_names, tree_func_name))
+
+    main_lines = [
+        f"uint16_t {func_name}(const uint16_t *input) {{",
+        "    int32_t sum = 0;",
+        *(f"    sum += {name}(input);" for name in tree_func_names),
+        "    if (sum < 0) sum = 0;",
+        "    if (sum > 65535) sum = 65535;",
+        "    return (uint16_t)sum;",
+        "}",
+    ]
+    parts.append("\n".join(main_lines))
+    return "\n\n".join(parts)
+
+
+def _lgbm_predict_fixed(model, rows: np.ndarray) -> np.ndarray:
+    trees = [t["tree_structure"] for t in model.booster_.dump_model()["tree_info"]]
+    preds = []
+    for row in rows:
+        total = sum(_lgbm_tree_predict(t, row) for t in trees)
+        preds.append(max(0, min(65535, total)))
+    return np.array(preds)
+
+
+def convert_to_c_fixed(
+    model_path: str | Path, out_dir: str | Path, func_name: str = "mlof_predict_pdr"
+) -> tuple[Path, Path] | None:
+    model = joblib.load(model_path)
+    model_type = type(model).__name__
+    if model_type not in FIXED_SUPPORTED_ESTIMATORS:
+        return None
+
+    feature_names = [str(name) for name in model.feature_names_in_]
+    if model_type == "DecisionTreeRegressor":
+        source_body = _dtree_body(model, feature_names, func_name)
+    else:
+        source_body = _lgbm_body(model, feature_names, func_name)
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    c_path = out_dir / f"{func_name}.c"
+    h_path = out_dir / f"{func_name}.h"
+
+    header_guard = f"{func_name.upper()}_H_"
+    header = f"""\
+/* Auto-generated by scripts/models/to_c.py (fixed-point, no float/double)
+ * from a trained model. DO NOT EDIT BY HAND -- retrain and re-run the
+ * converter instead.
+ *
+ * input[] must hold these features, in this order, as raw uint16_t bit
+ * patterns (rssi is signed -- the generated code reads it back via a
+ * (int16_t) cast, same as the mote's own MLOF metrics struct):
+ *   {", ".join(f"{i}: {name}" for i, name in enumerate(feature_names))}
+ */
+#ifndef {header_guard}
+#define {header_guard}
+#include <stdint.h>
+
+uint16_t {func_name}(const uint16_t *input);
+
+#endif /* {header_guard} */
+"""
+    source = (
+        "/* Auto-generated by scripts/models/to_c.py (fixed-point, no "
+        "float/double) from a trained model.\n"
+        " * DO NOT EDIT BY HAND -- retrain and re-run the converter "
+        "instead. */\n"
+        f'#include "{func_name}.h"\n\n' + source_body + "\n"
+    )
+
+    c_path.write_text(source)
+    h_path.write_text(header)
+    return c_path, h_path
+
+
+def verify_fixed(model_path: str | Path, data_dir: str | Path) -> float | None:
+    model = joblib.load(model_path)
+    model_type = type(model).__name__
+    if model_type not in FIXED_SUPPORTED_ESTIMATORS:
+        return None
+
+    feature_names = [str(name) for name in model.feature_names_in_]
+    df = pd.read_csv(Path(data_dir) / "train.csv")
+    df = df.dropna(subset=feature_names)
+    rows = df[feature_names].to_numpy()
+
+    float_preds = model.predict(df[feature_names])
+    if model_type == "DecisionTreeRegressor":
+        fixed_preds = _dtree_predict_fixed(model, rows)
+    else:
+        fixed_preds = _lgbm_predict_fixed(model, rows)
+
+    mae = float(np.abs(fixed_preds - float_preds).mean())
+    print(
+        f"[fixed] quantization error vs float model: MAE={mae:.2f} "
+        f"(pdr scale 0-65535, over {len(df)} rows)"
+    )
+    return mae
 
 
 def measure_size(c_path: str | Path, mcu: str = "msp430f2617") -> str | None:

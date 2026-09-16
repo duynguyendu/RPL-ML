@@ -37,7 +37,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import train_config
 from models.data import process_data
-from models.to_c import convert_to_c, convert_to_c_emlearn, measure_size
+from models.to_c import (
+    convert_to_c,
+    convert_to_c_emlearn,
+    convert_to_c_fixed,
+    measure_size,
+    verify_fixed,
+)
 from models.train import NON_PORTABLE_MODELS, grid_search
 
 
@@ -115,6 +121,22 @@ def run_pipeline() -> None:
                 emlearn_c_path, _ = emlearn_result
                 print("[emlearn]")
                 measure_size(emlearn_c_path)
+
+            fixed_func_name = f"mlof_predict_pdr_fixed_{rank}"
+            try:
+                fixed_result = convert_to_c_fixed(
+                    str(model_path), str(train_config.data_dir), fixed_func_name
+                )
+            except Exception as e:
+                print(f"[fixed] FAILED to convert: {e!r} -- skipped")
+                continue
+            if fixed_result is None:
+                print("[fixed] model type not supported by the fixed-point exporter -- skipped")
+            else:
+                fixed_c_path, _ = fixed_result
+                print("[fixed]")
+                verify_fixed(str(model_path), str(train_config.data_dir))
+                measure_size(fixed_c_path)
 
 
 if __name__ == "__main__":
