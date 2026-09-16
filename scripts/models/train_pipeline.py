@@ -9,10 +9,9 @@ this process (not subprocesses):
     combination of FEATURE_COLUMNS crossed with every combination of each
     model's hyperparameter grid, for LGBMRegressor, Ridge,
     DecisionTreeRegressor, and SVR (see models/train.py), then saves the
-    top 5% of (feature, hyperparameter) combinations by avg MAE
-    independently within each model type (so no single model type can
-    crowd the others out) to train_config.data_dir/pdr_model_<rank>_<model>.joblib,
-    rank 0 = best overall.
+    top 10 (feature, hyperparameter) combinations by avg MAE independently
+    within each model type (so no single model type can crowd the others
+    out) to train_config.data_dir/pdr_model_<rank>_<model>.joblib.
   - is_porting: converts every train_config.data_dir/pdr_model_*.joblib to C
     with both m2cgen and, when the model type is supported, emlearn (see
     models/to_c.py), printing the msp430 size of each so the two backends
@@ -52,19 +51,6 @@ def run_pipeline() -> None:
         rows = grid_search()
         portable_rows = [row for row in rows if row["model"] not in NON_PORTABLE_MODELS]
 
-        param_grids = {
-            "lgbm": train_config.lgbm_param_grid,
-            "ridge": train_config.ridge_param_grid,
-            "dtree": train_config.dtree_param_grid,
-            "svr": train_config.svr_param_grid,
-        }
-        combo_counts = {}
-        for grid_name, param_grid in param_grids.items():
-            count = 1
-            for values in param_grid.values():
-                count *= len(values)
-            combo_counts[grid_name] = count
-
         rows_by_model = {}
         for row in portable_rows:
             rows_by_model.setdefault(row["model"], []).append(row)
@@ -74,16 +60,9 @@ def run_pipeline() -> None:
 
         rank = 0
         for model_name, model_rows in rows_by_model.items():
-            total_for_model = combo_counts[model_name] * len(model_rows)
-            top_n = min(max(1, round(total_for_model * 0.05)), len(model_rows))
-            print(f"\nTop {top_n} of {total_for_model} {model_name} combinations (top 5%):")
-            for row in model_rows[:top_n]:
+            for row in model_rows[:10]:
                 model_path = Path(train_config.data_dir) / f"pdr_model_{rank}_{row['model']}.joblib"
                 joblib.dump(row["_model"], model_path)
-                print(
-                    f"  [{rank}] model={row['model']} avg_mae={row['avg_mae']:.4f} "
-                    f"features={row['features']} -> {model_path}"
-                )
                 rank += 1
 
     if train_config.is_porting:

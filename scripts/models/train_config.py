@@ -28,6 +28,15 @@ FEATURE_COLUMNS = [
     "nbr_count",
 ]
 
+FIXED_FEATURES = [
+    "parent_ppm",
+    "parent_drop_rate",
+    "rssi",
+    "hop_count",
+]
+
+DYNAMIC_FEATURES = [f for f in FEATURE_COLUMNS if f not in FIXED_FEATURES]
+
 # unknown-value sentinels (see rpl-mlof.c)
 UNKNOWN_SENTINELS = {
     "etx": 32767,

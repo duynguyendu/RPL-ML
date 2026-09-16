@@ -21,7 +21,7 @@ from sklearn.tree import DecisionTreeRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from models.data import FEATURE_COLUMNS, LABEL_COLUMN
+from models.data import LABEL_COLUMN
 
 NON_PORTABLE_MODELS = set()
 
@@ -152,9 +152,11 @@ def grid_search() -> list[dict]:
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid})
 
     jobs = [
-        (list(included_features), model_name, is_pipeline, estimator, param_grid)
+        (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
         for num_included in range(train_config.min_features, train_config.max_features + 1)
-        for included_features in combinations(FEATURE_COLUMNS, num_included)
+        for num_dynamic in [num_included - len(train_config.FIXED_FEATURES)]
+        if 0 <= num_dynamic <= len(train_config.DYNAMIC_FEATURES)
+        for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, num_dynamic)
         for model_name, is_pipeline, estimator, param_grid in model_configs
     ]
 
