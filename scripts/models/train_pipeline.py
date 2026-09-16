@@ -8,14 +8,11 @@ this process (not subprocesses):
   - is_training_model: models/train.py's grid_search() sweeps every
     combination of FEATURE_COLUMNS crossed with every combination of each
     model's hyperparameter grid, for LGBMRegressor, Ridge,
-    DecisionTreeRegressor, SVR, and GaussianProcessRegressor (see
-    models/train.py), then saves the top 5% of (feature, hyperparameter)
-    combinations by avg MAE independently within each model type (so no
-    single model type can crowd the others out) to
-    train_config.data_dir/pdr_model_<rank>_<model>.joblib, rank 0 = best
-    overall. GaussianProcessRegressor is excluded from this top 5% (see
-    models/train.py's NON_PORTABLE_MODELS) since m2cgen can't export it to C
-    -- it still appears in grid_search.csv for comparison.
+    DecisionTreeRegressor, and SVR (see models/train.py), then saves the
+    top 5% of (feature, hyperparameter) combinations by avg MAE
+    independently within each model type (so no single model type can
+    crowd the others out) to train_config.data_dir/pdr_model_<rank>_<model>.joblib,
+    rank 0 = best overall.
   - is_porting: converts every train_config.data_dir/pdr_model_*.joblib to C
     with both m2cgen and, when the model type is supported, emlearn (see
     models/to_c.py), printing the msp430 size of each so the two backends
@@ -56,11 +53,10 @@ def run_pipeline() -> None:
         portable_rows = [row for row in rows if row["model"] not in NON_PORTABLE_MODELS]
 
         param_grids = {
-            "lgbm": train_config.param_grid,
+            "lgbm": train_config.lgbm_param_grid,
             "ridge": train_config.ridge_param_grid,
             "dtree": train_config.dtree_param_grid,
             "svr": train_config.svr_param_grid,
-            # "gp": train_config.gp_param_grid,
         }
         combo_counts = {}
         for grid_name, param_grid in param_grids.items():
