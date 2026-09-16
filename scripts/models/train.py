@@ -3,12 +3,14 @@
 import json
 import os
 import sys
+import time
 from itertools import combinations
 from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from joblib import Parallel, delayed
 from sklearn.base import clone
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, ShuffleSplit
@@ -22,6 +24,78 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from models.data import FEATURE_COLUMNS, LABEL_COLUMN
 
 NON_PORTABLE_MODELS = set()
+
+
+def _fit_one(
+    df: pd.DataFrame,
+    y: pd.Series,
+    cv: ShuffleSplit,
+    num_seeds: int,
+    included_features: list[str],
+    model_name: str,
+    is_pipeline: bool,
+    estimator,
+    param_grid: dict,
+) -> dict:
+    X = df[included_features]
+    search_param_grid = (
+        {f"model__{key}": values for key, values in param_grid.items()}
+        if is_pipeline
+        else param_grid
+    )
+    search = GridSearchCV(
+        estimator,
+        search_param_grid,
+        scoring="neg_mean_absolute_error",
+        cv=cv,
+        n_jobs=1,
+    )
+    search.fit(X, y)
+
+    best_params = (
+        {key.removeprefix("model__"): value for key, value in search.best_params_.items()}
+        if is_pipeline
+        else search.best_params_
+    )
+
+    best_estimator = search.best_estimator_
+    if is_pipeline:
+        scaler = best_estimator.named_steps["scaler"]
+        inner = best_estimator.named_steps["model"]
+        if hasattr(inner, "coef_"):
+            folded = clone(inner)
+            folded.coef_ = inner.coef_ / scaler.scale_
+            folded.intercept_ = inner.intercept_ - np.sum(
+                inner.coef_ * scaler.mean_ / scaler.scale_
+            )
+            folded.n_features_in_ = inner.n_features_in_
+            folded.feature_names_in_ = np.array(included_features, dtype=object)
+            best_estimator = folded
+
+    avg_mae = -search.best_score_
+    importances = getattr(best_estimator, "feature_importances_", None)
+    if importances is None:
+        importances = getattr(best_estimator, "coef_", None)
+    avg_importance = (
+        dict(zip(included_features, importances.tolist()))
+        if importances is not None
+        else None
+    )
+
+    result = {
+        "model": model_name,
+        "features": included_features,
+        **best_params,
+        "avg_mae": avg_mae,
+        "feature_importance": avg_importance,
+        "_model": best_estimator,
+    }
+    print(
+        f"[{model_name}] include {included_features} {best_params}: "
+        f"avg MAE over {num_seeds} splits = {avg_mae:.4f}, "
+        f"feature_importance={avg_importance}"
+    )
+    return result
 
 
 def grid_search() -> list[dict]:
@@ -84,72 +158,21 @@ def grid_search() -> list[dict]:
     ]
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid})
 
-    results = []
-    for num_included in range(train_config.min_features, train_config.max_features + 1):
-        for included_features in combinations(FEATURE_COLUMNS, num_included):
-            included_features = list(included_features)
-            X = df[included_features]
+    jobs = [
+        (list(included_features), model_name, is_pipeline, estimator, param_grid)
+        for num_included in range(train_config.min_features, train_config.max_features + 1)
+        for included_features in combinations(FEATURE_COLUMNS, num_included)
+        for model_name, is_pipeline, estimator, param_grid in model_configs
+    ]
 
-            for model_name, is_pipeline, estimator, param_grid in model_configs:
-                search_param_grid = (
-                    {f"model__{key}": values for key, values in param_grid.items()}
-                    if is_pipeline
-                    else param_grid
-                )
-                search = GridSearchCV(
-                    estimator,
-                    search_param_grid,
-                    scoring="neg_mean_absolute_error",
-                    cv=cv,
-                    n_jobs=train_config.n_jobs,
-                )
-                search.fit(X, y)
-
-                best_params = (
-                    {key.removeprefix("model__"): value for key, value in search.best_params_.items()}
-                    if is_pipeline
-                    else search.best_params_
-                )
-
-                best_estimator = search.best_estimator_
-                if is_pipeline:
-                    scaler = best_estimator.named_steps["scaler"]
-                    inner = best_estimator.named_steps["model"]
-                    if hasattr(inner, "coef_"):
-                        folded = clone(inner)
-                        folded.coef_ = inner.coef_ / scaler.scale_
-                        folded.intercept_ = inner.intercept_ - np.sum(
-                            inner.coef_ * scaler.mean_ / scaler.scale_
-                        )
-                        folded.n_features_in_ = inner.n_features_in_
-                        folded.feature_names_in_ = np.array(included_features, dtype=object)
-                        best_estimator = folded
-
-                avg_mae = -search.best_score_
-                importances = getattr(best_estimator, "feature_importances_", None)
-                if importances is None:
-                    importances = getattr(best_estimator, "coef_", None)
-                avg_importance = (
-                    dict(zip(included_features, importances.tolist()))
-                    if importances is not None
-                    else None
-                )
-
-                results.append(
-                    {
-                        "model": model_name,
-                        "features": included_features,
-                        **best_params,
-                        "avg_mae": avg_mae,
-                        "feature_importance": avg_importance,
-                        "_model": best_estimator,
-                    }
-                )
-                print(
-                    f"[{model_name}] include {included_features} {best_params}: "
-                    f"avg MAE over {len(train_config.seeds)} splits = {avg_mae:.4f}, "
-                    f"feature_importance={avg_importance}"
-                )
+    start_time = time.monotonic()
+    results = Parallel(n_jobs=train_config.n_jobs)(
+        delayed(_fit_one)(
+            df, y, cv, len(train_config.seeds), included_features, model_name, is_pipeline, estimator, param_grid
+        )
+        for included_features, model_name, is_pipeline, estimator, param_grid in jobs
+    )
+    print(f"\nTrained {len(jobs)} models in {time.monotonic() - start_time:.1f}s")
 
     results.sort(key=lambda result: result["avg_mae"])
 
