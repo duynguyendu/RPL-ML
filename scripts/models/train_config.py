@@ -59,8 +59,8 @@ min_split_gain = 0.0
 max_depth = -1
 n_jobs = -1
 lgbm_n_jobs = 1
-min_features = 6
-max_features = 9
+min_dynamic_features = 2
+max_dynamic_features = 4
 
 lgbm_param_grid = {
     "n_estimators": [10, 25, 50],

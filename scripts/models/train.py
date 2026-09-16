@@ -153,9 +153,7 @@ def grid_search() -> list[dict]:
 
     jobs = [
         (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
-        for num_included in range(train_config.min_features, train_config.max_features + 1)
-        for num_dynamic in [num_included - len(train_config.FIXED_FEATURES)]
-        if 0 <= num_dynamic <= len(train_config.DYNAMIC_FEATURES)
+        for num_dynamic in range(train_config.min_dynamic_features, train_config.max_dynamic_features + 1)
         for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, num_dynamic)
         for model_name, is_pipeline, estimator, param_grid in model_configs
     ]
