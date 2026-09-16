@@ -30,7 +30,6 @@ def _fit_one(
     df: pd.DataFrame,
     y: pd.Series,
     cv: ShuffleSplit,
-    num_seeds: int,
     included_features: list[str],
     model_name: str,
     is_pipeline: bool,
@@ -82,7 +81,7 @@ def _fit_one(
         else None
     )
 
-    result = {
+    return {
         "model": model_name,
         "features": included_features,
         **best_params,
@@ -90,12 +89,6 @@ def _fit_one(
         "feature_importance": avg_importance,
         "_model": best_estimator,
     }
-    print(
-        f"[{model_name}] include {included_features} {best_params}: "
-        f"avg MAE over {num_seeds} splits = {avg_mae:.4f}, "
-        f"feature_importance={avg_importance}"
-    )
-    return result
 
 
 def grid_search() -> list[dict]:
@@ -167,14 +160,23 @@ def grid_search() -> list[dict]:
 
     start_time = time.monotonic()
     results = Parallel(n_jobs=train_config.n_jobs)(
-        delayed(_fit_one)(
-            df, y, cv, len(train_config.seeds), included_features, model_name, is_pipeline, estimator, param_grid
-        )
+        delayed(_fit_one)(df, y, cv, included_features, model_name, is_pipeline, estimator, param_grid)
         for included_features, model_name, is_pipeline, estimator, param_grid in jobs
     )
     print(f"\nTrained {len(jobs)} models in {time.monotonic() - start_time:.1f}s")
 
     results.sort(key=lambda result: result["avg_mae"])
+
+    top_by_model = {}
+    for result in results:
+        top_by_model.setdefault(result["model"], []).append(result)
+
+    for model_name, model_results in top_by_model.items():
+        top_n = model_results[:10]
+        print(f"\nTop {len(top_n)} {model_name} models:")
+        for result in top_n:
+            printable = {k: v for k, v in result.items() if k not in ("model", "_model")}
+            print(f"  {printable}")
 
     out_df = pd.DataFrame(
         [
