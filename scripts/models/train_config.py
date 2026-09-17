@@ -10,7 +10,7 @@ is_porting = True
 # data config
 data_dir = Path("runs").resolve()
 rpl_lite_dir = Path(
-    "/home/duy/RPL-TinyML/rpl/contiki-ng/os/net/routing/rpl-lite"
+    "../rpl/contiki-ng/os/net/routing/rpl-lite"
 ).resolve()
 
 # training config
