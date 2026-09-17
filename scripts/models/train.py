@@ -191,6 +191,16 @@ def grid_search() -> list[dict]:
             printable = {k: v for k, v in result.items() if k not in ("model", "_model")}
             print(f"  {printable}")
 
+    best_by_num_features = {}
+    for result in results:
+        best_by_num_features.setdefault(len(result["features"]), result)
+
+    print("\nBest combination per number of features:")
+    for num_features in sorted(best_by_num_features):
+        result = best_by_num_features[num_features]
+        printable = {k: v for k, v in result.items() if k != "_model"}
+        print(f"  {num_features} features: {printable}")
+
     out_df = pd.DataFrame(
         [
             {
