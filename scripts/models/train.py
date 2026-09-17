@@ -35,15 +35,14 @@ def _fit_one(
     is_pipeline: bool,
     estimator,
     param_grid: dict,
+    scaler_choice,
 ) -> dict:
     X = df[included_features]
-    search_param_grid = (
-        {f"model__{key}": values for key, values in param_grid.items()}
-        if is_pipeline
-        else param_grid
-    )
     if is_pipeline:
-        search_param_grid["scaler"] = [StandardScaler(), "passthrough"]
+        estimator = clone(estimator).set_params(scaler=scaler_choice)
+        search_param_grid = {f"model__{key}": values for key, values in param_grid.items()}
+    else:
+        search_param_grid = param_grid
     search = GridSearchCV(
         estimator,
         search_param_grid,
@@ -58,24 +57,25 @@ def _fit_one(
         if is_pipeline
         else search.best_params_
     )
-    if "scaler" in best_params:
-        best_params["scaler"] = "none" if best_params["scaler"] == "passthrough" else "standard"
+    if is_pipeline:
+        best_params["scaler"] = "none" if scaler_choice == "passthrough" else "standard"
 
     best_estimator = search.best_estimator_
     if is_pipeline:
-        scaler = best_estimator.named_steps["scaler"]
-        inner = best_estimator.named_steps["model"]
-        if scaler == "passthrough":
-            best_estimator = inner
-        elif hasattr(inner, "coef_"):
-            folded = clone(inner)
-            folded.coef_ = inner.coef_ / scaler.scale_
-            folded.intercept_ = inner.intercept_ - np.sum(
-                inner.coef_ * scaler.mean_ / scaler.scale_
-            )
-            folded.n_features_in_ = inner.n_features_in_
-            folded.feature_names_in_ = np.array(included_features, dtype=object)
-            best_estimator = folded
+        if scaler_choice == "passthrough":
+            best_estimator = best_estimator.named_steps["model"]
+        else:
+            scaler = best_estimator.named_steps["scaler"]
+            inner = best_estimator.named_steps["model"]
+            if hasattr(inner, "coef_"):
+                folded = clone(inner)
+                folded.coef_ = inner.coef_ / scaler.scale_
+                folded.intercept_ = inner.intercept_ - np.sum(
+                    inner.coef_ * scaler.mean_ / scaler.scale_
+                )
+                folded.n_features_in_ = inner.n_features_in_
+                folded.feature_names_in_ = np.array(included_features, dtype=object)
+                best_estimator = folded
 
     avg_mae = -search.best_score_
     importances = getattr(best_estimator, "feature_importances_", None)
@@ -109,11 +109,13 @@ def grid_search() -> list[dict]:
     df = pd.read_csv(train_csv)
     all_rows = df
     df = df.dropna(subset=[LABEL_COLUMN])
-    for col, sentinel in train_config.UNKNOWN_SENTINELS.items():
-        if col in df.columns:
-            df = df[df[col] != sentinel]
+    if train_config.filter_unknown:
+        for col, sentinel in train_config.UNKNOWN_SENTINELS.items():
+            if col in df.columns:
+                df = df[df[col] != sentinel]
     dropped_rows = all_rows.loc[all_rows.index.difference(df.index)]
-    print(f"Dropped {len(dropped_rows)} of {len(all_rows)} rows (missing label or unknown feature)")
+    reason = "missing label or unknown feature" if train_config.filter_unknown else "missing label"
+    print(f"Dropped {len(dropped_rows)} of {len(all_rows)} rows ({reason})")
     if not dropped_rows.empty:
         print(dropped_rows.head(100).to_string())
     if df.empty:
@@ -160,16 +162,17 @@ def grid_search() -> list[dict]:
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid} | {"scaler"})
 
     jobs = [
-        (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
+        (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid, scaler_choice)
         for num_dynamic in range(train_config.min_dynamic_features, train_config.max_dynamic_features + 1)
         for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, num_dynamic)
         for model_name, is_pipeline, estimator, param_grid in model_configs
+        for scaler_choice in ((StandardScaler(), "passthrough") if is_pipeline else (None,))
     ]
 
     start_time = time.monotonic()
     results = Parallel(n_jobs=train_config.n_jobs)(
-        delayed(_fit_one)(df, y, cv, included_features, model_name, is_pipeline, estimator, param_grid)
-        for included_features, model_name, is_pipeline, estimator, param_grid in jobs
+        delayed(_fit_one)(df, y, cv, included_features, model_name, is_pipeline, estimator, param_grid, scaler_choice)
+        for included_features, model_name, is_pipeline, estimator, param_grid, scaler_choice in jobs
     )
     print(f"\nTrained {len(jobs)} models in {time.monotonic() - start_time:.1f}s")
 

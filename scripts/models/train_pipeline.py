@@ -1,31 +1,4 @@
 #!/usr/bin/env python3
-"""
-Runs three independent steps, each gated by its own train_config.py flag
-(the same way config.py controls pipeline.py), as direct function calls in
-this process (not subprocesses):
-  - is_processing_data: models/data.py's process_data() builds train.csv
-    from COOJA.testlog files under train_config.data_dir.
-  - is_training_model: models/train.py's grid_search() sweeps every
-    combination of FEATURE_COLUMNS crossed with every combination of each
-    model's hyperparameter grid, for LGBMRegressor, Ridge,
-    DecisionTreeRegressor, and SVR (see models/train.py), then saves the
-    top train_config.top_n_per_model (feature, hyperparameter) combinations
-    by avg MAE independently within each (model type, scaler) group -- so
-    Ridge/SVR each get their own top N with a scaler and top N without one
-    -- to train_config.data_dir/models/pdr_model_<rank>_<model>.joblib (all
-    model-related output, including grid_search.csv, lives under that
-    models/ subdirectory -- train.csv itself stays directly in data_dir).
-  - is_porting: converts every
-    train_config.data_dir/models/pdr_model_*.joblib to C with both m2cgen
-    and, when the model type is supported, emlearn (see models/to_c.py),
-    printing the msp430 size of each so the two backends can be compared
-    -- reads whatever models are already saved there, so this can run on
-    its own against models saved by an earlier invocation.
-
-Usage:
-    python models/train_pipeline.py
-    python models/train_pipeline.py --data_dir=runs/my_run --seeds=[0,1,2]
-"""
 
 import os
 import sys
@@ -41,6 +14,7 @@ from models.to_c import (
     convert_to_c,
     convert_to_c_emlearn,
     convert_to_c_fixed,
+    convert_to_c_linear,
     measure_size,
     verify_fixed,
 )
@@ -65,6 +39,8 @@ def run_pipeline() -> None:
         models_dir.mkdir(parents=True, exist_ok=True)
         for stale_path in models_dir.glob("pdr_model_*.joblib"):
             stale_path.unlink()
+        for stale_path in models_dir.glob("best_model_*.joblib"):
+            stale_path.unlink()
 
         rank = 0
         for (model_name, scaler), group_rows in rows_by_group.items():
@@ -72,6 +48,47 @@ def run_pipeline() -> None:
                 model_path = models_dir / f"pdr_model_{rank}_{row['model']}.joblib"
                 joblib.dump(row["_model"], model_path)
                 rank += 1
+
+        if train_config.is_porting:
+            best_by_model = {}
+            for row in portable_rows:
+                best_by_model.setdefault(row["model"], row)
+
+            for model_name, type_name, converter in (
+                ("dtree", "dtree", convert_to_c_fixed),
+                ("ridge", "linear", convert_to_c_linear),
+                ("svr", "svm", convert_to_c_linear),
+            ):
+                if model_name not in best_by_model:
+                    continue
+                row = best_by_model[model_name]
+
+                best_model_path = models_dir / f"best_model_{type_name}.joblib"
+                joblib.dump(row["_model"], best_model_path)
+
+                func_name = f"mlof_predict_pdr_{type_name}"
+                print(
+                    f"\n=== best {model_name} -> mlof-{type_name} (avg_mae={row['avg_mae']:.4f}) ==="
+                )
+                try:
+                    c_path, h_path = converter(
+                        str(best_model_path), str(models_dir), func_name
+                    )
+                except Exception as e:
+                    print(f"FAILED to convert: {e!r} -- skipped")
+                    continue
+                measure_size(c_path)
+
+                train_config.rpl_lite_dir.mkdir(parents=True, exist_ok=True)
+                dest_c = train_config.rpl_lite_dir / f"mlof-{type_name}.c"
+                dest_h = train_config.rpl_lite_dir / f"mlof-{type_name}.h"
+                dest_c.write_text(
+                    c_path.read_text().replace(
+                        f'"{func_name}.h"', f'"mlof-{type_name}.h"'
+                    )
+                )
+                dest_h.write_text(h_path.read_text())
+                print(f"Exported to {dest_c} and {dest_h}")
 
     if train_config.is_porting:
         model_paths = sorted(
@@ -114,7 +131,9 @@ def run_pipeline() -> None:
                 print(f"[fixed] FAILED to convert: {e!r} -- skipped")
                 continue
             if fixed_result is None:
-                print("[fixed] model type not supported by the fixed-point exporter -- skipped")
+                print(
+                    "[fixed] model type not supported by the fixed-point exporter -- skipped"
+                )
             else:
                 fixed_c_path, _ = fixed_result
                 print("[fixed]")

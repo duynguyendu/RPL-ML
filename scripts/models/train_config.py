@@ -9,9 +9,13 @@ is_porting = True
 
 # data config
 data_dir = Path("runs").resolve()
+rpl_lite_dir = Path(
+    "/home/duy/RPL-TinyML/rpl/contiki-ng/os/net/routing/rpl-lite"
+).resolve()
 
 # training config
 seeds = [0, 1, 2]
+filter_unknown = True
 
 # training features (see rpl-mlof.c's "MLOF metrics" log line)
 FEATURE_COLUMNS = [
@@ -75,7 +79,7 @@ ridge_param_grid = {
 }
 
 dtree_param_grid = {
-    "max_depth": [3, 5, 10, 15],
+    "max_depth": [3, 5, 7, 10],
     "min_samples_leaf": [1, 5, 10],
 }
 

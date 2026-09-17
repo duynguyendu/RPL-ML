@@ -1,6 +1,12 @@
 from models.data import FEATURE_COLUMNS, LABEL_COLUMN, gather_training_data
 from models.train import grid_search
-from models.to_c import convert_to_c, convert_to_c_emlearn, convert_to_c_fixed, verify_fixed
+from models.to_c import (
+    convert_to_c,
+    convert_to_c_emlearn,
+    convert_to_c_fixed,
+    convert_to_c_linear,
+    verify_fixed,
+)
 
 __all__ = [
     "FEATURE_COLUMNS",
@@ -10,5 +16,6 @@ __all__ = [
     "convert_to_c",
     "convert_to_c_emlearn",
     "convert_to_c_fixed",
+    "convert_to_c_linear",
     "verify_fixed",
 ]
