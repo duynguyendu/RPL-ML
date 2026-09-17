@@ -1042,7 +1042,9 @@ def save_metrics_csv(metrics, out_dir):
             print(f"  Saved {key}.csv")
 
 
-def plot_metrics(df_dir: str, output_dir: str):
+def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
+    if runs_dir is None:
+        runs_dir = os.path.dirname(os.path.abspath(output_dir)) or output_dir
     data = load_data(df_dir)
     metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
@@ -1075,7 +1077,7 @@ def plot_metrics(df_dir: str, output_dir: str):
     with open(f"{output_dir}/dashboard.html", "w") as f:
         topo_html = figs[0].to_html(
             full_html=True,
-            include_plotlyjs=plotly_src(output_dir),
+            include_plotlyjs=plotly_src(output_dir, runs_dir),
             div_id="topology_plot",
             post_script=getattr(figs[0], "_topology_post_script", None),
             config=html_config,
@@ -1108,6 +1110,11 @@ if __name__ == "__main__":
         default="plots",
         help="Output directory for the dashboard (default: plots/)",
     )
+    parser.add_argument(
+        "--runs-dir",
+        default=None,
+        help="Shared runs directory to copy plotly.min.js into (default: output-dir's parent)",
+    )
     args = parser.parse_args()
 
-    plot_metrics(args.df_dir, args.output_dir)
+    plot_metrics(args.df_dir, args.output_dir, args.runs_dir)

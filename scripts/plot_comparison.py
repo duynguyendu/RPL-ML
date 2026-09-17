@@ -468,7 +468,7 @@ def main() -> None:
     print(f"Collected {len(runs)} run(s) with aggregate.json from {args.runs_dir}/")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(build_html(runs, plotly_src(out_path.parent)))
+    out_path.write_text(build_html(runs, plotly_src(out_path.parent, args.runs_dir)))
     print(f"Wrote {out_path}")
 
 

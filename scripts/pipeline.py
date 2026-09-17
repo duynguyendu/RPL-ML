@@ -60,7 +60,7 @@ def pipeline() -> None:
         parse_log(log_dir=output_dir, output_dir=output_dir)
 
     if config.is_plot_metrics:
-        plot_metrics(df_dir=output_dir, output_dir=output_dir)
+        plot_metrics(df_dir=output_dir, output_dir=output_dir, runs_dir=config.base_output_dir)
 
     print(f"{run_id}")
     # if is_train_model:
