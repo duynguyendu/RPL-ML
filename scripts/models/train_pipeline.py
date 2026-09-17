@@ -9,14 +9,18 @@ this process (not subprocesses):
     combination of FEATURE_COLUMNS crossed with every combination of each
     model's hyperparameter grid, for LGBMRegressor, Ridge,
     DecisionTreeRegressor, and SVR (see models/train.py), then saves the
-    top 10 (feature, hyperparameter) combinations by avg MAE independently
-    within each model type (so no single model type can crowd the others
-    out) to train_config.data_dir/pdr_model_<rank>_<model>.joblib.
-  - is_porting: converts every train_config.data_dir/pdr_model_*.joblib to C
-    with both m2cgen and, when the model type is supported, emlearn (see
-    models/to_c.py), printing the msp430 size of each so the two backends
-    can be compared -- reads whatever models are already saved there, so
-    this can run on its own against models saved by an earlier invocation.
+    top train_config.top_n_per_model (feature, hyperparameter) combinations
+    by avg MAE independently within each (model type, scaler) group -- so
+    Ridge/SVR each get their own top N with a scaler and top N without one
+    -- to train_config.data_dir/models/pdr_model_<rank>_<model>.joblib (all
+    model-related output, including grid_search.csv, lives under that
+    models/ subdirectory -- train.csv itself stays directly in data_dir).
+  - is_porting: converts every
+    train_config.data_dir/models/pdr_model_*.joblib to C with both m2cgen
+    and, when the model type is supported, emlearn (see models/to_c.py),
+    printing the msp430 size of each so the two backends can be compared
+    -- reads whatever models are already saved there, so this can run on
+    its own against models saved by an earlier invocation.
 
 Usage:
     python models/train_pipeline.py
@@ -44,6 +48,8 @@ from models.train import NON_PORTABLE_MODELS, grid_search
 
 
 def run_pipeline() -> None:
+    models_dir = Path(train_config.data_dir) / "models"
+
     if train_config.is_processing_data:
         process_data(train_config.data_dir)
 
@@ -51,23 +57,25 @@ def run_pipeline() -> None:
         rows = grid_search()
         portable_rows = [row for row in rows if row["model"] not in NON_PORTABLE_MODELS]
 
-        rows_by_model = {}
+        rows_by_group = {}
         for row in portable_rows:
-            rows_by_model.setdefault(row["model"], []).append(row)
+            key = (row["model"], row.get("scaler"))
+            rows_by_group.setdefault(key, []).append(row)
 
-        for stale_path in Path(train_config.data_dir).glob("pdr_model_*.joblib"):
+        models_dir.mkdir(parents=True, exist_ok=True)
+        for stale_path in models_dir.glob("pdr_model_*.joblib"):
             stale_path.unlink()
 
         rank = 0
-        for model_name, model_rows in rows_by_model.items():
-            for row in model_rows[:10]:
-                model_path = Path(train_config.data_dir) / f"pdr_model_{rank}_{row['model']}.joblib"
+        for (model_name, scaler), group_rows in rows_by_group.items():
+            for row in group_rows[: train_config.top_n_per_model]:
+                model_path = models_dir / f"pdr_model_{rank}_{row['model']}.joblib"
                 joblib.dump(row["_model"], model_path)
                 rank += 1
 
     if train_config.is_porting:
         model_paths = sorted(
-            Path(train_config.data_dir).glob("pdr_model_*.joblib"),
+            models_dir.glob("pdr_model_*.joblib"),
             key=lambda p: int(p.stem.split("_")[2]),
         )
         for model_path in model_paths:
@@ -76,7 +84,7 @@ def run_pipeline() -> None:
 
             func_name = f"mlof_predict_pdr_{rank}_{model_type}"
             try:
-                c_path, _ = convert_to_c(str(model_path), str(train_config.data_dir), func_name)
+                c_path, _ = convert_to_c(str(model_path), str(models_dir), func_name)
                 print("[m2cgen]")
                 measure_size(c_path)
             except Exception as e:
@@ -85,7 +93,7 @@ def run_pipeline() -> None:
             emlearn_func_name = f"mlof_predict_pdr_emlearn_{rank}_{model_type}"
             try:
                 emlearn_result = convert_to_c_emlearn(
-                    str(model_path), str(train_config.data_dir), emlearn_func_name
+                    str(model_path), str(models_dir), emlearn_func_name
                 )
             except Exception as e:
                 print(f"[emlearn] FAILED to convert: {e!r} -- skipped")
@@ -100,7 +108,7 @@ def run_pipeline() -> None:
             fixed_func_name = f"mlof_predict_pdr_fixed_{rank}_{model_type}"
             try:
                 fixed_result = convert_to_c_fixed(
-                    str(model_path), str(train_config.data_dir), fixed_func_name
+                    str(model_path), str(models_dir), fixed_func_name
                 )
             except Exception as e:
                 print(f"[fixed] FAILED to convert: {e!r} -- skipped")

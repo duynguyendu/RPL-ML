@@ -61,6 +61,7 @@ n_jobs = -1
 lgbm_n_jobs = 1
 min_dynamic_features = 2
 max_dynamic_features = 4
+top_n_per_model = 5
 
 lgbm_param_grid = {
     "n_estimators": [10, 25, 50],

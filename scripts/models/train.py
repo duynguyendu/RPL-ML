@@ -42,6 +42,8 @@ def _fit_one(
         if is_pipeline
         else param_grid
     )
+    if is_pipeline:
+        search_param_grid["scaler"] = [StandardScaler(), "passthrough"]
     search = GridSearchCV(
         estimator,
         search_param_grid,
@@ -56,12 +58,16 @@ def _fit_one(
         if is_pipeline
         else search.best_params_
     )
+    if "scaler" in best_params:
+        best_params["scaler"] = "none" if best_params["scaler"] == "passthrough" else "standard"
 
     best_estimator = search.best_estimator_
     if is_pipeline:
         scaler = best_estimator.named_steps["scaler"]
         inner = best_estimator.named_steps["model"]
-        if hasattr(inner, "coef_"):
+        if scaler == "passthrough":
+            best_estimator = inner
+        elif hasattr(inner, "coef_"):
             folded = clone(inner)
             folded.coef_ = inner.coef_ / scaler.scale_
             folded.intercept_ = inner.intercept_ - np.sum(
@@ -95,7 +101,9 @@ def grid_search() -> list[dict]:
     import train_config
 
     train_csv = Path(train_config.data_dir) / "train.csv"
-    output_path = Path(train_config.data_dir) / "grid_search.csv"
+    models_dir = Path(train_config.data_dir) / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    output_path = models_dir / "grid_search.csv"
     test_size = 0.2
 
     df = pd.read_csv(train_csv)
@@ -149,7 +157,7 @@ def grid_search() -> list[dict]:
             train_config.svr_param_grid,
         ),
     ]
-    hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid})
+    hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid} | {"scaler"})
 
     jobs = [
         (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
@@ -167,13 +175,15 @@ def grid_search() -> list[dict]:
 
     results.sort(key=lambda result: result["avg_mae"])
 
-    top_by_model = {}
+    top_by_group = {}
     for result in results:
-        top_by_model.setdefault(result["model"], []).append(result)
+        key = (result["model"], result.get("scaler"))
+        top_by_group.setdefault(key, []).append(result)
 
-    for model_name, model_results in top_by_model.items():
-        top_n = model_results[:10]
-        print(f"\nTop {len(top_n)} {model_name} models:")
+    for (model_name, scaler), group_results in top_by_group.items():
+        top_n = group_results[: train_config.top_n_per_model]
+        label = model_name if scaler is None else f"{model_name} ({scaler} scaler)"
+        print(f"\nTop {len(top_n)} {label} models:")
         for result in top_n:
             printable = {k: v for k, v in result.items() if k not in ("model", "_model")}
             print(f"  {printable}")
