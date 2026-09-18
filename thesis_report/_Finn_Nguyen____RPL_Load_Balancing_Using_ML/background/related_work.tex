@@ -1,0 +1,60 @@
+\section{Review of RPL Objective Functions}
+\subsection{Objective Function zero (OF0)}
+\subsection{Minimum Rank with Hysteresis Objective Function (MRHOF)}
+
+Final piece of RPL is objective function, which is used to determine
+the path cost of a given link. There are two defaults implemention of
+OF: OF0 (Ojbective Function 0) and MHROF. In OF0, hop count is used
+to determine the path cost, a node would switch parent as soon as it
+receives a better parent DIO. This would lead to more parent switch
+and potentially less stable DODAG. In constrast, MHROF propose
+multiple thresholds before switching, in particular path cost
+threshold and time threshold. In path cost threshold, unless the
+potential node is better than the current parent by a threshold, it
+will stick with the current parent. However, after the time
+threshold, if that node is still better then the node will switch
+parent. This would allows a more stabalised DODAG. Additionally,
+MHROF use link metric ETX instead of hop count.
+Several metrics have been proposed to be used in objective functions.
+However, the specification of RPL leaves the choice of which metrics
+to use open to the implementation.
+
+% TODO: talk about the flexiblity of DIO
+
+\subsection{Related Work}
+Various objective functions have been proposed, which can be
+categorised into 4 groups: single metric, composite and context aware.
+
+In \cite{kimQURPLQueueUtilization2015}, the authors used queue
+utilisation metric in objective function, called QU-RPL to deal with
+dropped packets due to queue overflow. However, only queue metrics
+are taken into consideration, without mentioning latency.
+
+A new objective function: OF-FL is presented in
+\cite{gaddourOFFLQoSawareFuzzy2014}, which employs fuzzy logic with
+four metrics.
+
+- Various objective functions have been proposed
+- Types of Objective function
+- Single metrics
+- Composite
+- Context aware
+
+- Energy aware: \cite{abreuEnergyawareRoutingBiomedical2014}
+- CLRPL: \cite{taghizadehCLRPLContextAwareLoad2018}
+
+In recent, there has been many attempts to employ machine learning
+into OFs. Despite that, most of the new application of ML in RPL
+focues on reinforcement learning
+with little focus on supervised learning
+
+In \cite{duenassantosQRPLQLearningBasedRouting2024}, the authorse
+puts Q-Learning to OF, award the model when a packet is trasmitted
+successfully and penalise when choosing a link that lead to packet loss.
+% TODO: include the metrics name
+\cite{duenassantosRPLImprovedParent2022} utilised Random Weigth with
+six metrics (...)
+and \cite{mezherGNBRPLGaussianNaive2023},
+\cite{santosMLRPLMachineLearningBased2023} proposed using CatBoost
+models with eight metrics to predict the probability if a packet is
+transmitted successfully.

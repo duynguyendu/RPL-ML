@@ -1,0 +1,41 @@
+\section{Contiki-NG and COOJA Simulator}
+\subsection{Contiki}
+% TODO: cite ContikiOS
+Contiki-NG is a lightweight operating system for resource-constrained
+devices in WSNs and IoT.
+
+which was built on the Contiki.
+
+The Swedish Institute of Computer Science (SICS) released the first
+version of Contiki in 2003 % TODO: cite this
+Contiki was created by Adam Dunkels in 2002, which supports various
+protocol for IoT devices
+and have been support from various research instutitions
+
+% TODO: paraphrase this paragraph
+However, recently a new Contiki cross-platform has been released on
+Nov 2017 named Contiki-NG 4.0, which licensed under the 3-clause BSD
+license. Contiki-NG concentrates on the Next-Generation IoT devices
+such as ARM Cortex M3 and other 32-bit MCUs and on reliable and
+secure standard protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoA
+
+In the next generation, the RPL implementation was rewritten to
+reduce the number of features and prune the unneeded feature,
+choosing non-storing mode as default and remove multi-DODAG functionality.
+
+Addionally, ContikiMAC was removed in favor of TSCH implemetation,
+thus making TSCH the default for duty cycle MAC implementation.
+
+\subsection{COOJA Simulator for Contiki-NG}
+The Cooja simulator is widely used among RPL OF researches % TODO: reference here
+
+Cooja is an elastic Java-based simulator dedicated for WSNs based on Contiki Operating System. 
+Cooja is capable of simulating different node types, including simulated hardward (consisting of clock cycle and MCU) and software based simulation (which skip the internal working of an MCU).
+
+
+In this regard, Cooja is a tool for real hardware simulation.
+
+depends on the mote type, provides three mote types: Sky, Z1 and Cooja.
+% TODO: put the specification of each mote type here
+
+Thus to maximise the computing power, Z1 is the most suitable mote for our need.
