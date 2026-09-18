@@ -14,7 +14,7 @@ PLATFORM=z1
 
 NODE_LIST=(30 60)
 PPM_LIST=(60 45 30 15)
-OF_LIST=(of0 mhrof mlof)
+OF_LIST=(of0 mhrof mlof_dtree mlof_svm mlof_linear)
 SEED_LIST=(12756 826352 927106 538256 389271)
 BUFFER_SIZE=8
 TOTAL=$(( ${#NODE_LIST[@]} * ${#PPM_LIST[@]} * ${#OF_LIST[@]} * ${#SEED_LIST[@]} ))

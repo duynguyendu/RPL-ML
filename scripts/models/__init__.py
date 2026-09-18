@@ -6,6 +6,7 @@ from models.to_c import (
     convert_to_c_fixed,
     convert_to_c_linear,
     verify_fixed,
+    verify_linear,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "convert_to_c_fixed",
     "convert_to_c_linear",
     "verify_fixed",
+    "verify_linear",
 ]

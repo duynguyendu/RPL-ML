@@ -382,10 +382,11 @@ function buildTraces(metric, m, fixedVal){
 function layout(metric, m, fixedVal, chartHeight){
   const base = {
     height:chartHeight,
-    margin:{l:64, r:16, t:46, b:74},
-    legend:{orientation:'h', y:-0.24},
+    margin:{l:80, r:16, t:56, b:70},
+    font:{size:16},
+    legend:{orientation:'h', y:-0.15, yanchor:'top', font:{size:15}},
     paper_bgcolor:'white', plot_bgcolor:'#E5ECF6',
-    title:{text:'', font:{size:14}},
+    title:{text:'', font:{size:20}},
   };
   if(m === '3d'){
     base.title.text = metric.label + ' vs number of nodes & PPM';
@@ -419,7 +420,7 @@ function render(){
   syncFixed();
   const m = mode();
   $('#aggWrap').style.display = (m === '3d') ? '' : 'none';
-  const chartHeight = (m === '3d') ? 460 : 920;   // fixed views get ~2x height
+  const chartHeight = (m === '3d') ? 368 : 736;   // fixed views get ~2x height
   const fixedVal = (m === '3d') ? null : Number($('#fixed').value);
   METRICS.forEach((metric, i) => {
     const div = document.getElementById('chart' + i);

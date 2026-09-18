@@ -17,6 +17,7 @@ from models.to_c import (
     convert_to_c_linear,
     measure_size,
     verify_fixed,
+    verify_linear,
 )
 from models.train import NON_PORTABLE_MODELS, grid_search
 
@@ -77,6 +78,10 @@ def run_pipeline() -> None:
                 except Exception as e:
                     print(f"FAILED to convert: {e!r} -- skipped")
                     continue
+                if converter is convert_to_c_linear:
+                    verify_linear(str(best_model_path), str(train_config.data_dir))
+                elif converter is convert_to_c_fixed:
+                    verify_fixed(str(best_model_path), str(train_config.data_dir))
                 measure_size(c_path)
 
                 train_config.rpl_lite_dir.mkdir(parents=True, exist_ok=True)
