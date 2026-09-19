@@ -1,0 +1,157 @@
+---
+# Shards the full (nodes x ppm x objective-function x seed) simulation grid
+# across every host in the target inventory group and runs scripts/simulate.py
+# on each, then gathers the results back to the control node.
+#
+# All managed nodes are assumed to share one filesystem (the same repo_dir
+# checkout, e.g. an NFS mount) -- the control node does NOT share it. That
+# means:
+#   - every host can safely write into the *same* shared run directory (job
+#     identities never collide across shards), so there is no per-host
+#     merge step;
+#   - "pull latest" and "pull results back" only need to happen once, from
+#     any single managed node, not once per host (they'd all just be
+#     re-transferring the same files).
+#
+# Requires: the same RPL-TinyML checkout (with its venv already set up, see
+# playbook.yml) present at `repo_dir` on every target host, and the
+# ansible.posix collection on the controller (already used by playbook.yml).
+#
+# Usage:
+#   ansible-playbook simulate_seeds.yml -e "seeds=12756,826352,927106,538256,389271"
+#
+# seeds is a single comma- and/or space-separated string (plain `-e
+# "seeds=[...]"` list/JSON syntax is NOT auto-parsed by ansible-playbook's
+# key=value extra-vars form -- it arrives as a literal string).
+#
+# Optional extra vars:
+#   target_group     inventory group to run against (default: all)
+#   repo_dir         path to the RPL-TinyML checkout, shared by every host
+#                    (default: <remote user's home>/RPL-TinyML)
+#   max_active_jobs  concurrent jobs per host (default: 8)
+#   node_list        comma/space-separated node counts to sweep
+#                    (default: simulate.py's own NODE_LIST)
+#   ppm_list         comma/space-separated packet rates to sweep
+#                    (default: simulate.py's own PPM_LIST)
+#   of_list          comma/space-separated objective functions to sweep
+#                    (default: simulate.py's own OF_LIST)
+
+- name: Run simulate.py sharded across managed nodes
+  hosts: "{{ target_group | default('all') }}"
+  gather_facts: false
+  vars:
+    # NB: deliberately not named repo_dir -- vars: repo_dir: "{{ repo_dir |
+    # default(...) }}" self-references and recurses infinitely whenever no
+    # -e repo_dir=... override is given (confirmed by testing; --syntax-check
+    # doesn't catch it since it never evaluates the templates).
+    home_repo_dir: "{{ repo_dir | default(hostvars[ansible_play_hosts[0]].ansible_user_dir ~ '/RPL-TinyML') }}"
+    scripts_dir: "{{ home_repo_dir }}/scripts"
+    python_bin: "{{ home_repo_dir }}/venv/bin/python"
+    seed_list: "{{ (seeds | default('') | string).replace(',', ' ').split() }}"
+    seeds_tag: "{{ seed_list | join('_') }}"
+    shared_run_dir: "{{ scripts_dir }}/runs/ansible_run_seeds{{ seeds_tag }}"
+    local_dest_dir: "{{ playbook_dir }}/../scripts/runs/ansible_run_seeds{{ seeds_tag }}"
+
+  tasks:
+    - name: Require a non-empty seeds list
+      run_once: true
+      ansible.builtin.assert:
+        that:
+          - seed_list | length > 0
+        fail_msg: >-
+          Pass -e "seeds=12756,826352,..." (a non-empty, comma/space-separated
+          list of seeds).
+
+    - name: Discover the shared home directory (once -- identical across every managed node)
+      run_once: true
+      ansible.builtin.setup:
+        filter: ansible_user_dir
+
+    - name: Pull latest scripts + contiki-ng (once -- every host shares this filesystem)
+      run_once: true
+      ansible.builtin.shell: |
+        git pull && git submodule update --init --recursive
+      args:
+        chdir: "{{ home_repo_dir }}"
+        executable: /bin/bash
+      register: pull_result
+      changed_when: "'Already up to date' not in pull_result.stdout"
+
+    - name: Show pull result
+      run_once: true
+      ansible.builtin.debug:
+        var: pull_result.stdout_lines
+
+    - name: Check the venv exists (once -- every host shares this filesystem)
+      run_once: true
+      ansible.builtin.stat:
+        path: "{{ python_bin }}"
+      register: venv_check
+
+    - name: Fail if the venv is missing
+      run_once: true
+      ansible.builtin.assert:
+        that: venv_check.stat.exists and venv_check.stat.executable
+        fail_msg: >-
+          {{ python_bin }} not found or not executable -- run playbook.yml
+          first to deploy the repo + venv.
+
+    - name: Compute this host's shard index within the play
+      ansible.builtin.set_fact:
+        my_index: "{{ ansible_play_hosts.index(inventory_hostname) }}"
+        host_count: "{{ ansible_play_hosts | length }}"
+
+    - name: Run simulate.py for this host's shard in the background (can take hours)
+      ansible.builtin.shell: |
+        {{ python_bin }} simulate.py \
+          --run-dir="{{ shared_run_dir }}" \
+          --shard-index={{ my_index }} \
+          --num-shards={{ host_count }} \
+          --max-active-jobs={{ max_active_jobs | default(8) }} \
+          --seed-list="{{ seeds | default('') }}" \
+          --node-list="{{ node_list | default('') }}" \
+          --ppm-list="{{ ppm_list | default('') }}" \
+          --of-list="{{ of_list | default('') }}" \
+          > ansible_simulate.log 2>&1
+      args:
+        chdir: "{{ scripts_dir }}"
+        executable: /bin/bash
+      async: 86400  # allow up to 24h; raise if a sweep runs longer
+      poll: 0
+      register: sim_job
+
+    - name: Wait for simulate.py to finish
+      ansible.builtin.async_status:
+        jid: "{{ sim_job.ansible_job_id }}"
+      register: sim_result
+      until: sim_result.finished
+      retries: 2880  # 2880 * 30s = 24h, matches the async time above
+      delay: 30
+
+    - name: Fail this host if simulate.py itself failed
+      ansible.builtin.assert:
+        that: sim_result.rc == 0
+        fail_msg: >-
+          simulate.py failed on {{ inventory_hostname }} (rc={{ sim_result.rc }})
+          -- see {{ scripts_dir }}/ansible_simulate.log on that host.
+
+    - name: Rebuild the cross-run comparison dashboard (once, over every shard's combined output)
+      run_once: true
+      ansible.builtin.shell: |
+        {{ python_bin }} plot_comparison.py --runs-dir "{{ shared_run_dir }}"
+      args:
+        chdir: "{{ scripts_dir }}"
+        executable: /bin/bash
+
+    - name: Pull the finished results back to the control node (once -- every host already sees the same files)
+      run_once: true
+      delegate_to: localhost
+      ansible.posix.synchronize:
+        src: "{{ shared_run_dir }}/"
+        dest: "{{ local_dest_dir }}/"
+        mode: pull
+
+    - name: Done
+      run_once: true
+      ansible.builtin.debug:
+        msg: "Results pulled to {{ local_dest_dir }}"
