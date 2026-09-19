@@ -105,11 +105,18 @@ def compute_pdr(data):
 
 
 def compute_latency(data):
+    # server_receive_time <> 0 is the correct "was this packet actually
+    # measurable" filter -- it only needs the request to have reached the
+    # server, not a reply to come back to the client. hop_count is a
+    # separate field (only ever set alongside client_receive_time, i.e.
+    # only when a reply *did* come back) and must not gate latency itself,
+    # or every row goes missing the moment replies stop, even though
+    # server_receive_time - client_send_time is still perfectly computable.
     return _query(
         """
         SELECT node_id, hop_count, (server_receive_time - client_send_time) AS latency
         FROM df
-        WHERE hop_count <> 65535
+        WHERE server_receive_time <> 0
         """,
         data["latency"],
         ["node_id", "hop_count", "latency"],
@@ -119,13 +126,14 @@ def compute_latency(data):
 def compute_metrics(data):
     latest = compute_latest(data)
     latency = compute_latency(data)
+    latency_known_hop = latency[latency["hop_count"] != INVALID]
     return {
         "etx": compute_etx(data),
         "cpu": compute_cpu(latest),
         "pdr": compute_pdr(data),
         "latency": latency,
         "latency_by_hop": (
-            latency.groupby(["node_id", "hop_count"])
+            latency_known_hop.groupby(["node_id", "hop_count"])
             .agg(avg_latency=("latency", "mean"))
             .sort_values(by="hop_count")
             .reset_index()

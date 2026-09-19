@@ -22,10 +22,11 @@ RE_METRICS_LOG = re.compile(
 # LATENCY
 RE_LATENCY_LOG = re.compile(r"LATENCY: seqno=(\d+) rtt_ticks=(\d+)")
 RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
-RE_CLIENT_SKIP = re.compile(r"Skipping request '(\d+)': root not (registered|reachable)")
+RE_CLIENT_SKIP = re.compile(
+    r"Skipping request '(\d+)': root not (registered|reachable)"
+)
 SKIP_STATUS = {"registered": "not_joined", "reachable": "unreachable"}
 RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
-RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
 
 
 # TODO: must match config["metric_log_interval"] (see scripts/config.py,
@@ -140,14 +141,6 @@ def process_log(log_path):
                 seqno = int(server_receive.group(1))
                 row = send_by_node_seqno[(node_id_from_log, seqno)]
                 row["server_receive_time"] = time_s
-                continue
-
-            client_receive = RE_CLIENT_RECEIVE.match(content)
-            if client_receive:
-                seqno = int(client_receive.group(2))
-                row = send_by_node_seqno[(node_id, seqno)]
-                row["client_receive_time"] = time_s
-                row["hop_count"] = int(client_receive.group(1))
                 continue
 
     return {
