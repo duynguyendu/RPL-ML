@@ -1,24 +1,75 @@
 \section{Review of RPL Objective Functions}
-\subsection{Objective Function zero (OF0)}
-\subsection{Minimum Rank with Hysteresis Objective Function (MRHOF)}
+Up to now, the IETF ROLL working group has standardised only two
+objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
+Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 
-Final piece of RPL is objective function, which is used to determine
-the path cost of a given link. There are two defaults implemention of
-OF: OF0 (Ojbective Function 0) and MHROF. In OF0, hop count is used
-to determine the path cost, a node would switch parent as soon as it
-receives a better parent DIO. This would lead to more parent switch
-and potentially less stable DODAG. In constrast, MHROF propose
-multiple thresholds before switching, in particular path cost
+\subsection{OF0 and MRHOF}
+
+% TODO: talk more about step of rank
+OF0 was developed to be a simple objective function, computing
+$Rank\_increase$ as follow
+\[
+    Rank\_Increase = ( Rf \times Sp + Sr) \times Min\_Rank\_Increase
+\]
+where $Rf$ (Rank Factor) is a small positive integer used to scale
+the step of rank
+$Sp$ (Step of Rank) is an integer value representing hop count in
+abstract sense; and
+$Sr$ (Stretch of Rank) is used to inflate $Rank\_Increase$ for
+hysteresis preventing the OF from switching parents constantly.
+Certain implementation such as Contiki-NG simplify OF0 parameters by
+selecting $Rf = 1$, $Sp = $ and $Sr = 0$, which reduces
+$Rank\_Increase$ to a simple fixed per-hop increment of 256.
+
+OF0 can be regarded as implicitly using hop count as
+routing metric. This mean that the traffic from OF0 follow the shortest path
+to root without considering any load balancing requirement.
+However, this also means that OF0 does not consider other link
+qualities such as latency, energy residual in its calculation as well
+as might choose worse off route but have the shortest hop count to root.
+This led to the introduction a more sophisticated MRHOF.
+
+% TODO: define what is load balancing
+
+In contrast, MRHOF propose
+multiple thresholds call hysteresis before switching, in particular path cost
 threshold and time threshold. In path cost threshold, unless the
 potential node is better than the current parent by a threshold, it
 will stick with the current parent. However, after the time
 threshold, if that node is still better then the node will switch
-parent. This would allows a more stabalised DODAG. Additionally,
+parent. This would allows a more stabilised DODAG. Additionally,
 MHROF use link metric ETX instead of hop count.
 Several metrics have been proposed to be used in objective functions.
 However, the specification of RPL leaves the choice of which metrics
 to use open to the implementation.
 
+The default metric of MRHOF is Expected Transmission Count (ETX)
+metric. The main goal of ETX is to select routes with high end-to-end
+through put:
+\[
+    ETX = \frac{1}{D_t \times D_a}
+\]
+where $D_t$ is the probability that the receiving node receives the
+packet and $D_a$ is the probability that the transmitting node
+receives acknowledgement packet is successful. So ETX is the average
+number of packets need to send and acknowledgement.
+
+% TODO: include 128 as link divisor in (RFC 6551 and RFC 6719)
+
+% TODO: what word to describe route need less packets TX
+In essense, using ETX as metrics focus on more reliable route.
+
+There are two thresholds in MRHOF, rank threshold and time threshold.
+The specification define $PARENT\_SWITCH\_THRESHOLD$ as the minimum
+path cost improvement before deciding to switch.
+There is time threshold, meaning that if a node consistently perform
+better but not more than the ETX threshold, it still switch.
+
+% TODO: include other metric container
+The specification also open the choices of the routing metrics to energy,...
+However, ETX is the more popular choice when it comes to MHROF.
+
+Thanks to the flexibility of DIO header option.
 % TODO: talk about the flexiblity of DIO
 
 \subsection{Related Work}
@@ -32,7 +83,11 @@ are taken into consideration, without mentioning latency.
 
 A new objective function: OF-FL is presented in
 \cite{gaddourOFFLQoSawareFuzzy2014}, which employs fuzzy logic with
-four metrics.
+four metrics with the aim of supporting various application requirements.
+
+% TODO: cite here OF evaluation
+Additionally, ... evaluates the performance of the standardised OFs
+and find performance of OF0 degrade upon increasing load
 
 - Various objective functions have been proposed
 - Types of Objective function
@@ -58,3 +113,6 @@ and \cite{mezherGNBRPLGaussianNaive2023},
 \cite{santosMLRPLMachineLearningBased2023} proposed using CatBoost
 models with eight metrics to predict the probability if a packet is
 transmitted successfully.
+
+\cite{pradeskaPerformanceAnalysisObjective2016} evaluate  the
+performance of OF0 and MRHOF in COOJA Contiki

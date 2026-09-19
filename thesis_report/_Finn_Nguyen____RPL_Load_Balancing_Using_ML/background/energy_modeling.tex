@@ -1,0 +1,12 @@
+\section{Energy modeling}
+The energy is model based on Energest module provided by Contiki.
+The module measures the number of ticks each mode in namely CPU, LPM, TX, RX
+
+Each of this combine with the datasheet of the MCU and the transciver to estimate the energy consumption of a node
+% TODO: cite the energy modeling paper and the datasheet
+%
+% TODO: add the energy equation
+
+However, due to the removal of duty cycling ContikiMac, we opted for CSMA, which turns the radio receiver on the whole simulated time.
+TSCH is a much more complicated and round off algorithms design for high delivery ratio, which does not fit the Z1 mote in COOJA.
+Since the energy consmutpm of this is much bigger than CPU. We decide to measure CPU instead.

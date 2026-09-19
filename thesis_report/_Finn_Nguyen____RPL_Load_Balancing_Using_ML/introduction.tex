@@ -3,42 +3,54 @@ Recent development in the Internet of Things (IoT) have driven a
 rapid increase the number of devices connected to the Internet, with
 growth continues to accelerate in many areas: health care,
 construction, building.
+These devices typically communicate wirelessly, exchanging data over
+radio frequency links instead of relying on wired connections, which
+allows flexible deployment across wide range of physical environments.
 % TODO: may be cite the growth of IoT
-% TODO: talk about wireless, communicating through radio frequency
-
-% TODO: fix the para below
-Various projects need to deploy a large number of constrained
-devices, which are limited by computational power, memory and energy
-usage (battery), to cover large geographic areas. Because the
+However, many such deploymens invole large number of constrained
+devices, which are bounded by low computational power, memory and energy
+(battery), to cover large geographic areas.
+% TODO: what is LLNs
+Because the
 underlying network technologies are limited in range, multi-hop
-routing solution is often required. Such networks are categorised as
-Low-power and Lossy Networks (LLN). Additionally, links in LLN are
-susceptible to loss and frequent packet drops.
+routing is often required. Such networks are categorised as
+Low-power and Lossy Networks (LLN) as links in LLN are
+susceptible to loss and frequent packet drops in addtion to contrains
+on individual devices.
 
-These constrains led the Internet Engineering Task Force (IETF),
+These limitations led the Internet Engineering Task Force (IETF),
 which is an international organisation of network designers and
 researcher, to form Routing over Low-power and Lossy networks (ROLL)
-working group, investigating the routing solution for LLNs.
-
-The ROLL first published RFC 5548 \cite{rfc5548}, RFC 5673
+working group to investigate the routing solution for LLNs.
+The working group first published RFC 5548 \cite{rfc5548}, RFC 5673
 \cite{rfc5673}, RFC 5826 \cite{rfc5826}, RFC 5867 \cite{rfc5867} to
 define the routing requirements for smart urban, industrial area,
 home automation and building automation applications respectively.
-Building on these requirements, ROLL proposed a new routing protocol
-designed specifically for LLN called IPv6 based routing protocol for
+From there, the ROLL working group had investigated the existing routing
+protocols Open Shortest Path First (OSPF), Intermediate System to
+Intermediate System (IS-IS), Ad hoc On-Demand Distance Vector (AODV),
+and Optimized Link State Routing Protocol (OLSR), to which they found out that
+they do not satisfy all of
+the routing requirements. % TODO: include the reason why these protocols faile
+This led to ROLL introducing a new routing protocol
+designed specifically for LLNs called IPv6 based routing protocol for
 low power and lossy networks (RPL), standardised in RFC 6550
-\cite{alexanderRPLIPv6Routing2012}. Since its standardised, RPL has
-been employed in various settings and applications. % TODO: backup these claim
+\cite{alexanderRPLIPv6Routing2012}.
 
 At its core, RPL constructs a Destination-Oriented Directed Acyclic
 Graph (DODAG) to route packets from nodes toward a root, using
 objective function (OF) to calculate path cost and select parents
 during DODAG construction. Because of this, OFs determine how the
-traffic is distributed across DODAG. % TODO: talk a bit more about this
+traffic is distributed across DODAG
+% TODO: and directly affect the link quality and power usage.
+% TODO: talk a bit more about this
 
 % TODO: make this better
-The protocol fell short when it comes to performing under load as
-load balancing was not considered in the design. Moreover, most of
+The protocol fell short when it comes to performing under high traffic as
+load balancing was not considered in the design. Furthermore, the OFs
+that ROLL propose only consider one metric, which might not be enough
+to capture the inherent conditions of the network
+Moreover, most of
 the OFs are reactive in nature, meaning that would react after a
 route has degraded, leading to decrease in network quality and reliability.
 
@@ -47,7 +59,7 @@ In this project, we propose a new machine learning based OF that take
 load balancing into account and predict the link quality to choose the parents
 
 \section{Contribution}
-% TODO: list the contribution
+% TODO: Add one more contribution
 \begin{itemize}
     \item Contribute a new objective function based on machine
         learning which focuses on improving delivery ratio
@@ -61,9 +73,9 @@ The rest of this report is structured as follow
     \item Chapter \ref{C:Background} provides background information
         in relation to RPL and objective functions and related work
         in improving the objective functions
-    \item Chapter \ref{C:MachineLearning} provides the overview of
-        the machine learning techniques and models used in this report
+    \item Chapter \ref{C:ProposedOf} provides the motivation and overview
+        the machine learning techniques and models used for our
+        proposed objective function
     \item Chapter \ref{C:Experiments} shows the experiment and result
         from applying ML to OF
-    \item Chapter
 \end{itemize}

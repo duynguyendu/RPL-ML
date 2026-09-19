@@ -1,88 +1,102 @@
 \section{Routing Protocol for Low-Power and Lossy Networks (RPL)}
 
-% TODO: should I include the protocol that ROLL has considered
 RPL is an oriented distance vector routing protocol, operating on top of
-IEEE 802.15.4 PHY and MAC-layer and over 6LoWPAN (IPv6 over Low
-power Wireless Personal Area Networks). Its main target is Wireless
+IEEE 802.15.4 PHY and MAC-layer and over 6LoWPAN (IPv6 over Low-Power
+Wireless Personal Area Networks). Its main target is Wireless
 Sensor Networks (WSNs),
-where multipoint-to-point is the dominant communication pattern.
+where multipoint-to-point is the predominant communication pattern.
 Routes in RPL are optimised for traffic to or from one or more
 roots in the topology, while maintaining reliable and energy
 efficient data collection. To sustain this, RPL is designed adapt to various
-network condition, allowing nodes to switch route when route
+network conditions, allowing nodes to switch route when route
 degradation is detected.
 
 % TODO: talk about suporting multiple sinks DODAG
 % TODO: insert image of DODAG
 \subsection{Destination-Oriented Directed Acyclic Graph (DODAG)}
-In principle, RPL organises nodes under DODAG, in which the sink node
-is usually the root
-node. When a node need to send packets to the sink node, it sends the
-packets to the chosen parent, which then forward to its parent. The
-process is repeated until the packets reach the sink node. DODAG is
-loop free, preventing packets getting stuck in endless circle.
-
-In DODAG construction, each node identifies a set of potential nodes
-that have path to reach the DODAG root as candidates and determines
-one as its parent through objective function, which translate one or
-more metrics into rank and determine how to select the best parent.
-Rank in essence is the estimation of the distance between current
-node and the root node where only nodes with higher rank are
-considered as potential parent.
-
-RPL offers flexibility by separating packet processing and forwarding
-from routing optimisation, leaving the OF to be specified depends on
-application, e.g. lowering energy usage, lowering latency,...
+In principle, RPL organises nodes under a DODAG, with the sink
+node of the WSN often serving as the root of DODAG.
+When a packet need to be sent to the sink node, the
+packet traverse the path in DODAG until it reach the root node. The
+acyclic nature of DODAG ensures that the packet does not get stuck in
+endless circle.
 
 There are four identifiers to define maintain a topology in RPL
 Table~\ref{tab:rpl-identifiers}, with RPLInstanceID and DODAGID used
 to identify a single DODAG in the network.
+% TODO: talk a bit more about why we have that many identifiers
 
 \begin{table}[h]
-    \centering
-    \caption{RPL DODAG identifiers}
-    \label{tab:rpl-identifiers}
-    \begin{tabular}{@{}p{0.25\linewidth}p{0.65\linewidth}@{}}
-        \hline
-        \textbf{Identifier} & \textbf{Description} \\
-        \hline
-        RPLInstanceID & The identity of a RPL instance, which may
-        contain multiple DODAGs optimised for different OFs and applications. \\
-        DODAGID & Specifies a DODAG within a RPL instance. \\
-        DODAGVersionNumber & When a DODAG rebuild is needed, the root
-        node increments the version number. \\
-        Rank & Defines the position of a node relative to the DODAG root. \\
-        \hline
-    \end{tabular}
+    \caption{RPL DODAG identifiers} \label{tab:rpl-identifiers}
+    \begin{center}
+        \begin{tabular}{@{}p{0.25\linewidth}p{0.65\linewidth}@{}}
+            \hline
+            \textbf{Identifier} & \textbf{Description} \\
+            \hline
+            RPLInstanceID & The identity of a RPL instance, which may
+            contain multiple DODAGs optimised for different OFs and
+            applications. \\
+            DODAGID & Specifies a DODAG within a RPL instance. \\
+            DODAGVersionNumber & When a DODAG rebuild is needed, the root
+            node increments the version number. \\
+            Rank & Defines the distance estimation of a node relative
+            to the DODAG root. \\
+            \hline
+        \end{tabular}
+    \end{center}
 \end{table}
 
-To form and control DODAG, RPL adds five types of control messages as
-specified in ICMPv6 via RFC 6550 \cite{alexanderRPLIPv6Routing2012}
+During DODAG construction, each node selects parent from its pool of
+potential nodes that have path to the root through objective
+function, which translates one or
+more metrics into rank and determines how to select the best parent.
+The equation of the rank is calculated as
+\[
+    Rank(N) = Rank(P) + Rank\_Increase
+\]
+where $Rank(N)$ is the rank of the current node, $Rank(P)$ is the
+rank advertised by a node and $Rank\_Increase$ is determined by OF,
+which can be considered as the cost of choosing $P$ as parent.
+
+% TODO: emphasize more on this, allowing more flexibility
+RPL offers flexibility by separating the core packet processing and forwarding
+from routing optimisation, leaving the OF to be specified depends on
+application to fit diverse requirements of LLNs, e.g. lowering energy
+usage, lowering latency,...
+
+In addition, RPL introduces five types of control messages to form
+and control DODAG, as specified in ICMPv6 via RFC 6550
+\cite{alexanderRPLIPv6Routing2012}
 \begin{itemize}
         % TODO: paraphrase this
     \item DODAG Information Object (DIO): carries information that
         allow nodes to discover a RPL instance, select parents and
         maintain the DODAG.
-    \item DODAG Information Solicitation (DIS):
-    \item Destination Advertisement Object (DAO)
-    \item Destination Advertisement Object Acknowledgement (DAO-ACK)
-    \item CC
+    \item DODAG Information Solicitation (DIS): a request message
+        when a node want to join a DODAG
+    \item Destination Advertisement Object (DAO): the node advertise
+        itself to the root node, indicating that it has join DODAG
+        and is reachable
+    \item Destination Advertisement Object Acknowledgement (DAO-ACK):
+        the acknowledgement of the root, confirming the downward path
+        to the node
+    \item CC: % TODO: what is this
 \end{itemize}
 
-The root starts the DODAG formation by sending DIO to its neighbouring
-nodes. Upon receiving DIO, a node decide whether to join the
+To begin forming DODAG, the root node starts sending DIO to its neighbouring
+nodes. Upon receiving DIO, a node decides whether to join the
 advertised DODAG or not. To prevent loops, a node only considers a
 DIO if it advertises a rank lower than its own rank.
-In certain implementation, a node would wait for several DIOs to
+In certain implementations, a node would wait for several DIOs to
 build the pool of candidate parents before deciding.
-For each candidate, the node computes the path cost of the
-corresponding link and selects the candidate with the lowest path
-cost as its preferred parent.
-
-Once a parent has been selected, the node broadcasts its own DIO to
+Afterward, the node computes the path cost of the
+corresponding link for each candidate and selects the candidate with
+the lowest path cost as its preferred parent. Once a parent has been
+selected, the node broadcasts its own DIO to
 advertise itself to its neighbours. This process is done until all
 the nodes have join the DODAG.
 
+% TODO: clarify DAO even more
 A node would send DAO message back to the root node after it has
 chosen a parent,
 Afterward, the nodes broadcast its DIO to advertise itself to the
@@ -96,28 +110,99 @@ before confirming that it is reachable and advertise DIO to surrounding nodes
 % which reduce the redundant send.
 
 RPL also uses DIS when a new node want to join the network. Upon
-receiving DIS, nodes will unicast their DIO to the sending node
-
-% TODO: include rank calculation equation
+receiving DIS, nodes will unicast their DIO to the sending node and
+the sending node can decide whether to join the advertised DODAG and
+choose parents based on DIOs.
 
 % TODO: write more about trickle timer
 \subsection{Trickle Timer}
-In addition to that, RPL also employs trickle timer algorithm to
-determine when to send DIO.
-Each DIO send will double the interval up until INTERVAL\_MAX. When a
-node switch parents, it also resets the DIO interval and timer
+DIO is crucial in forming and maintaining DODAG, thus RPL also employs
+Trickle timer to regulate the emission of DIO.
+Trickle timer works by adjusting the sending interval dynamically
+based on the packets and network condition to ensure timely send
+while reducing redundant message transmission.
+The Trickle timer does this by evaluating the consistency of the
+network. When the network information are consistent, it
+exponentially increases the transmission interval of DIO. However,
+upon detecting inconsistencies, trickle timer reset its send interval
+to boost DIO transmission to spread the latest information to the DODAG.
+
+Table~\ref{tab:tricker_timer_params} shows three configuration
+parameters: Imin, Imax and k that Tricker timer to determine the send
+interval.
+The maximum sending interval time is:
+\[
+    I_{max\_time} = I_{min} \times 2^{I_{max}}
+\]
+
+% TODO: give an example
+
+% TODO: what is consisten message
+Trickle timer set the initial sending interval $I$ in the range of
+$[I_{min}, I_{max\_time}]$, usually the initial interval is set to $I = I_{min}$
+% TODO: read more about trickle timer
+The trickle timer will select a random time $t$ between $[I/2, I)$ as the
+sending interval. When Trickle detects a consistent message, it will
+increase the counter $c$,
+At the time $t$, if the value of $c$ is less than the
+redundancy constant $k$, the trickle transmits the message, otherwise
+it would suppress the transmission.
+After the interval $I$, Trickles double the time of the interval up
+to $I_{max\_time}$ i.e. $I = max(I \times 2, I_{max\_time})$
+
+Upon detecting inconsistent messages, The interval $I$ is reset to
+Imin.
+
+In RPL specification, inconsistencies are defined as:
+These inconsistencies$I$ include join new DODAG
+version (e.g. new DODAGVersionNumber, new RPL instance, switching
+parent), when % TODO: does switching parent reset DIO
+nodes detect loop and additional inconsistencies according to the
+implementation.
+However, the specification leaves the implementation adds more
+inconsistencies type when needed
+
+\begin{table}
+    \caption{Trickle Timer Parameters}\label{tab:tricker_timer_params}
+    \begin{center}
+        % TODO: Fix the format of table
+        \begin{tabular}[c]{@{}p{0.25\linewidth}p{0.10\linewidth}p{0.65\linewidth}@{}}
+            \hline
+            \textbf{Parameter} & \textbf{Symbol} & \textbf{Description} \\
+            \hline
+            Min interval length & $I_{min}$ & The minimum sending
+            interval between two messages \\ % TODO: problably fix this
+            Max interval length & $I_{max}$  & The maximum number of
+            times that the sending interval can double \\
+            DIO redundancy constant & $k$ & The number of consistent
+            DIOs before suppresses its own DIO transmission \\
+            \hline
+        \end{tabular}
+    \end{center}
+\end{table}
 
 \subsection{Communication Patterns}
-RPL supports upward and downward route and point-to-point
-communication. The upward route is constructed from DODAG. For
-downward route, RPL supports two modes non-storing and storing mode.
-In non-storing, the packet is sent to the sink node. The sink node
-would then calculate the downward path and route them to the
-destinated node. In storing mode, each node would store its own
-routing table and forward to the node in the table.
+There are two types of communication patterns in RPL: upward route
+and downward route
+\subsubsection{Upward Route}
+In this approach, the upward routes follow the DODAG path to root as
+presented in the earlier section. A node would select one node as a
+preferred parent according the the rank calculated from OF
 
+\subsubsection{Downward Route}
+The downward are supported to P2MP and P2P route, in which the
+destination is not the root node. In this pattern, the node sends DAO
+to its preferred parent in a unicast manner
 
+% TODO: study the storing mode more
+In this pattern, the RPL specification defines two mode: storing mode
+and non-storing mode. In storing mode, the downward routing tables
+are included in each nodes
+However, in non-storing mode, the downward routing tables are stored
+only in the DODAG root. This means that P2P communication need to be
+forwarded to the root node, where the root would then formulate the
+routing path to the downward node.
 
-The proposed OFs by IETF presented in have defined some
-recommendation on how to use a metrics.
-There are two default implementation of OF call OF0 and MRHOF.
+% TODO: clarify this
+The specification also opens option to specify DAO-ACK or not. A node
+would only consider reachable only after it has received the DAO-ACK.

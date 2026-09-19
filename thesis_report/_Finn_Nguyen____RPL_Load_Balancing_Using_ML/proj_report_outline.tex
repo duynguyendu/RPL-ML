@@ -3,11 +3,7 @@
 %% $Date: 2016/06/10 03:41:54 $
 %% $Author: kevin $
 
-\documentclass[11pt
-    , a4paper
-    , twoside
-    , openright
-]{report}
+\documentclass[11pt,a4paper,twoside,openright ]{report}
 
 \usepackage{float} % lets you have non-floating floats
 
@@ -69,7 +65,7 @@
 
 \include{acknowledge}
 
-\tableofcontents
+\tableofcontents{}
 
 % we want a list of the figures we defined
 \listof{fig}{Figures}
@@ -80,35 +76,9 @@
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% TODO: introduction
-% 1. RPL introduction
-%    DODAG, DIO, DAO, DIS
-%    Contiki-NG
-%    CSMA and TSCH
-%    COOJA and different mote types
-% 2. Machine learning model
-%    Regression model type
-%    Data processing and optimisation
-% 3. Decision Tree OF
-%    Why?
-%    Constrain of the model and OF
-%    Experiment methodology
-%    Data gathering: DIO update
-%    Data processing and training process
-%    Training the model and port to C
-% 4. Evaluation
-%    QoS: PDR, Latency, CPU usage
-%    DIO overhead
-%    Memory and ROM overhead
-% 4. Limitation
-%    Lack of real devices test
-%    Overhead
-% 5. Conclusion
-% Literature review
-% individual chapters included here
 \include{introduction}
 \include{background/background}
-\include{machine_learning/machine_learning}
+\include{proposed_of/proposed_of}
 \include{experiments/experiments}
 \include{evaluation/evaluation}
 \include{conclusion}

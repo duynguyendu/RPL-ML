@@ -11,31 +11,72 @@ version of Contiki in 2003 % TODO: cite this
 Contiki was created by Adam Dunkels in 2002, which supports various
 protocol for IoT devices
 and have been support from various research instutitions
+Later on, ContikiMAC was introduce as the sole duty cycle MAC layer for RPL.
 
 % TODO: paraphrase this paragraph
 However, recently a new Contiki cross-platform has been released on
 Nov 2017 named Contiki-NG 4.0, which licensed under the 3-clause BSD
 license. Contiki-NG concentrates on the Next-Generation IoT devices
 such as ARM Cortex M3 and other 32-bit MCUs and on reliable and
-secure standard protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoA
+secure standard protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoAP
+\cite{ContikiNG}.
 
-In the next generation, the RPL implementation was rewritten to
-reduce the number of features and prune the unneeded feature,
-choosing non-storing mode as default and remove multi-DODAG functionality.
+In Contiki-NG, RPL implementation was rewritten as RPL-lite while the
+original version of RPL in Contiki is kept as RPL-classic. RPL-lite
+removes certain features RPL based on year of experience, keeping the
+supports one single DAG at a time, one single “RPL instance”, and
+only the non-storing mode of operation.
 
 Addionally, ContikiMAC was removed in favor of TSCH implemetation,
 thus making TSCH the default for duty cycle MAC implementation.
 
 \subsection{COOJA Simulator for Contiki-NG}
-The Cooja simulator is widely used among RPL OF researches % TODO: reference here
+The Cooja simulator is widely used among RPL OF researches % TODO:
+% reference here
 
-Cooja is an elastic Java-based simulator dedicated for WSNs based on Contiki Operating System. 
-Cooja is capable of simulating different node types, including simulated hardward (consisting of clock cycle and MCU) and software based simulation (which skip the internal working of an MCU).
-
+Cooja is an elastic Java-based simulator dedicated for WSNs based on
+Contiki Operating System.
+Cooja is capable of simulating different node types, including
+simulated hardward (consisting of clock cycle and MCU) and software
+based simulation (which skip the internal working of an MCU).
 
 In this regard, Cooja is a tool for real hardware simulation.
 
-depends on the mote type, provides three mote types: Sky, Z1 and Cooja.
-% TODO: put the specification of each mote type here
+depends on the mote type, provides three mote types out-of-the-box:
+Sky, Z1 and Cooja where Sky and Z1 are emulated hardware for TelosB
+and Zolertia Z1 and Cooja is the software simulation.
+Table~\ref{tab:mote-specs} summarises the board specification.
 
-Thus to maximise the computing power, Z1 is the most suitable mote for our need.
+% TODO: double checkthe MCU and Transceiver
+\begin{table}[h]
+    \caption{Supported mote hardware specifications in COOJA simulator}
+    \label{tab:mote-specs}
+    \begin{center}
+        \begin{tabular}{lll}
+            \hline
+            \textbf{Specification} & \textbf{Zolertia Z1} & \textbf{TelosB} \\
+            \hline
+            Microcontroller        & MSP430F2617 (2nd gen)     & Texas
+            Instruments MSP430 \\
+            CPU                    & 16-bit RISC @ 16\,MHz     & 8\,MHz \\
+            RAM                    & 8\,KB                     & 10\,KB \\
+            Flash memory           & 92\,KB                    & 48\,KB \\
+            Transceiver            & CC2420, IEEE 802.15.4     & Chipcon,
+            IEEE 802.15.4 \\
+            Frequency band         & 2.4\,GHz                  & 2.4\,GHz \\
+            Data rate              & 250\,kbps                 & 250\,kbps \\
+            \hline
+        \end{tabular}
+    \end{center}
+\end{table}
+
+Thus to maximise the computing power for machine learning model, Z1
+is the most suitable mote for our need.
+
+% TODO: paraphrase this
+This platform is a virtual platform, used by the Cooja platform to
+run Contiki-NG as ‘Cooja motes’. It compiles Contiki-NG as a native
+process, and connects directly all hardware accesses to the Cooja
+simulator. Unlike emulations, simulation with Cooja motes are not
+perfectly time-accurate, but the timing is still good enough to run
+the MAC layers CSMA and TSCH
