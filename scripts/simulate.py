@@ -64,7 +64,9 @@ def build_jobs(node_list: list[int], ppm_list: list[int], of_list: list[str], se
 def start_job(
     slot: str, run_dir: Path, num_nodes: int, ppm: int, rpl_of: str, seed: int
 ):
-    log_path = run_dir / f"{slot}.log"
+    log_dir = run_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{slot}.log"
     log_f = open(log_path, "ab")
     proc = subprocess.Popen(
         [
