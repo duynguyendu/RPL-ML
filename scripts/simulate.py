@@ -34,13 +34,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-PLATFORM = "z1"
+PLATFORM = "cooja"
 NODE_LIST = [30, 60]
 PPM_LIST = [60, 45, 30, 15]
 OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_svm", "mlof_linear"]
 SEED_LIST = [12756, 826352, 927106, 538256, 389271]
 BUFFER_SIZE = 8
-DURATION = 1800
+DURATION = 600
 PACKET_SIZE = 64
 
 
