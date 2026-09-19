@@ -34,7 +34,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-PLATFORM = "cooja"
+PLATFORM = "z1"
 NODE_LIST = [30, 60]
 PPM_LIST = [60, 45, 30, 15]
 OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_svm", "mlof_linear"]
