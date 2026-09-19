@@ -3,19 +3,27 @@
 # Up to MAX_PARALLEL runs execute concurrently. Every concurrent run is given its
 # own --build_dir_name (a free "slot") so their firmware build trees never collide.
 #
-# Usage: ./simulate.sh [label]
+# Usage: ./simulate.sh [label] [seed_list]
 #   An optional label is folded into the run directory name alongside the
 #   config, e.g. `./simulate.sh run1` -> runs/sim_..._run1_<timestamp>.
+#   An optional seed_list overrides the default 5 seeds below -- pass as a
+#   single quoted, space-separated string, e.g.
+#   `./simulate.sh run1 "111 222 333"`.
 set -u
 
 LABEL="${1:-}"
+SEED_LIST_ARG="${2:-}"
 MAX_PARALLEL=8
 PLATFORM=z1
 
 NODE_LIST=(30 60)
 PPM_LIST=(60 45 30 15)
 OF_LIST=(of0 mhrof mlof_dtree mlof_svm mlof_linear)
-SEED_LIST=(12756 826352 927106 538256 389271)
+if [[ -n "$SEED_LIST_ARG" ]]; then
+    read -ra SEED_LIST <<< "$SEED_LIST_ARG"
+else
+    SEED_LIST=(12756 826352 927106 538256 389271)
+fi
 BUFFER_SIZE=8
 TOTAL=$(( ${#NODE_LIST[@]} * ${#PPM_LIST[@]} * ${#OF_LIST[@]} * ${#SEED_LIST[@]} ))
 RUN=0
@@ -71,10 +79,9 @@ run_job() {
     echo "=== [$(date +%T)] START ($RUN/$TOTAL) $slot of=$RPL_OF nodes=$NUM_NODES ppm=$PPM seed=$SEED ==="
     python3 pipeline.py \
         --duration=1800 \
-        --is_simulate=False \
-        --is_generate_topology=False \
-        --is_plot_metrics=False \
-        --is_simulate=False \
+        --is_simulate=True \
+        --is_generate_topology=True \
+        --is_plot_metrics=True \
         --packet_size=64 \
         --buffer_size="$BUFFER_SIZE" \
         --rpl_of="$RPL_OF" \
