@@ -54,6 +54,7 @@ def pipeline() -> None:
             csc_file=csc_file_name,
             cooja_base=config.base_cooja,
             output_dir=output_dir,
+            build_dir_name=config.build_dir_name,
         )
 
     if config.is_parse_log:
