@@ -1,0 +1,15 @@
+// Redirects Gradle's build output directory (compiled classes, jars, task
+// outputs, etc.) via the COOJA_BUILD_DIR env var, so concurrent gradlew
+// invocations from the same shared contiki-ng/tools/cooja checkout (one per
+// simulate.py slot, possibly on different hosts sharing this filesystem)
+// never race on the same <cooja_base>/build/ output tree -- e.g.
+// "Unable to delete file '.../build/classes/java/main'" when two slots'
+// JVMs compile Cooja's own Java sources at the same time.
+//
+// Passed via `--init-script`; see scripts/cooja_simulation.py.
+def overrideDir = System.getenv('COOJA_BUILD_DIR')
+if (overrideDir) {
+    gradle.beforeProject { proj ->
+        proj.layout.buildDirectory.set(new File(overrideDir))
+    }
+}

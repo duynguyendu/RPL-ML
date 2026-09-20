@@ -34,6 +34,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import config
+from cooja_simulation import ensure_template_built
+
 PLATFORM = "z1"
 NODE_LIST = [30, 60]
 PPM_LIST = [60, 45, 30, 15]
@@ -211,6 +214,8 @@ def main() -> None:
                 f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, ppm, rpl_of, seed)}"
             )
         return
+
+    ensure_template_built(config.base_cooja)
 
     hostname = socket.gethostname()
     free_slots = [

@@ -101,6 +101,14 @@
         my_index: "{{ ansible_play_hosts.index(inventory_hostname) }}"
         host_count: "{{ ansible_play_hosts | length }}"
 
+    - name: Pre-build the shared Cooja Java template (once, before any shard starts)
+      run_once: true
+      ansible.builtin.shell: |
+        {{ python_bin }} -c "from cooja_simulation import ensure_template_built; import config; ensure_template_built(config.base_cooja)"
+      args:
+        chdir: "{{ scripts_dir }}"
+        executable: /bin/bash
+
     - name: Run simulate.py for this host's shard in the background (can take hours)
       ansible.builtin.shell: |
         {{ python_bin }} simulate.py \
