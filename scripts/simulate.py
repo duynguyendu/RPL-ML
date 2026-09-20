@@ -34,8 +34,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import config
 from cooja_simulation import ensure_template_built
+
+BASE_COOJA = "../rpl/contiki-ng/tools/cooja/"
 
 PLATFORM = "z1"
 NODE_LIST = [30, 60]
@@ -215,7 +216,7 @@ def main() -> None:
             )
         return
 
-    ensure_template_built(config.base_cooja)
+    ensure_template_built(BASE_COOJA)
 
     hostname = socket.gethostname()
     free_slots = [
