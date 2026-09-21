@@ -24,6 +24,9 @@
 # "seeds=[...]"` list/JSON syntax is NOT auto-parsed by ansible-playbook's
 # key=value extra-vars form -- it arrives as a literal string).
 #
+# Results land in scripts/runs/sim_z1_n<max node count>_<ddmmyyyy>_<hhmm> (controller's
+# local time at launch).
+#
 # Optional extra vars:
 #   target_group     inventory group to run against (default: all)
 #   repo_dir         path to the RPL-TinyML checkout, shared by every host
@@ -48,9 +51,15 @@
     scripts_dir: "{{ home_repo_dir }}/scripts"
     python_bin: "{{ home_repo_dir }}/venv/bin/python"
     seed_list: "{{ (seeds | default('') | string).replace(',', ' ').split() }}"
-    seeds_tag: "{{ seed_list | join('_') }}"
-    shared_run_dir: "{{ scripts_dir }}/runs/ansible_run_seeds{{ seeds_tag }}"
-    local_dest_dir: "{{ playbook_dir }}/../scripts/runs/ansible_run_seeds{{ seeds_tag }}"
+    # Largest node count in the sweep. Falls back to 60, the max of
+    # simulate.py's own default NODE_LIST ([30, 60]) -- keep in sync.
+    max_node: "{{ ((node_list | default('') | string).replace(',', ' ').split() | map('int') | max) if (node_list | default('') | string).strip() else 60 }}"
+    # Platform is hardcoded in simulate.py (PLATFORM); keep in sync.
+    # run_timestamp is fixed once by the "Fix the run timestamp" task below --
+    # a lazy lookup here would re-evaluate per task/host and could drift.
+    run_name: "sim_z1_n{{ max_node }}_{{ run_timestamp }}"
+    shared_run_dir: "{{ scripts_dir }}/runs/{{ run_name }}"
+    local_dest_dir: "{{ playbook_dir }}/../scripts/runs/{{ run_name }}"
 
   # PATH: the MSP430 cross-compiler isn't on PATH in any shell-startup file
   # on these hosts (confirmed even a plain interactive `ssh host` session
@@ -70,6 +79,11 @@
         fail_msg: >-
           Pass -e "seeds=12756,826352,..." (a non-empty, comma/space-separated
           list of seeds).
+
+    - name: Fix the run timestamp (once, so every host and task agrees on the run dir)
+      run_once: true
+      ansible.builtin.set_fact:
+        run_timestamp: "{{ '%d%m%Y_%H%M' | strftime }}"
 
     - name: Discover the shared home directory (once -- identical across every managed node)
       run_once: true
