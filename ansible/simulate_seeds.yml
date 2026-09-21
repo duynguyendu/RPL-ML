@@ -52,6 +52,15 @@
     shared_run_dir: "{{ scripts_dir }}/runs/ansible_run_seeds{{ seeds_tag }}"
     local_dest_dir: "{{ playbook_dir }}/../scripts/runs/ansible_run_seeds{{ seeds_tag }}"
 
+  # PATH: the MSP430 cross-compiler isn't on PATH in any shell-startup file
+  # on these hosts (confirmed even a plain interactive `ssh host` session
+  # can't find it). LD_LIBRARY_PATH: msp430-gcc itself needs the 32-bit
+  # runtime libs under i386libs to run at all. Neither is assumed identical
+  # across hosts the way $HOME is, hence gathered per-host above.
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/msp430/bin:{{ ansible_env.PATH }}"
+    LD_LIBRARY_PATH: "{{ ansible_env.HOME }}/i386libs/usr/lib32:{{ ansible_env.LD_LIBRARY_PATH | default('') }}"
+
   tasks:
     - name: Require a non-empty seeds list
       run_once: true
@@ -66,6 +75,10 @@
       run_once: true
       ansible.builtin.setup:
         filter: ansible_user_dir
+
+    - name: Discover this host's PATH (for the msp430 toolchain above)
+      ansible.builtin.setup:
+        filter: ansible_env
 
     - name: Pull latest scripts + contiki-ng (once -- every host shares this filesystem)
       run_once: true

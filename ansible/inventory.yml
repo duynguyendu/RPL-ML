@@ -4,3 +4,8 @@ all:
       hosts:
         compute1: {}
         compute2: {}
+        # piccolo: {}
+        red-tomatoes: {}
+        cuda15: {}
+        cuda14: {}
+        cuda13: {}
