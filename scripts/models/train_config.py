@@ -9,13 +9,12 @@ is_porting = True
 
 # data config
 data_dir = Path("runs").resolve()
-rpl_lite_dir = Path(
-    "../rpl/contiki-ng/os/net/routing/rpl-lite"
-).resolve()
+rpl_lite_dir = Path("../rpl/contiki-ng/os/net/routing/rpl-lite").resolve()
 
 # training config
 seeds = [0, 1, 2]
 filter_unknown = True
+exclude_features: list[str] = []
 
 # training features (see rpl-mlof.c's "MLOF metrics" log line)
 FEATURE_COLUMNS = [
@@ -29,15 +28,9 @@ FEATURE_COLUMNS = [
     "parent_ppm",
     "parent_drop_rate",
     "hop_count",
-    "nbr_count",
 ]
 
-FIXED_FEATURES = [
-    "parent_ppm",
-    "parent_drop_rate",
-    "rssi",
-    "hop_count",
-]
+FIXED_FEATURES = []
 
 DYNAMIC_FEATURES = [f for f in FEATURE_COLUMNS if f not in FIXED_FEATURES]
 
@@ -56,21 +49,15 @@ UNKNOWN_SENTINELS = {
 # training label
 LABEL_COLUMN = "pdr"
 
-n_estimators = 200
-num_leaves = 31
-min_child_samples = 20
-min_split_gain = 0.0
-max_depth = -1
 n_jobs = -1
 lgbm_n_jobs = 1
 min_dynamic_features = 2
-max_dynamic_features = 4
 top_n_per_model = 5
 
 lgbm_param_grid = {
-    "n_estimators": [10, 25, 50],
+    "n_estimators": [10, 20, 30],
     "num_leaves": [7, 15, 31],
-    "max_depth": [3, 5],
+    "max_depth": [3, 5, 7],
     "min_data_in_leaf": [5, 10, 20],
 }
 
@@ -88,13 +75,24 @@ svr_param_grid = {
     "epsilon": [0.01, 0.1, 1.0],
 }
 
+xgb_param_grid = {
+    "n_estimators": [10, 20, 30],
+    "max_depth": [3, 5, 7],
+    "min_child_weight": [1, 5, 10],
+}
 
-# capture the config variable names before applying any overrides
-config_keys: list[str] = sorted(
-    k
-    for k in list(globals())
-    if not k.startswith("_") and k not in ("sys", "literal_eval", "Path")
-)
+catboost_param_grid = {
+    "iterations": [10, 20, 30],
+    "depth": [3, 5, 7],
+    "min_data_in_leaf": [1, 5, 10],
+}
+
+rf_param_grid = {
+    "n_estimators": [10, 20, 30],
+    "max_depth": [3, 5, 7],
+    "min_samples_leaf": [1, 5, 10],
+    "max_leaf_nodes": [20, 35, 50],
+}
 
 
 for arg in sys.argv[1:]:
@@ -126,3 +124,18 @@ for arg in sys.argv[1:]:
             globals()[key] = attempt
         else:
             raise ValueError(f"Unknown config key: {key}")
+
+if exclude_features:
+    FEATURE_COLUMNS = [f for f in FEATURE_COLUMNS if f not in exclude_features]
+    FIXED_FEATURES = [f for f in FIXED_FEATURES if f not in exclude_features]
+    DYNAMIC_FEATURES = [f for f in FEATURE_COLUMNS if f not in FIXED_FEATURES]
+
+if not FEATURE_COLUMNS:
+    raise ValueError(
+        "exclude_features excluded every training feature -- nothing left to train on"
+    )
+
+min_dynamic_features = min(min_dynamic_features, len(DYNAMIC_FEATURES))
+
+if not FIXED_FEATURES:
+    min_dynamic_features = max(min_dynamic_features, 1)

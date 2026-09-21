@@ -8,14 +8,19 @@ from itertools import combinations
 from pathlib import Path
 
 import lightgbm as lgb
-import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
+import xgboost as xgb
+from catboost import CatBoostRegressor
 from joblib import Parallel, delayed
-from sklearn.base import clone
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, ShuffleSplit
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.svm import LinearSVR
 from sklearn.tree import DecisionTreeRegressor
 
@@ -35,11 +40,9 @@ def _fit_one(
     is_pipeline: bool,
     estimator,
     param_grid: dict,
-    scaler_choice,
 ) -> dict:
     X = df[included_features]
     if is_pipeline:
-        estimator = clone(estimator).set_params(scaler=scaler_choice)
         search_param_grid = {f"model__{key}": values for key, values in param_grid.items()}
     else:
         search_param_grid = param_grid
@@ -58,29 +61,15 @@ def _fit_one(
         else search.best_params_
     )
     if is_pipeline:
-        best_params["scaler"] = "none" if scaler_choice == "passthrough" else "standard"
+        best_params["scaler"] = "minmax+standard"
 
     best_estimator = search.best_estimator_
-    if is_pipeline:
-        if scaler_choice == "passthrough":
-            best_estimator = best_estimator.named_steps["model"]
-        else:
-            scaler = best_estimator.named_steps["scaler"]
-            inner = best_estimator.named_steps["model"]
-            if hasattr(inner, "coef_"):
-                folded = clone(inner)
-                folded.coef_ = inner.coef_ / scaler.scale_
-                folded.intercept_ = inner.intercept_ - np.sum(
-                    inner.coef_ * scaler.mean_ / scaler.scale_
-                )
-                folded.n_features_in_ = inner.n_features_in_
-                folded.feature_names_in_ = np.array(included_features, dtype=object)
-                best_estimator = folded
+    inner_estimator = best_estimator.named_steps["model"] if is_pipeline else best_estimator
 
     avg_mae = -search.best_score_
-    importances = getattr(best_estimator, "feature_importances_", None)
+    importances = getattr(inner_estimator, "feature_importances_", None)
     if importances is None:
-        importances = getattr(best_estimator, "coef_", None)
+        importances = getattr(inner_estimator, "coef_", None)
     avg_importance = (
         dict(zip(included_features, importances.tolist()))
         if importances is not None
@@ -95,6 +84,29 @@ def _fit_one(
         "feature_importance": avg_importance,
         "_model": best_estimator,
     }
+
+
+def plot_feature_importance(top_by_group: dict, models_dir: Path) -> None:
+    """Plot the best model's feature importance for each (model, scaler) group."""
+    for (model_name, scaler), group_results in top_by_group.items():
+        importance = group_results[0].get("feature_importance")
+        if not importance:
+            continue
+        label = model_name if scaler is None else f"{model_name} ({scaler} scaler)"
+        features, values = zip(
+            *sorted(importance.items(), key=lambda kv: abs(kv[1]))
+        )
+
+        fig, ax = plt.subplots(figsize=(6, 0.4 * len(features) + 1))
+        ax.barh(features, values, color="#4363d8")
+        ax.set_xlabel("Importance")
+        ax.set_title(f"Feature importance - best {label} model")
+        fig.tight_layout()
+
+        out_path = models_dir / f"feature_importance_{model_name}.png"
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        print(f"  Saved {out_path}")
 
 
 def grid_search() -> list[dict]:
@@ -135,6 +147,7 @@ def grid_search() -> list[dict]:
                 feature_fraction=0.8,
                 bagging_fraction=0.8,
                 bagging_freq=1,
+                learning_rate=0.1,
                 random_state=0,
                 n_jobs=train_config.lgbm_n_jobs,
             ),
@@ -143,7 +156,13 @@ def grid_search() -> list[dict]:
         (
             "ridge",
             True,
-            Pipeline([("scaler", StandardScaler()), ("model", Ridge())]),
+            Pipeline(
+                [
+                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+                    ("scaler", StandardScaler()),
+                    ("model", Ridge()),
+                ]
+            ),
             train_config.ridge_param_grid,
         ),
         (
@@ -155,24 +174,54 @@ def grid_search() -> list[dict]:
         (
             "svr",
             True,
-            Pipeline([("scaler", StandardScaler()), ("model", LinearSVR(random_state=0))]),
+            Pipeline(
+                [
+                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+                    ("scaler", StandardScaler()),
+                    ("model", LinearSVR(random_state=0)),
+                ]
+            ),
             train_config.svr_param_grid,
+        ),
+        (
+            "xgboost",
+            False,
+            xgb.XGBRegressor(learning_rate=0.1, random_state=0, n_jobs=1, verbosity=0),
+            train_config.xgb_param_grid,
+        ),
+        (
+            "catboost",
+            False,
+            CatBoostRegressor(learning_rate=0.1, random_state=0, thread_count=1, verbose=False),
+            train_config.catboost_param_grid,
+        ),
+        (
+            "rf",
+            False,
+            RandomForestRegressor(random_state=0, n_jobs=1),
+            train_config.rf_param_grid,
         ),
     ]
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid} | {"scaler"})
 
     jobs = [
-        (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid, scaler_choice)
-        for num_dynamic in range(train_config.min_dynamic_features, train_config.max_dynamic_features + 1)
-        for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, num_dynamic)
+        (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
+        for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, train_config.min_dynamic_features)
         for model_name, is_pipeline, estimator, param_grid in model_configs
-        for scaler_choice in ((StandardScaler(), "passthrough") if is_pipeline else (None,))
     ]
+    if not jobs:
+        raise ValueError(
+            "No feature combinations to search: "
+            f"min_dynamic_features={train_config.min_dynamic_features}, "
+            f"FIXED_FEATURES={train_config.FIXED_FEATURES}, "
+            f"DYNAMIC_FEATURES={train_config.DYNAMIC_FEATURES} "
+            "-- check exclude_features/min_dynamic_features in train_config."
+        )
 
     start_time = time.monotonic()
     results = Parallel(n_jobs=train_config.n_jobs)(
-        delayed(_fit_one)(df, y, cv, included_features, model_name, is_pipeline, estimator, param_grid, scaler_choice)
-        for included_features, model_name, is_pipeline, estimator, param_grid, scaler_choice in jobs
+        delayed(_fit_one)(df, y, cv, included_features, model_name, is_pipeline, estimator, param_grid)
+        for included_features, model_name, is_pipeline, estimator, param_grid in jobs
     )
     print(f"\nTrained {len(jobs)} models in {time.monotonic() - start_time:.1f}s")
 
@@ -190,6 +239,8 @@ def grid_search() -> list[dict]:
         for result in top_n:
             printable = {k: v for k, v in result.items() if k not in ("model", "_model")}
             print(f"  {printable}")
+
+    plot_feature_importance(top_by_group, models_dir)
 
     best_by_num_features = {}
     for result in results:

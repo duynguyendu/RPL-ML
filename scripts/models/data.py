@@ -20,7 +20,7 @@ RE_CLIENT_SEND = re.compile(r"Sending request '(\d+)' to")
 RE_CLIENT_SKIP = re.compile(
     r"Skipping request '(\d+)': root not (registered|reachable)"
 )
-RE_CLIENT_RECEIVE = re.compile(r"HOP_COUNT=(\d+) Received response '(\d+)' from")
+RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 
 MIN_CHUNK_SECONDS = 15.0
 MAXUINT16 = 65535
@@ -64,17 +64,36 @@ def _parse_log(log_path: Path):
 
             send = RE_CLIENT_SEND.match(content)
             if send:
-                rows_send.append({"time_s": time_s, "node_id": node_id})
+                rows_send.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "seqno": int(send.group(1)),
+                    }
+                )
                 continue
 
             skip = RE_CLIENT_SKIP.match(content)
             if skip:
-                rows_send.append({"time_s": time_s, "node_id": node_id})
+                rows_send.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": node_id,
+                        "seqno": int(skip.group(1)),
+                    }
+                )
                 continue
 
-            recv = RE_CLIENT_RECEIVE.match(content)
+            recv = RE_SERVER_RECEIVE.match(content)
             if recv:
-                rows_recv.append({"time_s": time_s, "node_id": node_id})
+                client_id = int(recv.group(2).split(":")[5], 16)
+                rows_recv.append(
+                    {
+                        "time_s": time_s,
+                        "node_id": client_id,
+                        "seqno": int(recv.group(1)),
+                    }
+                )
                 continue
 
     return pd.DataFrame(rows_mlof), pd.DataFrame(rows_send), pd.DataFrame(rows_recv)
@@ -87,12 +106,13 @@ def _window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:
 
 
 def _chunk_pdr(
-    send_node: pd.DataFrame, recv_node: pd.DataFrame, start: float, end: float
+    send_node: pd.DataFrame, received_seqnos: set, start: float, end: float
 ) -> float:
-    sent = len(_window(send_node, start, end))
+    window = _window(send_node, start, end)
+    sent = len(window)
     if sent == 0:
         return float("nan")
-    received = len(_window(recv_node, start, end))
+    received = window["seqno"].isin(received_seqnos).sum()
     return received / sent * MAXUINT16
 
 
@@ -122,6 +142,7 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
         node_rows = node_rows.sort_values("time_s").reset_index(drop=True)
         send_node = send[send["node_id"] == node_id] if not send.empty else send
         recv_node = recv[recv["node_id"] == node_id] if not recv.empty else recv
+        received_seqnos = set(recv_node["seqno"]) if not recv_node.empty else set()
 
         for i in range(len(node_rows)):
             row = node_rows.iloc[i]
@@ -143,17 +164,25 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
                     "chunk_end": chunk_end,
                     "chunk_duration": chunk_end - chunk_start,
                     **{col: row[col] for col in FEATURE_COLUMNS},
-                    "pdr": _chunk_pdr(send_node, recv_node, chunk_start, chunk_end),
+                    "pdr": _chunk_pdr(
+                        send_node, received_seqnos, chunk_start, chunk_end
+                    ),
                 }
             )
 
     return pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
 
 
+def _is_mlof_run(run_dir: Path) -> bool:
+    with open(run_dir / "config.json") as fh:
+        cfg = json.load(fh)
+    return cfg.get("rpl_of", "").startswith("mlof")
+
+
 def find_dirs_with_data(data_dir: Path):
     needed = ["COOJA.testlog", "config.json"]
     for sub_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
-        if all((sub_dir / name).exists() for name in needed):
+        if all((sub_dir / name).exists() for name in needed) and _is_mlof_run(sub_dir):
             yield sub_dir
 
 

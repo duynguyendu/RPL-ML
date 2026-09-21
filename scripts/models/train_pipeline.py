@@ -11,8 +11,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import train_config
 from models.data import process_data
 from models.to_c import (
-    convert_to_c,
-    convert_to_c_emlearn,
     convert_to_c_fixed,
     convert_to_c_linear,
     measure_size,
@@ -57,6 +55,10 @@ def run_pipeline() -> None:
 
             for model_name, type_name, converter in (
                 ("dtree", "dtree", convert_to_c_fixed),
+                ("lgbm", "lgbm", convert_to_c_fixed),
+                ("rf", "rf", convert_to_c_fixed),
+                ("xgboost", "xgboost", convert_to_c_fixed),
+                ("catboost", "catboost", convert_to_c_fixed),
                 ("ridge", "linear", convert_to_c_linear),
                 ("svr", "svm", convert_to_c_linear),
             ):
@@ -104,29 +106,6 @@ def run_pipeline() -> None:
             _, _, rank, model_type = model_path.stem.split("_", 3)
             print(f"\n=== {model_path.name} (model={model_type}) ===")
 
-            func_name = f"mlof_predict_pdr_{rank}_{model_type}"
-            try:
-                c_path, _ = convert_to_c(str(model_path), str(models_dir), func_name)
-                print("[m2cgen]")
-                measure_size(c_path)
-            except Exception as e:
-                print(f"[m2cgen] FAILED to convert: {e!r} -- skipped")
-
-            emlearn_func_name = f"mlof_predict_pdr_emlearn_{rank}_{model_type}"
-            try:
-                emlearn_result = convert_to_c_emlearn(
-                    str(model_path), str(models_dir), emlearn_func_name
-                )
-            except Exception as e:
-                print(f"[emlearn] FAILED to convert: {e!r} -- skipped")
-                continue
-            if emlearn_result is None:
-                print("[emlearn] model type not supported by emlearn -- skipped")
-            else:
-                emlearn_c_path, _ = emlearn_result
-                print("[emlearn]")
-                measure_size(emlearn_c_path)
-
             fixed_func_name = f"mlof_predict_pdr_fixed_{rank}_{model_type}"
             try:
                 fixed_result = convert_to_c_fixed(
@@ -134,7 +113,7 @@ def run_pipeline() -> None:
                 )
             except Exception as e:
                 print(f"[fixed] FAILED to convert: {e!r} -- skipped")
-                continue
+                fixed_result = None
             if fixed_result is None:
                 print(
                     "[fixed] model type not supported by the fixed-point exporter -- skipped"
@@ -144,6 +123,24 @@ def run_pipeline() -> None:
                 print("[fixed]")
                 verify_fixed(str(model_path), str(train_config.data_dir))
                 measure_size(fixed_c_path)
+
+            linear_func_name = f"mlof_predict_pdr_linear_{rank}_{model_type}"
+            try:
+                linear_result = convert_to_c_linear(
+                    str(model_path), str(models_dir), linear_func_name
+                )
+            except Exception as e:
+                print(f"[linear] FAILED to convert: {e!r} -- skipped")
+                continue
+            if linear_result is None:
+                print(
+                    "[linear] model type not supported by the standardised-linear exporter -- skipped"
+                )
+            else:
+                linear_c_path, _ = linear_result
+                print("[linear]")
+                verify_linear(str(model_path), str(train_config.data_dir))
+                measure_size(linear_c_path)
 
 
 if __name__ == "__main__":
