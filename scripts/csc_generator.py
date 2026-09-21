@@ -6,7 +6,7 @@ Backwards-compatible defaults follow the existing z1 setup.
 
 JSON expectations:
 - keys: version, topology_id, seed, radio {tx_range, interference_range, success_tx, success_rx},
-  timing.duration_s, motes: list of {id, role (server|client), x, y[, z]}.
+  timing.duration_s, motes: list of {id, role (server|client|overloading_client), x, y[, z]}.
 
 Compile model:
 - We build firmware via `make` using the repository root as project dir and set BUILD_DIR when provided.
@@ -105,6 +105,11 @@ def role_build_dirs(
     name = getattr(config, "build_dir_name", "") or "build"
     return {
         "client": (platform_spec.client_base_dir() / name).as_posix(),
+        # Same firmware as the client but built with a different PPM, so it
+        # needs its own build tree.
+        "overloading_client": (
+            platform_spec.client_base_dir() / f"{name}_overloading"
+        ).as_posix(),
         "server": (server_spec.server_base_dir() / name).as_posix(),
     }
 
@@ -115,6 +120,7 @@ def make_header(
     radio: Dict[str, Any],
     platform_spec: PlatformSpec,
     server_spec: PlatformSpec,
+    has_overloading_client: bool = False,
 ) -> str:
     # Original repository root that contains src/ and Makefile
     target = platform_spec.target
@@ -126,10 +132,32 @@ def make_header(
     )
     client_fw = f"{client_build}/{target}/{platform_spec.client_binary_name()}"
 
-    parameters = f"PPM={config.ppm} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
+    def make_parameters(ppm: int) -> str:
+        return f"PPM={ppm} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
+
+    parameters = make_parameters(config.ppm)
 
     server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target} BUILD_DIR={server_build}"
     client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={client_build}"
+
+    overloading_motetype = ""
+    if has_overloading_client:
+        overloading_build = builds["overloading_client"]
+        overloading_fw = (
+            f"{overloading_build}/{target}/{platform_spec.client_binary_name()}"
+        )
+        overloading_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {make_parameters(config.overloading_client_ppm)} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={overloading_build}"
+        overloading_motetype = f"""
+    <motetype>
+      {platform_spec.mote_type}
+      <identifier>{platform_spec.name}_overloading_client</identifier>
+      <description>RPL Overloading Client ({config.overloading_client_ppm} PPM) - {platform_spec.name.upper()}</description>
+      <source>{platform_spec.client_source_path()}</source>
+      <commands>{overloading_cmd}</commands>
+      <firmware>{overloading_fw}</firmware>
+{_join_interfaces(platform_spec.interfaces)}
+    </motetype>
+"""
 
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <simconf>
@@ -167,19 +195,8 @@ def make_header(
       <firmware>{client_fw}</firmware>
 {_join_interfaces(platform_spec.interfaces)}
     </motetype>
-
+{overloading_motetype}
 """
-
-
-#     <motetype>
-#       {platform_spec.mote_type}
-#       <identifier>{platform_spec.name}_overload_client</identifier>
-#       <description>RPL Overload Client - {platform_spec.name.upper()}</description>
-#       <source>{overload_client_source}</source>
-#       <commands>{overload_client_cmd}</commands>
-#       <firmware>{overload_client_fw}</firmware>
-# {_join_interfaces(platform_spec.interfaces)}
-#     </motetype>
 
 
 def make_footer(timeout_ms: int, server_id: int) -> str:
@@ -259,6 +276,10 @@ def generate_csc_from_dict(topo: Dict[str, Any]) -> str:
         radio=radio,
         platform_spec=platform_spec,
         server_spec=server_spec,
+        has_overloading_client=any(
+            str(m.get("role", "")).lower() == "overloading_client"
+            for m in topo["motes"]
+        ),
     )
 
     motes_xml = []

@@ -42,6 +42,7 @@ def pipeline() -> None:
             mesh_jitter=0.2,
             sparse_max_attempts=20,
             add_overloading_client=config.add_overloading_client,
+            overloading_client_ratio=config.overloading_client_ratio,
         )
         generate_csc(
             topology_json=topology_json_file_name,

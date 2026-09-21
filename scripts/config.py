@@ -51,6 +51,8 @@ base_output_dir = Path("runs").resolve()
 base_mote_dir = "../rpl/motes"
 base_cooja = "../rpl/contiki-ng/tools/cooja/"
 add_overloading_client = False
+overloading_client_ratio = 0.05  # fraction of clients randomly made overloading_client
+overloading_client_ppm = 45  # send rate (packets per minute) of an overloading_client
 
 # Name of the firmware build directory created inside each mote project dir
 # (rpl/motes/client/<name> and rpl/motes/server/<name>). Default "build" matches

@@ -151,9 +151,16 @@ GRAPH_COLORS = {
     "plr": "#f58231",
 }
 
+# Overloading clients (higher send rate) are drawn as a spiky star instead of a circle
+OVERLOADING_SYMBOL = "hexagram"
+
+
+def _is_overloading(mote):
+    return str(mote.get("role", "")).lower() == "overloading_client"
+
+
 PDR_COLORSCALE = [[0.0, "red"], [1.0, "green"]]
 CPU_COLORSCALE = [[0.0, "darkblue"], [1.0, "red"]]
-HOP_COLORSCALE = "Plasma"
 
 
 def _title(text):
@@ -721,21 +728,13 @@ def plot_topology(df_dir, metrics):
     pdr_cmin = min(pdr_cmin, 0.75)
     clients_cpu = _per_client(cpu_by_node)
     clients_latency = _per_client(latency_by_node)
-    hop_df = metrics.get("cpu_usage_by_hop")
-    hop_by_node = (
-        {int(row.node_id): int(row.hop_count) for row in hop_df.itertuples()}
-        if hop_df is not None and not hop_df.empty
-        else {}
-    )
-    clients_hop = _per_client(hop_by_node)
     clients_custom = [
-        [int(m["id"]), m.get("role", "client"), pdr, cpu, lat, hop]
-        for m, pdr, cpu, lat, hop in zip(
+        [int(m["id"]), m.get("role", "client"), pdr, cpu, lat]
+        for m, pdr, cpu, lat in zip(
             clients,
             clients_pdr,
             clients_cpu,
             clients_latency,
-            clients_hop,
         )
     ]
     clients_hover = (
@@ -752,8 +751,11 @@ def plot_topology(df_dir, metrics):
             y=[float(m["y"]) for m in clients],
             mode="markers+text",
             marker=dict(
-                symbol="circle",
-                size=14,
+                symbol=[
+                    OVERLOADING_SYMBOL if _is_overloading(m) else "circle"
+                    for m in clients
+                ],
+                size=[18 if _is_overloading(m) else 14 for m in clients],
                 color=clients_pdr if has_pdr else GRAPH_COLORS["etx"],
                 colorscale=PDR_COLORSCALE,
                 cmin=pdr_cmin,
@@ -883,7 +885,6 @@ def plot_topology(df_dir, metrics):
         "    var cbTitle = cb ? (cb.title ? cb.title.text : '') : '';\n"
         "    if (cbTitle === 'CPU Usage (%%)') metricIdx = 3;\n"
         "    else if (cbTitle === 'Avg Latency (s)') metricIdx = 4;\n"
-        "    else if (cbTitle === 'Hop Count') metricIdx = 5;\n"
         "    var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "      'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "      'TX range: ' + TX_RANGE + ' m<br>' +\n"
@@ -892,7 +893,6 @@ def plot_topology(df_dir, metrics):
         "    if (v !== undefined && v !== null && !isNaN(v)) {\n"
         "      if (metricIdx === 3) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
         "      else if (metricIdx === 4) tipHtml += '<br>Latency: ' + v.toFixed(3) + ' s';\n"
-        "      else if (metricIdx === 5) tipHtml += '<br>Hop count: ' + v + ' hops';\n"
         "      else tipHtml += '<br>PDR: ' + (v * 100).toFixed(1) + '%%';\n"
         "    }\n"
         "    showTip(tipHtml);\n"
@@ -981,9 +981,6 @@ def plot_topology(df_dir, metrics):
         clients_latency_color = clients_latency
         latency_cmin = latency_cmin_real
         latency_colorscale = "Blues"
-    real_hop = [v for v in clients_hop if not math.isnan(v)]
-    has_hop = len(real_hop) == len(clients_hop) and len(real_hop) > 0
-    hop_cmin, hop_cmax = _finite_bounds(clients_hop, 0, 1)
     layout: dict = dict(
         title=_title("Network Topology"),
         dragmode="pan",
@@ -1023,12 +1020,6 @@ def plot_topology(df_dir, metrics):
                 "Avg Latency (s)",
             ),
         ]
-    if has_hop:
-        buttons.append(
-            _color_button(
-                "Hop Count", clients_hop, hop_cmin, hop_cmax, HOP_COLORSCALE, "Hop Count"
-            )
-        )
     if buttons:
         layout["updatemenus"] = _button_menu(buttons)
     fig.update_layout(layout)

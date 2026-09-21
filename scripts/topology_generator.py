@@ -379,6 +379,7 @@ def build_topology(
     mesh_jitter: float = 0.2,
     sparse_max_attempts: int = 10,
     add_overloading_client: bool = True,
+    overloading_client_ratio: float = 0.05,
 ) -> dict:
     assert n >= 2, "Need at least server + 1 client"
     num_clients = n - 1
@@ -430,11 +431,31 @@ def build_topology(
     for i, (x, y) in enumerate(pts, start=2):
         motes.append({"id": i, "role": "client", "x": float(x), "y": float(y)})
 
-    # Add overloading client to overload the parent
-    # in theory, this should overload half of the tree topology
-    print("Overload client", add_overloading_client)
+    # Randomly turn some clients into overloading clients that send at a higher
+    # rate (config.overloading_client_ppm). Uses its own RNG so node positions
+    # for a given seed are unchanged by this option.
     if add_overloading_client:
-        motes[-1]["role"] = "overload_client"
+        rng = random.Random(f"{seed}-overloading_client")
+        clients = motes[1:]
+        num_overloading = max(1, round(len(clients) * overloading_client_ratio))
+        # Walk the clients in random order and skip any within tx_range of an
+        # already picked overloading client, so they never neighbor each other.
+        picked = []
+        for m in rng.sample(clients, len(clients)):
+            if len(picked) == num_overloading:
+                break
+            if all(
+                math.hypot(m["x"] - p["x"], m["y"] - p["y"]) > radio.tx_range
+                for p in picked
+            ):
+                picked.append(m)
+        if len(picked) < num_overloading:
+            print(
+                f"Warning: only placed {len(picked)}/{num_overloading} overloading "
+                "clients out of each other's tx_range"
+            )
+        for m in picked:
+            m["role"] = "overloading_client"
 
     topology_id = f"{topo_type}_n{n}_s{int(spacing)}_seed{seed}"
     topo = make_base(topology_id, topo_type, platform, seed, radio, duration_s)
@@ -463,6 +484,7 @@ def generate_topology(
     mesh_jitter: float = 0.2,
     sparse_max_attempts: int = 20,
     add_overloading_client: bool = True,
+    overloading_client_ratio: float = 0.05,
 ):
     random.seed(seed)
 
@@ -485,6 +507,7 @@ def generate_topology(
         mesh_jitter=mesh_jitter * spacing,
         sparse_max_attempts=sparse_max_attempts,
         add_overloading_client=add_overloading_client,
+        overloading_client_ratio=overloading_client_ratio,
     )
 
     out_path = Path(out_json)
@@ -529,6 +552,12 @@ if __name__ == "__main__":
         default=20,
         help="Max attempts for sparse_grid connectivity",
     )
+    p.add_argument(
+        "--overloading-client-ratio",
+        type=float,
+        default=0.05,
+        help="Fraction of clients randomly turned into overloading_client (at least one)",
+    )
     args = p.parse_args()
     generate_topology(
         topo_type=args.type,
@@ -546,4 +575,5 @@ if __name__ == "__main__":
         mesh_jitter=args.mesh_jitter,
         sparse_max_attempts=args.sparse_max_attempts,
         add_overloading_client=True,
+        overloading_client_ratio=args.overloading_client_ratio,
     )

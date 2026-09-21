@@ -8,7 +8,7 @@ Functions:
 - assert_connected(motes, tx_range)
 
 Mote schema expected (from topology JSON):
-  {"id": int, "role": "server"|"client", "x": float, "y": float}
+  {"id": int, "role": "server"|"client"|"overloading_client", "x": float, "y": float}
 """
 
 from typing import Dict, List, Set, Tuple
