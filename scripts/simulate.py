@@ -45,7 +45,7 @@ OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_svm", "mlof_linear", "mlof_lgbm"]
 SEED_LIST = [12756, 826352, 927106, 538256, 389271]
 OVERLOADING_CLIENT_SEED_LIST = [999, 998]
 BUFFER_SIZE = 8
-DURATION = 600
+DURATION = 1800
 PACKET_SIZE = 64
 
 

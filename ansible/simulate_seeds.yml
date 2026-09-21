@@ -228,6 +228,12 @@
         dest: "{{ local_dest_dir }}/"
         mode: pull
 
+    - name: Remove the shared Cooja Gradle cache (once -- every host shares this filesystem)
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ home_repo_dir }}/cooja/.gradle_home"
+        state: absent
+
     - name: Done
       run_once: true
       ansible.builtin.debug:

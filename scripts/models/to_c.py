@@ -477,10 +477,30 @@ def verify_linear(model_path: str | Path, data_dir: str | Path) -> float | None:
         mean_fixed, inv_scale_mult, coef_fixed, intercept_fixed, total_scale, rows
     )
 
-    mae = float(np.abs(fixed_preds - float_preds).mean())
+    # fixed_preds is already saturated to [0, 65535] (the C code clamps its
+    # output). Clip float_preds the same way before comparing -- otherwise a
+    # row where the float model itself extrapolates wildly out of range
+    # (a real, separate model-conditioning problem, not a quantization one)
+    # shows up as huge "quantization error" when both predictions are in
+    # fact correctly saturating to the same edge.
+    float_preds_clipped = np.clip(float_preds, 0, 65535)
+    n_saturated = int(((float_preds < 0) | (float_preds > 65535)).sum())
+    if n_saturated:
+        print(
+            f"[linear] NOTE: float model itself predicted outside [0, 65535] on "
+            f"{n_saturated}/{len(df)} rows (min={float_preds.min():.0f}, "
+            f"max={float_preds.max():.0f}) -- a model-conditioning issue, not "
+            f"quantization error; both sides are compared after saturating."
+        )
+
+    abs_err = np.abs(fixed_preds - float_preds_clipped)
+    mae = float(abs_err.mean())
+    max_err = float(abs_err.max())
+    worst_row = int(abs_err.argmax())
     print(
-        f"[linear] quantization error vs float model: MAE={mae:.2f} "
-        f"(pdr scale 0-65535, total_scale={total_scale}, over {len(df)} rows)"
+        f"[linear] quantization error vs float model: MAE={mae:.2f} MAX={max_err:.2f} "
+        f"(pdr scale 0-65535, total_scale={total_scale}, over {len(df)} rows, "
+        f"worst row features={dict(df.iloc[worst_row][feature_names])})"
     )
     return mae
 

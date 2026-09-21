@@ -26,6 +26,7 @@ def run_pipeline() -> None:
     if train_config.is_processing_data:
         process_data(train_config.data_dir)
 
+    best_by_model = {}
     if train_config.is_training_model:
         rows = grid_search()
         portable_rows = [row for row in rows if row["model"] not in NON_PORTABLE_MODELS]
@@ -48,51 +49,61 @@ def run_pipeline() -> None:
                 joblib.dump(row["_model"], model_path)
                 rank += 1
 
-        if train_config.is_porting:
-            best_by_model = {}
-            for row in portable_rows:
-                best_by_model.setdefault(row["model"], row)
+        for row in portable_rows:
+            best_by_model.setdefault(row["model"], row)
 
-            for model_name, type_name, converter in (
-                ("dtree", "dtree", convert_to_c_fixed),
-                ("lgbm", "lgbm", convert_to_c_fixed),
-                ("ridge", "linear", convert_to_c_linear),
-                ("svr", "svm", convert_to_c_linear),
-            ):
-                if model_name not in best_by_model:
-                    continue
-                row = best_by_model[model_name]
-
-                best_model_path = models_dir / f"best_model_{type_name}.joblib"
-                joblib.dump(row["_model"], best_model_path)
-
-                func_name = f"mlof_predict_pdr_{type_name}"
+    # Deliberately NOT nested inside `is_training_model`: with
+    # is_training_model=False (skip the expensive grid search) and
+    # is_porting=True, this re-ports whatever best_model_*.joblib files a
+    # previous training run already left in models_dir, instead of silently
+    # doing nothing.
+    if train_config.is_porting:
+        for model_name, type_name, converter in (
+            ("dtree", "dtree", convert_to_c_fixed),
+            ("lgbm", "lgbm", convert_to_c_fixed),
+            ("ridge", "linear", convert_to_c_linear),
+            ("svr", "svm", convert_to_c_linear),
+        ):
+            best_model_path = models_dir / f"best_model_{type_name}.joblib"
+            if model_name in best_by_model:
+                joblib.dump(best_by_model[model_name]["_model"], best_model_path)
+                avg_mae = best_by_model[model_name]["avg_mae"]
                 print(
-                    f"\n=== best {model_name} -> mlof-{type_name} (avg_mae={row['avg_mae']:.4f}) ==="
+                    f"\n=== best {model_name} -> mlof-{type_name} (avg_mae={avg_mae:.4f}) ==="
                 )
-                try:
-                    c_path, h_path = converter(
-                        str(best_model_path), str(models_dir), func_name
-                    )
-                except Exception as e:
-                    print(f"FAILED to convert: {e!r} -- skipped")
-                    continue
-                if converter is convert_to_c_linear:
-                    verify_linear(str(best_model_path), str(train_config.data_dir))
-                elif converter is convert_to_c_fixed:
-                    verify_fixed(str(best_model_path), str(train_config.data_dir))
-                measure_size(c_path)
+            elif best_model_path.exists():
+                print(
+                    f"\n=== best {model_name} -> mlof-{type_name} "
+                    "(re-porting previously trained model) ==="
+                )
+            else:
+                print(f"\n=== {model_name}: no trained model available -- skipped ===")
+                continue
 
-                train_config.rpl_lite_dir.mkdir(parents=True, exist_ok=True)
-                dest_c = train_config.rpl_lite_dir / f"mlof-{type_name}.c"
-                dest_h = train_config.rpl_lite_dir / f"mlof-{type_name}.h"
-                dest_c.write_text(
-                    c_path.read_text().replace(
-                        f'"{func_name}.h"', f'"mlof-{type_name}.h"'
-                    )
+            func_name = f"mlof_predict_pdr_{type_name}"
+            try:
+                c_path, h_path = converter(
+                    str(best_model_path), str(models_dir), func_name
                 )
-                dest_h.write_text(h_path.read_text())
-                print(f"Exported to {dest_c} and {dest_h}")
+            except Exception as e:
+                print(f"FAILED to convert: {e!r} -- skipped")
+                continue
+            if converter is convert_to_c_linear:
+                verify_linear(str(best_model_path), str(train_config.data_dir))
+            elif converter is convert_to_c_fixed:
+                verify_fixed(str(best_model_path), str(train_config.data_dir))
+            measure_size(c_path)
+
+            train_config.rpl_lite_dir.mkdir(parents=True, exist_ok=True)
+            dest_c = train_config.rpl_lite_dir / f"mlof-{type_name}.c"
+            dest_h = train_config.rpl_lite_dir / f"mlof-{type_name}.h"
+            dest_c.write_text(
+                c_path.read_text().replace(
+                    f'"{func_name}.h"', f'"mlof-{type_name}.h"'
+                )
+            )
+            dest_h.write_text(h_path.read_text())
+            print(f"Exported to {dest_c} and {dest_h}")
 
     if train_config.is_porting:
         model_paths = sorted(

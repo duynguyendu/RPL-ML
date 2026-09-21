@@ -27,8 +27,7 @@ FEATURE_COLUMNS = [
     "drop_rate",
     "parent_ppm",
     "parent_drop_rate",
-    "hop_count",
-    "nbr_count"
+    "hop_count"
 ]
 
 FIXED_FEATURES = []
