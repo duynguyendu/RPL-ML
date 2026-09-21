@@ -28,6 +28,7 @@ FEATURE_COLUMNS = [
     "parent_ppm",
     "parent_drop_rate",
     "hop_count",
+    "nbr_count"
 ]
 
 FIXED_FEATURES = []
@@ -73,25 +74,6 @@ dtree_param_grid = {
 svr_param_grid = {
     "C": [0.1, 1.0, 10.0],
     "epsilon": [0.01, 0.1, 1.0],
-}
-
-xgb_param_grid = {
-    "n_estimators": [10, 20, 30],
-    "max_depth": [3, 5, 7],
-    "min_child_weight": [1, 5, 10],
-}
-
-catboost_param_grid = {
-    "iterations": [10, 20, 30],
-    "depth": [3, 5, 7],
-    "min_data_in_leaf": [1, 5, 10],
-}
-
-rf_param_grid = {
-    "n_estimators": [10, 20, 30],
-    "max_depth": [3, 5, 7],
-    "min_samples_leaf": [1, 5, 10],
-    "max_leaf_nodes": [20, 35, 50],
 }
 
 

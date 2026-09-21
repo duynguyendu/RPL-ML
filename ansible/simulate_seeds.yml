@@ -13,8 +13,8 @@
 #     any single managed node, not once per host (they'd all just be
 #     re-transferring the same files).
 #
-# Requires: the same RPL-TinyML checkout (with its venv already set up, see
-# playbook.yml) present at `repo_dir` on every target host, and the
+# Requires: the same RPL-TinyML checkout present at `repo_dir` on every target
+# host (its venv is created from scripts/requirements.txt if missing/broken), and the
 # ansible.posix collection on the controller (already used by playbook.yml).
 #
 # Usage:
@@ -32,6 +32,8 @@
 #   repo_dir         path to the RPL-TinyML checkout, shared by every host
 #                    (default: <remote user's home>/RPL-TinyML)
 #   max_active_jobs  concurrent jobs per host (default: 8)
+#   system_python    interpreter used to create the venv if it is missing
+#                    (default: python3)
 #   node_list        comma/space-separated node counts to sweep
 #                    (default: simulate.py's own NODE_LIST)
 #   ppm_list         comma/space-separated packet rates to sweep
@@ -59,6 +61,9 @@
     # a lazy lookup here would re-evaluate per task/host and could drift.
     run_name: "sim_z1_n{{ max_node }}_{{ run_timestamp }}"
     shared_run_dir: "{{ scripts_dir }}/runs/{{ run_name }}"
+    # One log per shard: every host writes into the same shared scripts_dir,
+    # so a single fixed filename would have the shards clobber each other.
+    sim_log: "ansible_simulate_shard{{ my_index }}.log"
     local_dest_dir: "{{ playbook_dir }}/../scripts/runs/{{ run_name }}"
 
   # PATH: the MSP430 cross-compiler isn't on PATH in any shell-startup file
@@ -113,15 +118,26 @@
       run_once: true
       ansible.builtin.stat:
         path: "{{ python_bin }}"
+        follow: true  # a dangling venv/bin/python symlink counts as missing
       register: venv_check
 
-    - name: Fail if the venv is missing
+    - name: Create the venv and install requirements if it is missing or broken (once)
       run_once: true
-      ansible.builtin.assert:
-        that: venv_check.stat.exists and venv_check.stat.executable
-        fail_msg: >-
-          {{ python_bin }} not found or not executable -- run playbook.yml
-          first to deploy the repo + venv.
+      when: not (venv_check.stat.exists and venv_check.stat.executable)
+      ansible.builtin.shell: |
+        set -e
+        rm -rf venv
+        {{ system_python | default('python3') }} -m venv venv
+        venv/bin/python -m pip install --upgrade pip
+        venv/bin/python -m pip install -r scripts/requirements.txt
+      args:
+        chdir: "{{ home_repo_dir }}"
+        executable: /bin/bash
+
+    - name: Verify the venv python now runs
+      run_once: true
+      ansible.builtin.command: "{{ python_bin }} --version"
+      changed_when: false
 
     - name: Compute this host's shard index within the play
       ansible.builtin.set_fact:
@@ -147,7 +163,7 @@
           --node-list="{{ node_list | default('') }}" \
           --ppm-list="{{ ppm_list | default('') }}" \
           --of-list="{{ of_list | default('') }}" \
-          > ansible_simulate.log 2>&1
+          > {{ sim_log }} 2>&1
       args:
         chdir: "{{ scripts_dir }}"
         executable: /bin/bash
@@ -155,20 +171,46 @@
       poll: 0
       register: sim_job
 
+    # Every 5 minutes, print "PROGRESS <n>/<total> done ..." for this shard
+    # (quiet_retries.py callback shows it). Loop ends when simulate.py's log
+    # says the shard finished, or its async wrapper has exited (crash) -- the
+    # async_status task below then reports the real rc.
+    - name: Report progress until simulate.py finishes
+      ansible.builtin.shell: |
+        log="{{ sim_log }}"
+        total=$(sed -n 's/.*(shard [0-9]*\/[0-9]*, \([0-9]*\)\/[0-9]* jobs).*/\1/p' "$log" 2>/dev/null | head -1)
+        done_n=$(grep -c '\] DONE (' "$log" 2>/dev/null)
+        failed=$(grep -c '\] FAILED (' "$log" 2>/dev/null)
+        started=$(grep -c '\] START (' "$log" 2>/dev/null)
+        running=$(( ${started:-0} - ${done_n:-0} - ${failed:-0} ))
+        echo "PROGRESS ${done_n:-0}/${total:-?} done, ${failed:-0} failed, $running running"
+        if grep -q 'in this shard finished' "$log" 2>/dev/null \
+           || grep -q '"finished": 1' "$HOME/.ansible_async/{{ sim_job.ansible_job_id }}" 2>/dev/null; then
+          echo FINISHED
+        fi
+      args:
+        chdir: "{{ scripts_dir }}"
+        executable: /bin/bash
+      register: sim_progress
+      changed_when: false
+      until: "'FINISHED' in sim_progress.stdout"
+      retries: 288  # 288 * 5min = 24h, matches the async time above
+      delay: 300
+
     - name: Wait for simulate.py to finish
       ansible.builtin.async_status:
         jid: "{{ sim_job.ansible_job_id }}"
       register: sim_result
       until: sim_result.finished
-      retries: 2880  # 2880 * 30s = 24h, matches the async time above
-      delay: 30
+      retries: 60
+      delay: 5
 
     - name: Fail this host if simulate.py itself failed
       ansible.builtin.assert:
         that: sim_result.rc == 0
         fail_msg: >-
           simulate.py failed on {{ inventory_hostname }} (rc={{ sim_result.rc }})
-          -- see {{ scripts_dir }}/ansible_simulate.log on that host.
+          -- see {{ scripts_dir }}/{{ sim_log }}.
 
     - name: Rebuild the cross-run comparison dashboard (once, over every shard's combined output)
       run_once: true

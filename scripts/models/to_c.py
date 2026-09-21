@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import shutil
 import subprocess
@@ -15,13 +14,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from train_config import UNKNOWN_SENTINELS
 
-FIXED_SUPPORTED_ESTIMATORS = {
-    "DecisionTreeRegressor",
-    "LGBMRegressor",
-    "RandomForestRegressor",
-    "XGBRegressor",
-    "CatBoostRegressor",
-}
+FIXED_SUPPORTED_ESTIMATORS = {"DecisionTreeRegressor", "LGBMRegressor"}
 LINEAR_SUPPORTED_ESTIMATORS = {"Ridge", "LinearSVR"}
 _TREE_LEAF = -1  # see sklearn/tree/_tree.pyx
 
@@ -45,27 +38,8 @@ def _c_params(feature_names: list[str]) -> str:
     return ", ".join(f"{FEATURE_C_TYPES.get(name, 'uint16_t')} {name}" for name in feature_names)
 
 
-def _fixed_feature_names(model) -> list[str]:
-    # CatBoostRegressor doesn't set the sklearn-standard feature_names_in_.
-    names = getattr(model, "feature_names_in_", None)
-    if names is None:
-        names = model.feature_names_
-    return [str(name) for name in names]
-
-
 def _int_threshold(threshold: float) -> int:
-    """Integer T such that ``raw <= T`` matches a real ``raw <= threshold``
-
-    for integer raw (sklearn/LightGBM's split convention)."""
     return math.floor(threshold + 1e-6)
-
-
-def _ceil_threshold(threshold: float) -> int:
-    """Integer T such that ``raw < T`` matches a real ``raw < threshold``
-
-    for integer raw (XGBoost's split convention, which is strict-less-than
-    rather than sklearn/LightGBM's less-equal)."""
-    return math.ceil(threshold - 1e-6)
 
 
 def _dtree_body(model, feature_names: list[str], func_name: str) -> str:
@@ -166,301 +140,6 @@ def _lgbm_predict_fixed(model, rows: np.ndarray) -> np.ndarray:
     return np.array(preds)
 
 
-# ---------------------------------------------------------------------------
-# RandomForestRegressor -- an ensemble of plain sklearn trees (same .tree_
-# shape as DecisionTreeRegressor); the prediction is their *average*, not
-# their sum, so each per-tree leaf is left unclamped/unrounded-to-range and
-# only the final averaged result is clamped to [0, 65535].
-# ---------------------------------------------------------------------------
-
-
-def _rf_tree_body(tree, feature_names: list[str], tree_func_name: str) -> str:
-    lines = [f"static int32_t {tree_func_name}({_c_params(feature_names)}) {{"]
-
-    def walk(node_id: int, indent: str) -> None:
-        if tree.children_left[node_id] == _TREE_LEAF:
-            lines.append(f"{indent}return {round(tree.value[node_id][0][0])};")
-            return
-        feature_idx = tree.feature[node_id]
-        threshold = _int_threshold(tree.threshold[node_id])
-        lines.append(f"{indent}if ({feature_names[feature_idx]} <= {threshold}) {{")
-        walk(tree.children_left[node_id], indent + "    ")
-        lines.append(f"{indent}}} else {{")
-        walk(tree.children_right[node_id], indent + "    ")
-        lines.append(f"{indent}}}")
-
-    walk(0, "    ")
-    lines.append("}")
-    return "\n".join(lines)
-
-
-def _rf_tree_predict(tree, row: np.ndarray) -> int:
-    node_id = 0
-    while tree.children_left[node_id] != _TREE_LEAF:
-        threshold = _int_threshold(tree.threshold[node_id])
-        if row[tree.feature[node_id]] <= threshold:
-            node_id = tree.children_left[node_id]
-        else:
-            node_id = tree.children_right[node_id]
-    return round(tree.value[node_id][0][0])
-
-
-def _rf_body(model, feature_names: list[str], func_name: str) -> str:
-    n_estimators = len(model.estimators_)
-    args = ", ".join(feature_names)
-
-    parts = []
-    tree_func_names = []
-    for i, estimator in enumerate(model.estimators_):
-        tree_func_name = f"{func_name}_tree{i}"
-        tree_func_names.append(tree_func_name)
-        parts.append(_rf_tree_body(estimator.tree_, feature_names, tree_func_name))
-
-    main_lines = [
-        f"uint16_t {func_name}({_c_params(feature_names)}) {{",
-        "    int32_t sum = 0;",
-        *(f"    sum += {name}({args});" for name in tree_func_names),
-        f"    int32_t avg = sum / {n_estimators};",
-        "    if (avg < 0) avg = 0;",
-        "    if (avg > 65535) avg = 65535;",
-        "    return (uint16_t)avg;",
-        "}",
-    ]
-    parts.append("\n".join(main_lines))
-    return "\n\n".join(parts)
-
-
-def _rf_predict_fixed(model, rows: np.ndarray) -> np.ndarray:
-    n_estimators = len(model.estimators_)
-    preds = []
-    for row in rows:
-        total = sum(_rf_tree_predict(est.tree_, row) for est in model.estimators_)
-        # RF leaves are always >= 0 (they're literal label averages), so
-        # plain truncating division matches C's here -- no sign-safe divide
-        # needed the way the boosting exporters below require.
-        preds.append(max(0, min(65535, total // n_estimators)))
-    return np.array(preds)
-
-
-# ---------------------------------------------------------------------------
-# XGBRegressor and CatBoostRegressor -- gradient-boosted ensembles whose
-# leaves are small signed residual corrections around a base_score/bias,
-# rather than label-scale values. Rounding each leaf straight to an integer
-# (like LightGBM's leaves, which already sit at label scale) would throw
-# away most of their precision, so instead every leaf and the bias share one
-# adaptively-picked power-of-10 fixed-point scale (same idea as the linear
-# exporter's std_scale/coef_scale), with a single division at the very end.
-# ---------------------------------------------------------------------------
-
-
-def _pick_ensemble_scale(bias: float, leaf_values: list[float]) -> int:
-    worst_case = abs(bias) + sum(abs(float(v)) for v in leaf_values)
-    if worst_case <= 0:
-        return 10000
-    return _largest_power_of_10(_INT32_BUDGET / worst_case)
-
-
-def _xgb_trees_and_base_score(model) -> tuple[list[dict], float]:
-    booster = model.get_booster()
-    trees = [json.loads(d) for d in booster.get_dump(dump_format="json")]
-    config = json.loads(booster.save_config())
-    base_score = float(config["learner"]["learner_model_param"]["base_score"].strip("[]"))
-    return trees, base_score
-
-
-def _xgb_node_map(node: dict, mapping: dict) -> None:
-    mapping[node["nodeid"]] = node
-    for child in node.get("children", ()):
-        _xgb_node_map(child, mapping)
-
-
-def _xgb_tree_body(tree_root: dict, feature_names: list[str], tree_func_name: str, scale: int) -> str:
-    nodes: dict = {}
-    _xgb_node_map(tree_root, nodes)
-    lines = [f"static int32_t {tree_func_name}({_c_params(feature_names)}) {{"]
-
-    def walk(node: dict, indent: str) -> None:
-        if "leaf" in node:
-            lines.append(f"{indent}return {round(node['leaf'] * scale)};")
-            return
-        threshold = _ceil_threshold(node["split_condition"])
-        lines.append(f"{indent}if ({node['split']} < {threshold}) {{")
-        walk(nodes[node["yes"]], indent + "    ")
-        lines.append(f"{indent}}} else {{")
-        walk(nodes[node["no"]], indent + "    ")
-        lines.append(f"{indent}}}")
-
-    walk(tree_root, "    ")
-    lines.append("}")
-    return "\n".join(lines)
-
-
-def _xgb_tree_predict(tree_root: dict, row: np.ndarray, feature_index: dict[str, int]) -> float:
-    nodes: dict = {}
-    _xgb_node_map(tree_root, nodes)
-    node = tree_root
-    while "leaf" not in node:
-        threshold = _ceil_threshold(node["split_condition"])
-        node_id = node["yes"] if row[feature_index[node["split"]]] < threshold else node["no"]
-        node = nodes[node_id]
-    return node["leaf"]
-
-
-def _xgb_body(model, feature_names: list[str], func_name: str) -> str:
-    trees, base_score = _xgb_trees_and_base_score(model)
-    all_leaves = [node["leaf"] for tree in trees for node in _flatten_leaves(tree)]
-    scale = _pick_ensemble_scale(base_score, all_leaves)
-    bias_fixed = round(base_score * scale)
-    args = ", ".join(feature_names)
-
-    parts = []
-    tree_func_names = []
-    for i, tree_root in enumerate(trees):
-        tree_func_name = f"{func_name}_tree{i}"
-        tree_func_names.append(tree_func_name)
-        parts.append(_xgb_tree_body(tree_root, feature_names, tree_func_name, scale))
-
-    main_lines = [
-        f"uint16_t {func_name}({_c_params(feature_names)}) {{",
-        f"    int32_t sum = {bias_fixed};",
-        *(f"    sum += {name}({args});" for name in tree_func_names),
-        f"    int32_t result = sum / {scale};",
-        "    if (result < 0) result = 0;",
-        "    if (result > 65535) result = 65535;",
-        "    return (uint16_t)result;",
-        "}",
-    ]
-    parts.append("\n".join(main_lines))
-    return "\n\n".join(parts)
-
-
-def _flatten_leaves(node: dict) -> list[dict]:
-    if "leaf" in node:
-        return [node]
-    leaves = []
-    for child in node.get("children", ()):
-        leaves.extend(_flatten_leaves(child))
-    return leaves
-
-
-def _xgb_predict_fixed(model, rows: np.ndarray, feature_names: list[str]) -> np.ndarray:
-    trees, base_score = _xgb_trees_and_base_score(model)
-    all_leaves = [node["leaf"] for tree in trees for node in _flatten_leaves(tree)]
-    scale = _pick_ensemble_scale(base_score, all_leaves)
-    bias_fixed = round(base_score * scale)
-    feature_index = {name: i for i, name in enumerate(feature_names)}
-
-    preds = []
-    for row in rows:
-        total = bias_fixed + sum(
-            round(_xgb_tree_predict(tree, row, feature_index) * scale) for tree in trees
-        )
-        result = total // scale if total >= 0 else -(-total // scale)
-        preds.append(max(0, min(65535, result)))
-    return np.array(preds)
-
-
-def _catboost_dump(model) -> dict:
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "model.json"
-        model.save_model(str(path), format="json")
-        return json.loads(path.read_text())
-
-
-def _catboost_feature_index_map(dump: dict) -> dict[int, str]:
-    return {
-        ff["feature_index"]: ff["feature_id"]
-        for ff in dump["features_info"]["float_features"]
-    }
-
-
-def _catboost_tree_body(
-    tree: dict,
-    idx_to_name: dict[int, str],
-    feature_names: list[str],
-    tree_func_name: str,
-    scale: int,
-    cat_scale: float,
-) -> str:
-    splits = tree["splits"]  # bit i (LSB-first) of the leaf index comes from splits[i]
-    leaves_fixed = [round(v * cat_scale * scale) for v in tree["leaf_values"]]
-
-    lines = [
-        f"static int32_t {tree_func_name}({_c_params(feature_names)}) {{",
-        f"    static const int32_t leaves[{len(leaves_fixed)}] = "
-        f"{{{', '.join(str(v) for v in leaves_fixed)}}};",
-        "    int idx = 0;",
-    ]
-    for i, split in enumerate(splits):
-        name = idx_to_name[split["float_feature_index"]]
-        threshold = _int_threshold(split["border"])
-        lines.append(f"    if ({name} > {threshold}) idx |= {1 << i};")
-    lines.append("    return leaves[idx];")
-    lines.append("}")
-    return "\n".join(lines)
-
-
-def _catboost_body(model, feature_names: list[str], func_name: str) -> str:
-    dump = _catboost_dump(model)
-    idx_to_name = _catboost_feature_index_map(dump)
-    cat_scale, cat_bias = dump["scale_and_bias"][0], dump["scale_and_bias"][1][0]
-    trees = dump["oblivious_trees"]
-
-    all_leaves = [v * cat_scale for tree in trees for v in tree["leaf_values"]]
-    scale = _pick_ensemble_scale(cat_bias * cat_scale, all_leaves)
-    bias_fixed = round(cat_bias * cat_scale * scale)
-    args = ", ".join(feature_names)
-
-    parts = []
-    tree_func_names = []
-    for i, tree in enumerate(trees):
-        tree_func_name = f"{func_name}_tree{i}"
-        tree_func_names.append(tree_func_name)
-        parts.append(
-            _catboost_tree_body(tree, idx_to_name, feature_names, tree_func_name, scale, cat_scale)
-        )
-
-    main_lines = [
-        f"uint16_t {func_name}({_c_params(feature_names)}) {{",
-        f"    int32_t sum = {bias_fixed};",
-        *(f"    sum += {name}({args});" for name in tree_func_names),
-        f"    int32_t result = sum / {scale};",
-        "    if (result < 0) result = 0;",
-        "    if (result > 65535) result = 65535;",
-        "    return (uint16_t)result;",
-        "}",
-    ]
-    parts.append("\n".join(main_lines))
-    return "\n\n".join(parts)
-
-
-def _catboost_predict_fixed(model, rows: np.ndarray, feature_names: list[str]) -> np.ndarray:
-    dump = _catboost_dump(model)
-    idx_to_name = _catboost_feature_index_map(dump)
-    cat_scale, cat_bias = dump["scale_and_bias"][0], dump["scale_and_bias"][1][0]
-    trees = dump["oblivious_trees"]
-
-    all_leaves = [v * cat_scale for tree in trees for v in tree["leaf_values"]]
-    fixed_scale = _pick_ensemble_scale(cat_bias * cat_scale, all_leaves)
-    bias_fixed = round(cat_bias * cat_scale * fixed_scale)
-    feature_index = {name: i for i, name in enumerate(feature_names)}
-
-    preds = []
-    for row in rows:
-        total = bias_fixed
-        for tree in trees:
-            idx = 0
-            for i, split in enumerate(tree["splits"]):
-                threshold = _int_threshold(split["border"])
-                name = idx_to_name[split["float_feature_index"]]
-                if row[feature_index[name]] > threshold:
-                    idx |= 1 << i
-            total += round(tree["leaf_values"][idx] * cat_scale * fixed_scale)
-        result = total // fixed_scale if total >= 0 else -(-total // fixed_scale)
-        preds.append(max(0, min(65535, result)))
-    return np.array(preds)
-
-
 def convert_to_c_fixed(
     model_path: str | Path, out_dir: str | Path, func_name: str = "mlof_predict_pdr"
 ) -> tuple[Path, Path] | None:
@@ -469,17 +148,11 @@ def convert_to_c_fixed(
     if model_type not in FIXED_SUPPORTED_ESTIMATORS:
         return None
 
-    feature_names = _fixed_feature_names(model)
+    feature_names = [str(name) for name in model.feature_names_in_]
     if model_type == "DecisionTreeRegressor":
         source_body = _dtree_body(model, feature_names, func_name)
-    elif model_type == "LGBMRegressor":
-        source_body = _lgbm_body(model, feature_names, func_name)
-    elif model_type == "RandomForestRegressor":
-        source_body = _rf_body(model, feature_names, func_name)
-    elif model_type == "XGBRegressor":
-        source_body = _xgb_body(model, feature_names, func_name)
     else:
-        source_body = _catboost_body(model, feature_names, func_name)
+        source_body = _lgbm_body(model, feature_names, func_name)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -818,7 +491,7 @@ def verify_fixed(model_path: str | Path, data_dir: str | Path) -> float | None:
     if model_type not in FIXED_SUPPORTED_ESTIMATORS:
         return None
 
-    feature_names = _fixed_feature_names(model)
+    feature_names = [str(name) for name in model.feature_names_in_]
     df = pd.read_csv(Path(data_dir) / "train.csv")
     df = df.dropna(subset=feature_names)
     df = _drop_unknown_rows(df, feature_names)
@@ -827,14 +500,8 @@ def verify_fixed(model_path: str | Path, data_dir: str | Path) -> float | None:
     float_preds = model.predict(df[feature_names])
     if model_type == "DecisionTreeRegressor":
         fixed_preds = _dtree_predict_fixed(model, rows)
-    elif model_type == "LGBMRegressor":
-        fixed_preds = _lgbm_predict_fixed(model, rows)
-    elif model_type == "RandomForestRegressor":
-        fixed_preds = _rf_predict_fixed(model, rows)
-    elif model_type == "XGBRegressor":
-        fixed_preds = _xgb_predict_fixed(model, rows, feature_names)
     else:
-        fixed_preds = _catboost_predict_fixed(model, rows, feature_names)
+        fixed_preds = _lgbm_predict_fixed(model, rows)
 
     mae = float(np.abs(fixed_preds - float_preds).mean())
     print(

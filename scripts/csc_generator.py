@@ -44,7 +44,7 @@ def convert_rpl_of_to_int(rpl_of):
         return 0
     elif rpl_of == "mhrof":
         return 1
-    elif rpl_of in ("mlof", "mlof_dtree", "mlof_linear", "mlof_svm"):
+    elif rpl_of in ("mlof", "mlof_dtree", "mlof_linear", "mlof_svm", "mlof_lgbm"):
         return 2
 
     return 1  # default to mhrof
@@ -53,6 +53,7 @@ def convert_rpl_of_to_int(rpl_of):
 MLOF_MODEL_SVM = 0
 MLOF_MODEL_LINEAR = 1
 MLOF_MODEL_DTREE = 2
+MLOF_MODEL_LGBM = 3
 
 
 def mlof_model_to_int(rpl_of):
@@ -60,6 +61,7 @@ def mlof_model_to_int(rpl_of):
         "mlof_svm": MLOF_MODEL_SVM,
         "mlof_linear": MLOF_MODEL_LINEAR,
         "mlof_dtree": MLOF_MODEL_DTREE,
+        "mlof_lgbm": MLOF_MODEL_LGBM,
     }.get(rpl_of, MLOF_MODEL_DTREE)  # plain "mlof" defaults to dtree
 
 
@@ -96,6 +98,7 @@ def rpl_of_symbol(rpl_of):
         "mlof_dtree": "rpl_mlof",
         "mlof_linear": "rpl_mlof",
         "mlof_svm": "rpl_mlof",
+        "mlof_lgbm": "rpl_mlof",
     }.get(rpl_of, "rpl_mrhof")
 
 

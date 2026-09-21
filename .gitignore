@@ -402,3 +402,6 @@ runs/
 rpl/motes/**/*build*/**
 
 __pycache__/
+
+*.pdf
+*.aux

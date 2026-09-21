@@ -13,10 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
-import xgboost as xgb
-from catboost import CatBoostRegressor
 from joblib import Parallel, delayed
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, ShuffleSplit
 from sklearn.pipeline import Pipeline
@@ -182,24 +179,6 @@ def grid_search() -> list[dict]:
                 ]
             ),
             train_config.svr_param_grid,
-        ),
-        (
-            "xgboost",
-            False,
-            xgb.XGBRegressor(learning_rate=0.1, random_state=0, n_jobs=1, verbosity=0),
-            train_config.xgb_param_grid,
-        ),
-        (
-            "catboost",
-            False,
-            CatBoostRegressor(learning_rate=0.1, random_state=0, thread_count=1, verbose=False),
-            train_config.catboost_param_grid,
-        ),
-        (
-            "rf",
-            False,
-            RandomForestRegressor(random_state=0, n_jobs=1),
-            train_config.rf_param_grid,
         ),
     ]
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid} | {"scaler"})

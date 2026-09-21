@@ -39,4 +39,9 @@ class CallbackModule(Default):
     CALLBACK_NAME = "quiet_retries"
 
     def v2_runner_retry(self, result):
-        pass
+        # Still surface progress lines (from the "Report progress" task in
+        # simulate_seeds.yml); drop every other retry message.
+        out = result._result.get("stdout", "")
+        if out.startswith("PROGRESS"):
+            line = out.splitlines()[0]
+            self._display.display(f"[{result._host.get_name()}] {line}")

@@ -56,9 +56,6 @@ def run_pipeline() -> None:
             for model_name, type_name, converter in (
                 ("dtree", "dtree", convert_to_c_fixed),
                 ("lgbm", "lgbm", convert_to_c_fixed),
-                ("rf", "rf", convert_to_c_fixed),
-                ("xgboost", "xgboost", convert_to_c_fixed),
-                ("catboost", "catboost", convert_to_c_fixed),
                 ("ridge", "linear", convert_to_c_linear),
                 ("svr", "svm", convert_to_c_linear),
             ):
