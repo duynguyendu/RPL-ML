@@ -380,6 +380,7 @@ def build_topology(
     sparse_max_attempts: int = 10,
     add_overloading_client: bool = True,
     overloading_client_ratio: float = 0.05,
+    overloading_client_seed: int = 999,
 ) -> dict:
     assert n >= 2, "Need at least server + 1 client"
     num_clients = n - 1
@@ -435,11 +436,9 @@ def build_topology(
     # rate (config.overloading_client_ppm). Uses its own RNG so node positions
     # for a given seed are unchanged by this option.
     if add_overloading_client:
-        rng = random.Random(f"{seed}-overloading_client")
+        rng = random.Random(overloading_client_seed)
         clients = motes[1:]
-        num_overloading = max(1, round(len(clients) * overloading_client_ratio))
-        # Walk the clients in random order and skip any within tx_range of an
-        # already picked overloading client, so they never neighbor each other.
+        num_overloading = math.ceil(round(len(clients) * overloading_client_ratio, 6))
         picked = []
         for m in rng.sample(clients, len(clients)):
             if len(picked) == num_overloading:
@@ -485,6 +484,7 @@ def generate_topology(
     sparse_max_attempts: int = 20,
     add_overloading_client: bool = True,
     overloading_client_ratio: float = 0.05,
+    overloading_client_seed: int = 999,
 ):
     random.seed(seed)
 
@@ -508,6 +508,7 @@ def generate_topology(
         sparse_max_attempts=sparse_max_attempts,
         add_overloading_client=add_overloading_client,
         overloading_client_ratio=overloading_client_ratio,
+        overloading_client_seed=overloading_client_seed,
     )
 
     out_path = Path(out_json)
@@ -558,6 +559,12 @@ if __name__ == "__main__":
         default=0.05,
         help="Fraction of clients randomly turned into overloading_client (at least one)",
     )
+    p.add_argument(
+        "--overloading-client-seed",
+        type=int,
+        default=999,
+        help="Seed for the random choice of overloading clients",
+    )
     args = p.parse_args()
     generate_topology(
         topo_type=args.type,
@@ -576,4 +583,5 @@ if __name__ == "__main__":
         sparse_max_attempts=args.sparse_max_attempts,
         add_overloading_client=True,
         overloading_client_ratio=args.overloading_client_ratio,
+        overloading_client_seed=args.overloading_client_seed,
     )

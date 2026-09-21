@@ -51,13 +51,10 @@ base_output_dir = Path("runs").resolve()
 base_mote_dir = "../rpl/motes"
 base_cooja = "../rpl/contiki-ng/tools/cooja/"
 add_overloading_client = False
-overloading_client_ratio = 0.05  # fraction of clients randomly made overloading_client
-overloading_client_ppm = 45  # send rate (packets per minute) of an overloading_client
+overloading_client_ratio = 0.05
+overloading_client_seed = 999
+overloading_client_ppm = 30
 
-# Name of the firmware build directory created inside each mote project dir
-# (rpl/motes/client/<name> and rpl/motes/server/<name>). Default "build" matches
-# Contiki-NG. Give each parallel worker its own value (e.g. --build_dir_name=w1)
-# so concurrent runs never share/clobber a build tree.
 build_dir_name = "build"
 
 

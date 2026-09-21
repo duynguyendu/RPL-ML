@@ -3,7 +3,7 @@
 functions. Local replacement for simulate.sh's parallel-dispatch loop, with
 optional sharding across machines (see --shard-index/--num-shards).
 
-Every (num_nodes, ppm, rpl_of, seed) combination is one job. Up to
+Every (num_nodes, ppm, rpl_of, seed, overloading_client_seed) combination is one job. Up to
 --max-active-jobs run concurrently, each pinned to its own reusable
 --build_dir_name slot (named with this machine's hostname, since multiple
 machines may share this same filesystem -- see ansible/simulate_seeds.yml).
@@ -13,7 +13,7 @@ Usage:
 
 Override the swept grid (each defaults to the hardcoded *_LIST constant
 below; comma/space-separated):
-    python3 simulate.py --node-list=30,60 --ppm-list=15,30 --seed-list=111,222
+    python3 simulate.py --node-list=30,60 --ppm-list=15,30 --seed-list=111,222 --overloading-client-seed-list=999,998
 
 Sharding across machines (they must share this filesystem -- job identities
 never collide across shards, so every machine can safely write into the
@@ -43,6 +43,7 @@ NODE_LIST = [30, 60]
 PPM_LIST = [60, 45, 30, 15]
 OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_svm", "mlof_linear"]
 SEED_LIST = [12756, 826352, 927106, 538256, 389271]
+OVERLOADING_CLIENT_SEED_LIST = [999, 998]
 BUFFER_SIZE = 8
 DURATION = 600
 PACKET_SIZE = 64
@@ -61,12 +62,28 @@ def parse_list(value: str | None, default: list, cast=str) -> list:
     return [cast(v) for v in value.replace(",", " ").split()]
 
 
-def build_jobs(node_list: list[int], ppm_list: list[int], of_list: list[str], seed_list: list[int]) -> list[tuple[int, int, str, int]]:
-    return list(itertools.product(node_list, ppm_list, of_list, seed_list))
+def build_jobs(
+    node_list: list[int],
+    ppm_list: list[int],
+    of_list: list[str],
+    seed_list: list[int],
+    overloading_seed_list: list[int],
+) -> list[tuple[int, int, str, int, int]]:
+    return list(
+        itertools.product(
+            node_list, ppm_list, of_list, seed_list, overloading_seed_list
+        )
+    )
 
 
 def start_job(
-    slot: str, run_dir: Path, num_nodes: int, ppm: int, rpl_of: str, seed: int
+    slot: str,
+    run_dir: Path,
+    num_nodes: int,
+    ppm: int,
+    rpl_of: str,
+    seed: int,
+    overloading_seed: int,
 ):
     log_dir = run_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -87,6 +104,8 @@ def start_job(
             f"--ppm={ppm}",
             f"--platform={PLATFORM}",
             f"--seed={seed}",
+            "--add_overloading_client=True",
+            f"--overloading_client_seed={overloading_seed}",
             f"--base_output_dir={run_dir}",
             f"--build_dir_name={slot}",
         ],
@@ -106,8 +125,9 @@ def job_desc(
     ppm: int,
     rpl_of: str,
     seed: int,
+    overloading_seed: int,
 ) -> str:
-    return f"({job_id}/{shard_total}) {slot} of={rpl_of} nodes={num_nodes} ppm={ppm} seed={seed}"
+    return f"({job_id}/{shard_total}) {slot} of={rpl_of} nodes={num_nodes} ppm={ppm} seed={seed} overloading_seed={overloading_seed}"
 
 
 def terminate_all(active: dict) -> None:
@@ -155,6 +175,12 @@ def main() -> None:
         help=f"Comma/space-separated seeds to sweep (default: {SEED_LIST})",
     )
     parser.add_argument(
+        "--overloading-client-seed-list",
+        default=None,
+        help="Comma/space-separated seeds for the random choice of overloading "
+        f"clients to sweep (default: {OVERLOADING_CLIENT_SEED_LIST})",
+    )
+    parser.add_argument(
         "--shard-index",
         type=int,
         default=0,
@@ -187,7 +213,13 @@ def main() -> None:
     of_list = parse_list(args.of_list, OF_LIST, str)
     seed_list = parse_list(args.seed_list, SEED_LIST, int)
 
-    all_jobs = build_jobs(node_list, ppm_list, of_list, seed_list)
+    overloading_seed_list = parse_list(
+        args.overloading_client_seed_list, OVERLOADING_CLIENT_SEED_LIST, int
+    )
+
+    all_jobs = build_jobs(
+        node_list, ppm_list, of_list, seed_list, overloading_seed_list
+    )
     total_global = len(all_jobs)
     my_jobs = all_jobs[args.shard_index :: args.num_shards]
 
@@ -210,9 +242,9 @@ def main() -> None:
     )
 
     if args.dry_run:
-        for i, (num_nodes, ppm, rpl_of, seed) in enumerate(my_jobs, start=1):
+        for i, (num_nodes, ppm, rpl_of, seed, ol_seed) in enumerate(my_jobs, start=1):
             print(
-                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, ppm, rpl_of, seed)}"
+                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, ppm, rpl_of, seed, ol_seed)}"
             )
         return
 
@@ -239,23 +271,27 @@ def main() -> None:
 
     while pending or active:
         while pending and free_slots:
-            job_id, (num_nodes, ppm, rpl_of, seed) = pending.pop(0)
+            job_id, (num_nodes, ppm, rpl_of, seed, ol_seed) = pending.pop(0)
             slot = free_slots.pop()
-            desc = job_desc(job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed)
+            desc = job_desc(
+                job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed, ol_seed
+            )
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
-            proc = start_job(slot, run_dir, num_nodes, ppm, rpl_of, seed)
+            proc = start_job(slot, run_dir, num_nodes, ppm, rpl_of, seed, ol_seed)
             active[slot] = (
                 proc,
                 time.monotonic(),
-                (job_id, num_nodes, ppm, rpl_of, seed),
+                (job_id, num_nodes, ppm, rpl_of, seed, ol_seed),
             )
 
         finished = [
             slot for slot, (proc, _, _) in active.items() if proc.poll() is not None
         ]
         for slot in finished:
-            proc, start, (job_id, num_nodes, ppm, rpl_of, seed) = active.pop(slot)
-            desc = job_desc(job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed)
+            proc, start, (job_id, num_nodes, ppm, rpl_of, seed, ol_seed) = active.pop(slot)
+            desc = job_desc(
+                job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed, ol_seed
+            )
             status = (
                 "DONE" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"
             )

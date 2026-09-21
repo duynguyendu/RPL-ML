@@ -13,7 +13,12 @@ from topology_generator import generate_topology
 def pipeline() -> None:
     etx = round(1 / (config.success_tx * config.success_rx), 2)
     etx_tag = str(etx).replace(".", "")
-    run_id = f"node{config.num_of_nodes}_ppm{config.ppm}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx_tag}_int_range{config.interference_range}_{config.topo_type}_{config.platform}_seed{config.seed}"
+    overloading_tag = (
+        f"_olseed{config.overloading_client_seed}"
+        if config.add_overloading_client
+        else ""
+    )
+    run_id = f"node{config.num_of_nodes}_ppm{config.ppm}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx_tag}_int_range{config.interference_range}_{config.topo_type}_{config.platform}_seed{config.seed}{overloading_tag}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"
@@ -43,6 +48,7 @@ def pipeline() -> None:
             sparse_max_attempts=20,
             add_overloading_client=config.add_overloading_client,
             overloading_client_ratio=config.overloading_client_ratio,
+            overloading_client_seed=config.overloading_client_seed,
         )
         generate_csc(
             topology_json=topology_json_file_name,
