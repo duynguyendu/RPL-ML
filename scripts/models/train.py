@@ -83,6 +83,32 @@ def _fit_one(
     }
 
 
+def print_pdr_ppm_summary(df: pd.DataFrame) -> None:
+    """Print the PDR-category breakdown, and avg ppm per hop_count within each.
+
+    PDR categories are percentages of the label's 0-65535 scale:
+    low = 0-30%, medium = >30-65%, high = >65%.
+    """
+    pdr_pct = df[LABEL_COLUMN] / 65535 * 100
+    category = pd.cut(
+        pdr_pct, bins=[-0.01, 30, 65, 100.01], labels=["low", "medium", "high"]
+    )
+
+    print("\nPDR category breakdown (low=0-30%, medium=30-65%, high=>65%):")
+    counts = category.value_counts(normalize=True).mul(100)
+    for cat in ["low", "medium", "high"]:
+        print(f"  {cat}: {counts.get(cat, 0.0):.2f}%")
+
+    print("\nAverage ppm by hop_count within each PDR category:")
+    avg_ppm_by_hop = (
+        df.assign(pdr_category=category)
+        .groupby(["pdr_category", "hop_count"], observed=True)["ppm"]
+        .mean()
+    )
+    for (cat, hop_count), avg_ppm in avg_ppm_by_hop.items():
+        print(f"  {cat}, hop_count={hop_count}: avg ppm={avg_ppm:.2f}")
+
+
 def plot_feature_importance(top_by_group: dict, models_dir: Path) -> None:
     """Plot the best model's feature importance for each (model, scaler) group."""
     for (model_name, scaler), group_results in top_by_group.items():
@@ -106,15 +132,9 @@ def plot_feature_importance(top_by_group: dict, models_dir: Path) -> None:
         print(f"  Saved {out_path}")
 
 
-def grid_search() -> list[dict]:
-    import train_config
-
+def _load_training_data(train_config) -> pd.DataFrame:
+    """Load train.csv, dropping unlabeled rows and (if configured) unknown-sentinel rows."""
     train_csv = Path(train_config.data_dir) / "train.csv"
-    models_dir = Path(train_config.data_dir) / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    output_path = models_dir / "grid_search.csv"
-    test_size = 0.2
-
     df = pd.read_csv(train_csv)
     all_rows = df
     df = df.dropna(subset=[LABEL_COLUMN])
@@ -129,6 +149,25 @@ def grid_search() -> list[dict]:
         print(dropped_rows.head(100).to_string())
     if df.empty:
         raise ValueError(f"No fully-labeled rows in {train_csv}")
+    return df
+
+
+def analyse_data() -> None:
+    import train_config
+
+    df = _load_training_data(train_config)
+    print_pdr_ppm_summary(df)
+
+
+def grid_search() -> list[dict]:
+    import train_config
+
+    models_dir = Path(train_config.data_dir) / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    output_path = models_dir / "grid_search.csv"
+    test_size = 0.2
+
+    df = _load_training_data(train_config)
     y = df[LABEL_COLUMN]
 
     cv = ShuffleSplit(
@@ -150,38 +189,41 @@ def grid_search() -> list[dict]:
             ),
             train_config.lgbm_param_grid,
         ),
-        (
-            "ridge",
-            True,
-            Pipeline(
-                [
-                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
-                    ("scaler", StandardScaler()),
-                    ("model", Ridge()),
-                ]
-            ),
-            train_config.ridge_param_grid,
-        ),
+        # (
+        #     "ridge",
+        #     True,
+        #     Pipeline(
+        #         [
+        #             ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+        #             ("scaler", StandardScaler()),
+        #             ("model", Ridge()),
+        #         ]
+        #     ),
+        #     train_config.ridge_param_grid,
+        # ),
         (
             "dtree",
             False,
             DecisionTreeRegressor(random_state=0),
             train_config.dtree_param_grid,
         ),
-        (
-            "svr",
-            True,
-            Pipeline(
-                [
-                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
-                    ("scaler", StandardScaler()),
-                    ("model", LinearSVR(random_state=0)),
-                ]
-            ),
-            train_config.svr_param_grid,
-        ),
+        # (
+        #     "svr",
+        #     True,
+        #     Pipeline(
+        #         [
+        #             ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+        #             ("scaler", StandardScaler()),
+        #             ("model", LinearSVR(random_state=0)),
+        #         ]
+        #     ),
+        #     train_config.svr_param_grid,
+        # ),
     ]
-    hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid} | {"scaler"})
+    hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid})
+    if any(is_pipeline for _, is_pipeline, _, _ in model_configs):
+        hyperparam_names.append("scaler")
+        hyperparam_names.sort()
 
     jobs = [
         (train_config.FIXED_FEATURES + list(dynamic_subset), model_name, is_pipeline, estimator, param_grid)
@@ -241,7 +283,8 @@ def grid_search() -> list[dict]:
             for result in results
         ]
     )
-    out_df = out_df[["model", "features", *hyperparam_names, "avg_mae", "feature_importance"]]
+    desired_columns = ["model", "features", *hyperparam_names, "avg_mae", "feature_importance"]
+    out_df = out_df[[col for col in desired_columns if col in out_df.columns]]
     out_df.to_csv(output_path, index=False)
     print(f"\nSaved grid search results to {output_path}")
 

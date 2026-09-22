@@ -119,6 +119,10 @@ def _chunk_pdr(
 _OUTPUT_COLUMNS = [
     "node_id",
     "parent_id",
+    "num_of_nodes",
+    "config_ppm",
+    "topo_seed",
+    "overloading_client_seed",
     "chunk_start",
     "chunk_end",
     "chunk_duration",
@@ -132,6 +136,14 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
         cfg = json.load(fh)
     ramp_up_end = cfg["ramp_up_duration"]
     run_end = cfg["duration"] + ramp_up_end
+    # run-level config, constant across every row from this run -- distinct
+    # from the per-row "ppm" MLOF feature (an observed per-neighbor metric).
+    num_of_nodes = cfg["num_of_nodes"]
+    config_ppm = cfg["ppm"]
+    topo_seed = cfg["seed"]
+    # only present when add_overloading_client is on (and in configs dumped
+    # by newer runs) -- older/no-overloading-client runs won't have it.
+    overloading_client_seed = cfg.get("overloading_client_seed")
 
     mlof, send, recv = _parse_log(run_dir / "COOJA.testlog")
     if mlof.empty:
@@ -160,6 +172,10 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
                 {
                     "node_id": node_id,
                     "parent_id": row["parent_id"],
+                    "num_of_nodes": num_of_nodes,
+                    "config_ppm": config_ppm,
+                    "topo_seed": topo_seed,
+                    "overloading_client_seed": overloading_client_seed,
                     "chunk_start": chunk_start,
                     "chunk_end": chunk_end,
                     "chunk_duration": chunk_end - chunk_start,

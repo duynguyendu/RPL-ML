@@ -4,6 +4,7 @@ from pathlib import Path
 
 # pipeline config
 is_processing_data = True
+is_analyse_data = True
 is_training_model = True
 is_porting = True
 
@@ -27,7 +28,7 @@ FEATURE_COLUMNS = [
     "drop_rate",
     "parent_ppm",
     "parent_drop_rate",
-    "hop_count"
+    "hop_count",
 ]
 
 FIXED_FEATURES = []
@@ -36,8 +37,6 @@ DYNAMIC_FEATURES = [f for f in FEATURE_COLUMNS if f not in FIXED_FEATURES]
 
 # unknown-value sentinels (see rpl-mlof.c)
 UNKNOWN_SENTINELS = {
-    "etx": 32767,
-    "rssi": 32767,
     "ppm": 32767,
     "parent_ppm": 32767,
     "p_cpu": 255,
@@ -55,8 +54,9 @@ min_dynamic_features = 2
 top_n_per_model = 5
 
 lgbm_param_grid = {
-    "n_estimators": [10, 20, 30],
+    "n_estimators": [10, 20, 30, 50],
     "num_leaves": [7, 15, 31],
+    # LightGBM's own "no limit" sentinel is <=0 (not None, unlike sklearn).
     "max_depth": [3, 5, 7],
     "min_data_in_leaf": [5, 10, 20],
 }
@@ -66,8 +66,9 @@ ridge_param_grid = {
 }
 
 dtree_param_grid = {
-    "max_depth": [3, 5, 7, 10],
+    "max_depth": [7, 10, 12],
     "min_samples_leaf": [1, 5, 10],
+    "splitter": ["best", "random"],
 }
 
 svr_param_grid = {

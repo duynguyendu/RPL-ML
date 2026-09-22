@@ -17,7 +17,7 @@ from models.to_c import (
     verify_fixed,
     verify_linear,
 )
-from models.train import NON_PORTABLE_MODELS, grid_search
+from models.train import NON_PORTABLE_MODELS, analyse_data, grid_search
 
 
 def run_pipeline() -> None:
@@ -25,6 +25,9 @@ def run_pipeline() -> None:
 
     if train_config.is_processing_data:
         process_data(train_config.data_dir)
+
+    if train_config.is_analyse_data:
+        analyse_data()
 
     best_by_model = {}
     if train_config.is_training_model:
