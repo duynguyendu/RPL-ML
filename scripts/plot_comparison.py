@@ -5,10 +5,9 @@ Reads ``aggregate.json`` (written by plot_metrics.py) and ``config.json``
 (written by pipeline.py) from every run directory under ``--runs-dir`` and emits
 a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
-Per metric (PDR / latency / CPU util / parent switch) the page offers:
-  * checkboxes to pick which aggregations (avg / max / min / p95) to show;
-  * a 3D view (x = #nodes, y = PPM, z = metric); and
-  * two 2D views -- fix #nodes (x = PPM) or fix PPM (x = #nodes).
+Per metric (PDR / latency / CPU util / parent switch) the page offers two
+views -- fix #nodes (x = PPM) or fix PPM (x = #nodes) -- each a
+box-and-whisker candle per objective function.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from pathlib import Path
 from plotly_utils import plotly_src
 
 # statistics kept per metric in aggregate.json (written by plot_metrics.py)
-AGGREGATIONS = ["min", "q1", "median", "avg", "q3", "p95", "max"]
+AGGREGATIONS = ["min", "q1", "median", "avg", "q3", "max"]
 
 
 def collect_runs(runs_dir: Path) -> list[dict]:
@@ -133,6 +132,9 @@ HTML_TEMPLATE = r"""<!doctype html>
   .chart{height:460px;border:1px solid #ececec;}
   @media (max-width:900px){.grid{grid-template-columns:1fr;}}
   .empty{padding:40px 16px;font-size:14px;color:#b00;}
+  #dashboardArea{padding:8px;height:85vh;}
+  #dashboardFrame{width:100%;height:100%;border:1px solid #ececec;}
+  #dashboardMissing{padding:40px 16px;font-size:14px;color:#b00;}
 </style>
 </head>
 <body>
@@ -144,35 +146,35 @@ __FIXED_CONFIG_HTML__
 <div class="controls">
   <fieldset>
     <legend>View</legend>
-    <label><input type="radio" name="mode" value="3d" checked> 3D (#nodes &times; PPM)</label>
-    <label><input type="radio" name="mode" value="fix_nodes"> Fix #nodes</label>
+    <label><input type="radio" name="mode" value="fix_nodes" checked> Fix #nodes</label>
     <label><input type="radio" name="mode" value="fix_ppm"> Fix PPM</label>
+    <label><input type="radio" name="mode" value="dashboard"> Run dashboard</label>
   </fieldset>
   <fieldset id="fixedWrap">
     <legend id="fixedLabel">Value</legend>
     <select id="fixed"></select>
   </fieldset>
-  <fieldset id="aggWrap">
-    <legend>Aggregations</legend>
-  </fieldset>
 </div>
 <div class="controls">
   <fieldset>
-    <legend>Open run dashboard</legend>
+    <legend id="pickLegend">Pick a run</legend>
     <label>#nodes <select id="pickNodes"></select></label>
     <label>PPM <select id="pickPpm"></select></label>
     <label>OF <select id="pickOf"></select></label>
     <label>seed <select id="pickSeed"></select></label>
   </fieldset>
-  <a id="pickLink" href="#" target="_blank" rel="noopener" hidden>Open dashboard &rarr;</a>
+  <a id="pickLink" href="#" target="_blank" rel="noopener" hidden>Open in new tab &rarr;</a>
   <span id="pickMissing" hidden>No matching run</span>
 </div>
-<div class="note">3D view: runs sharing a (nodes, PPM) cell are averaged (hover shows
-  <code>n</code>); the checkboxes pick which aggregations to plot. Fixed views:
-  a box-and-whisker candle per objective function (one per x value) &ndash; box =
-  Q1&ndash;Q3, line = median, whiskers = min/max, dashed = mean; the checkboxes do
-  not apply here.</div>
+<div class="note">A box-and-whisker candle per objective function (one per x
+  value) &ndash; box = Q1&ndash;Q3, line = median, whiskers = min/max, dashed =
+  mean. "Run dashboard" embeds the picked run's own dashboard.html below,
+  in-page.</div>
 <div id="charts" class="grid"></div>
+<div id="dashboardArea" hidden>
+  <iframe id="dashboardFrame" title="Run dashboard"></iframe>
+  <div id="dashboardMissing" hidden>No matching run -- adjust the picker above.</div>
+</div>
 <div id="empty" class="empty" hidden>No run directories with both config.json and
   aggregate.json were found under the runs directory.</div>
 <script>
@@ -183,8 +185,6 @@ const METRICS = [
   {key:'cpu_util',      label:'CPU util',      scale:1,   unit:'%',  axis:'CPU util (%)'},
   {key:'parent_switch', label:'Parent switch', scale:1,   unit:'',   axis:'Parent switches (per node)'},
 ];
-const AGGS = ['avg','max','min','p95'];          // 3D checkbox traces
-const AGG_COLORS = {avg:'#4363d8', max:'#e6194b', min:'#3cb44b', p95:'#f58231'};
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
 const OF_PALETTE = [
@@ -200,8 +200,6 @@ const $ = s => document.querySelector(s);
 const uniqNums = a => [...new Set(a)].filter(v => v != null).sort((x, y) => x - y);
 const uniqStrs = a => [...new Set(a)].filter(v => v != null).sort();
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
-const allNodes = () => uniqNums(RUNS.map(r => r.num_of_nodes));
-const allPpms = () => uniqNums(RUNS.map(r => r.ppm));
 const RPL_OFS = uniqStrs(RUNS.map(r => r.rpl_of));
 const ofStyle = of_ => OF_PALETTE[RPL_OFS.indexOf(of_) % OF_PALETTE.length];
 
@@ -212,11 +210,6 @@ function init(){
     + ' · PPM: ' + uniqNums(RUNS.map(r => r.ppm)).join(', ')
     + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
 
-  AGGS.forEach(a => {
-    const l = document.createElement('label');
-    l.innerHTML = '<input type="checkbox" class="agg" value="' + a + '" checked> ' + a;
-    $('#aggWrap').appendChild(l);
-  });
   METRICS.forEach((m, i) => {
     const d = document.createElement('div');
     d.className = 'chart';
@@ -226,7 +219,6 @@ function init(){
 
   document.querySelectorAll('input[name=mode]').forEach(el => el.addEventListener('change', render));
   $('#fixed').addEventListener('change', render);
-  document.querySelectorAll('.agg').forEach(el => el.addEventListener('change', render));
   initRunPicker();
   render();
 }
@@ -264,21 +256,42 @@ function initRunPicker(){
   updatePick();
 }
 
+function currentPickMatch(){
+  return RUNS.find(r => PICK_CHAIN.every(f => String(r[f.key]) === $(f.id).value));
+}
+
 function updatePick(){
-  const match = RUNS.find(r => PICK_CHAIN.every(f => String(r[f.key]) === $(f.id).value));
+  const match = currentPickMatch();
   const link = $('#pickLink'), missing = $('#pickMissing');
   link.hidden = !match;
   missing.hidden = !!match;
   if(match) link.href = match.run_id + '/dashboard.html';
+  updateDashboardFrame(match);
+}
+
+// loads the picked run's own dashboard.html into the in-page iframe (only
+// while the "Run dashboard" view is active) instead of opening a new tab.
+function updateDashboardFrame(match){
+  if(mode() !== 'dashboard') return;
+  match = match || currentPickMatch();
+  const frame = $('#dashboardFrame'), missing = $('#dashboardMissing');
+  if(match){
+    const src = match.run_id + '/dashboard.html';
+    if(frame.getAttribute('src') !== src) frame.src = src;
+    frame.hidden = false;
+    missing.hidden = true;
+  } else {
+    frame.hidden = true;
+    missing.hidden = false;
+  }
 }
 
 function mode(){ return document.querySelector('input[name=mode]:checked').value; }
-function selectedAggs(){ return [...document.querySelectorAll('.agg:checked')].map(c => c.value); }
 
 function syncFixed(){
   const m = mode();
   const wrap = $('#fixedWrap');
-  if(m === '3d'){ wrap.style.display = 'none'; return; }
+  if(m === 'dashboard'){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'ppm';
   $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'PPM';
@@ -291,43 +304,6 @@ function syncFixed(){
 function valueOf(r, agg, key, scale){
   const raw = (r.agg && r.agg[agg]) ? r.agg[agg][key] : null;
   return (raw == null || Number.isNaN(raw)) ? null : raw * scale;
-}
-
-function series(metric, agg, m, fixedVal){
-  const rows = RUNS.filter(r => {
-    if(valueOf(r, agg, metric.key, metric.scale) == null) return false;
-    if(m === 'fix_nodes') return r.num_of_nodes === fixedVal;
-    if(m === 'fix_ppm')  return r.ppm === fixedVal;
-    return true;
-  });
-  const groups = new Map();
-  for(const r of rows){
-    const gx = (m === 'fix_nodes') ? r.ppm : r.num_of_nodes;
-    const gy = r.ppm;
-    const gkey = (m === '3d') ? (gx + '|' + gy) : String(gx);
-    if(!groups.has(gkey)) groups.set(gkey, {x:gx, y:gy, v:[]});
-    groups.get(gkey).v.push(valueOf(r, agg, metric.key, metric.scale));
-  }
-  const pts = [...groups.values()].map(g => ({x:g.x, y:g.y, v:mean(g.v), n:g.v.length}));
-  pts.sort((a, b) => (m === '3d') ? (a.x - b.x || a.y - b.y) : (a.x - b.x));
-  return pts;
-}
-
-function traces3d(metric){
-  const out = [];
-  for(const agg of selectedAggs()){
-    const pts = series(metric, agg, '3d', null);
-    if(!pts.length) continue;
-    out.push({
-      type:'scatter3d', mode:'markers', name:agg,
-      x:pts.map(p => p.x), y:pts.map(p => p.y), z:pts.map(p => p.v),
-      marker:{size:4, color:AGG_COLORS[agg]},
-      customdata:pts.map(p => p.n),
-      hovertemplate:agg + '<br>number of nodes: %{x}<br>PPM: %{y}<br>'
-        + metric.label + ': %{z:.3f}' + metric.unit + ' (n=%{customdata})<extra></extra>',
-    });
-  }
-  return out;
 }
 
 // free-axis values (PPM, or node counts) present for the current fixed view
@@ -375,10 +351,6 @@ function tracesCandle(metric, m, fixedVal){
   return out;
 }
 
-function buildTraces(metric, m, fixedVal){
-  return (m === '3d') ? traces3d(metric) : tracesCandle(metric, m, fixedVal);
-}
-
 function layout(metric, m, fixedVal, chartHeight){
   const base = {
     height:chartHeight,
@@ -388,15 +360,6 @@ function layout(metric, m, fixedVal, chartHeight){
     paper_bgcolor:'white', plot_bgcolor:'#E5ECF6',
     title:{text:'', font:{size:20}},
   };
-  if(m === '3d'){
-    base.title.text = metric.label + ' vs number of nodes & PPM';
-    base.scene = {
-      xaxis:{title:{text:'number of nodes'}, tickmode:'array', tickvals:allNodes()},
-      yaxis:{title:{text:'PPM'}, tickmode:'array', tickvals:allPpms()},
-      zaxis:{title:{text:metric.axis}},
-    };
-    return base;
-  }
   const xtitle = (m === 'fix_nodes') ? 'PPM' : 'number of nodes';
   const fixtxt = (m === 'fix_nodes')
     ? ('number of nodes = ' + fixedVal) : ('PPM = ' + fixedVal);
@@ -419,13 +382,15 @@ function layout(metric, m, fixedVal, chartHeight){
 function render(){
   syncFixed();
   const m = mode();
-  $('#aggWrap').style.display = (m === '3d') ? '' : 'none';
-  const chartHeight = (m === '3d') ? 368 : 736;   // fixed views get ~2x height
-  const fixedVal = (m === '3d') ? null : Number($('#fixed').value);
+  $('#charts').style.display = (m === 'dashboard') ? 'none' : '';
+  $('#dashboardArea').hidden = (m !== 'dashboard');
+  if(m === 'dashboard'){ updateDashboardFrame(); return; }
+  const chartHeight = 736;
+  const fixedVal = Number($('#fixed').value);
   METRICS.forEach((metric, i) => {
     const div = document.getElementById('chart' + i);
     div.style.height = chartHeight + 'px';
-    Plotly.react(div, buildTraces(metric, m, fixedVal), layout(metric, m, fixedVal, chartHeight),
+    Plotly.react(div, tracesCandle(metric, m, fixedVal), layout(metric, m, fixedVal, chartHeight),
       {responsive:true, displaylogo:false});
   });
 }
