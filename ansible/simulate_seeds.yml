@@ -237,6 +237,12 @@
         path: "{{ home_repo_dir }}/cooja/.gradle_home"
         state: absent
 
+    - name: Delete the shared run directory now that results are copied to the control node
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ shared_run_dir }}"
+        state: absent
+
     - name: Done
       run_once: true
       ansible.builtin.debug:
