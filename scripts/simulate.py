@@ -84,6 +84,7 @@ def start_job(
     rpl_of: str,
     seed: int,
     overloading_seed: int,
+    duration: int,
 ):
     log_dir = run_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +94,7 @@ def start_job(
         [
             sys.executable,
             "pipeline.py",
-            f"--duration={DURATION}",
+            f"--duration={duration}",
             "--is_simulate=True",
             "--is_generate_topology=True",
             "--is_plot_metrics=True",
@@ -154,6 +155,12 @@ def main() -> None:
         help="Folded into the run directory name (ignored if --run-dir is given)",
     )
     parser.add_argument("--max-active-jobs", type=int, default=8)
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=DURATION,
+        help=f"Simulated seconds per run, forwarded to pipeline.py (default: {DURATION})",
+    )
     parser.add_argument(
         "--node-list",
         default=None,
@@ -277,7 +284,9 @@ def main() -> None:
                 job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed, ol_seed
             )
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
-            proc = start_job(slot, run_dir, num_nodes, ppm, rpl_of, seed, ol_seed)
+            proc = start_job(
+                slot, run_dir, num_nodes, ppm, rpl_of, seed, ol_seed, args.duration
+            )
             active[slot] = (
                 proc,
                 time.monotonic(),

@@ -32,6 +32,8 @@
 #   repo_dir         path to the RPL-TinyML checkout, shared by every host
 #                    (default: <remote user's home>/RPL-TinyML)
 #   max_active_jobs  concurrent jobs per host (default: 8)
+#   duration         simulated seconds per run, forwarded to simulate.py
+#                    (default: 1800, simulate.py's own DURATION -- keep in sync)
 #   system_python    interpreter used to create the venv if it is missing
 #                    (default: python3)
 #   node_list        comma/space-separated node counts to sweep
@@ -159,6 +161,7 @@
           --shard-index={{ my_index }} \
           --num-shards={{ host_count }} \
           --max-active-jobs={{ max_active_jobs | default(8) }} \
+          --duration={{ duration | default(1800) }} \
           --seed-list="{{ seeds | default('') }}" \
           --node-list="{{ node_list | default('') }}" \
           --ppm-list="{{ ppm_list | default('') }}" \
