@@ -1,3 +1,18 @@
-\section{IEEE 802.15.4 Protcol}
+\section{MAC-Layer in \ieeemac{} Protcol}
 
-CSMA and TSCH
+\subsection{Carrier Sense Multiple Access (CSMA)}
+In \ieeemac{} offers fundamental lower network layers of a type of wireless
+personal area network (WPAN), which focuses on low-cost, low-speed
+ubiquitous communication between devices. Designed to operate on simple transceiver while enabling flexibility and adaptability % TODO: explain this by saying RPL, IPv6LOWAN
+
+CSMA is the default of this MAC layer to avoid collision. The radio receiver is turned on the whole running time to detect if there is any transmission in the process.
+Upon not detecting anyone sending, the node would then send.
+This is a simple solution, however would consume more power as the transceiver is always on.
+
+\subsection{Time-Slotted Channel Hopping (TSCH)}
+
+RFC 7554 ammended \ieeemacE{} with the additiona of TSCH. The idea of TSCH is that nodes would transmit and receive during a time slot, which would eliminate the need to listen the whole time. Instead, a node would wake up and listen for first potion of the time slot and then go to sleep if there is no packets.
+
+The time is divided into slots, and frequency channels. Each next transmission would hop to different channels to avoid consuming the whole channel and collision.
+
+% TODO: explain TSCH a bit

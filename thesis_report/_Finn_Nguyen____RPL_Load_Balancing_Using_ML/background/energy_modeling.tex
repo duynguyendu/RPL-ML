@@ -1,12 +1,27 @@
 \section{Energy modeling}
+% TODO: talk a bit about existing energy modeling system
+
+Despite that, it lacks the implementation in the OS of the sensors, which is compute constrained and does not support floating point arithmetic. 
+
 The energy is model based on Energest module provided by Contiki.
 The module measures the number of ticks each mode in namely CPU, LPM, TX, RX
 
+Whereas previous research estimate energy consumption in off-line simulation, which would precompile the energy algorithm
+
+\cite{dunkelsSoftwarebasedOnlineEnergy2007} proposed a simple on-line software-based linear equation for energy estimation instead of ..., which can be used in devices that do not support floating point arithmetic
+% TODO: the floating point arithmetic limitation should be include in other part
+\[
+\frac{E}{V} = I_m t_m + I_l t_l + I_t t_t + I_r t_r + \sum_i I_{c_i} t_{c_i},
+\]
+
+In many cases, the energy estimation is used to compare between hemogenous nodes within the same network, thus V does not need to be eplicitly calculated.
+
+This resulted in the implementation of module Energest in Contiki, which counts the number of tick the node operate in. The current implementation measures four types: CPU, Low power CPU, Transmission and Receiving. The value for amplitude is gathered from datasheet
+
 Each of this combine with the datasheet of the MCU and the transciver to estimate the energy consumption of a node
-% TODO: cite the energy modeling paper and the datasheet
-%
 % TODO: add the energy equation
 
-However, due to the removal of duty cycling ContikiMac, we opted for CSMA, which turns the radio receiver on the whole simulated time.
+
+However, due to the removal of duty cycling ContikiMAC, which operates on a similar basis of TSCH focusing on cycling on and off to save energy, in Contiki-NG, we opted for CSMA, which turns the radio receiver on the whole simulated time.
 TSCH is a much more complicated and round off algorithms design for high delivery ratio, which does not fit the Z1 mote in COOJA.
 Since the energy consmutpm of this is much bigger than CPU. We decide to measure CPU instead.

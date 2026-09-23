@@ -1,6 +1,45 @@
 \chapter{Performance Evaluation}\label{C:Evaluation}
 
-In this section, we analyse the measurements of MLOF against OF0 and MRHOF from result obtained from 120 simulations in COOJA simulator
+\section{Topology generation}
+
+In this section, we analyse the measurements of MLOF against OF0 and
+MRHOF from result obtained from 120 simulations in COOJA simulator
+using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
+
+\begin{table}[h]
+    \caption{Simulation parameters}
+    \label{tab:sim-parameters}
+    \begin{center}
+        \begin{tabular}{ll}
+            \hline
+            \textbf{Parameter} & \textbf{Value} \\
+            \hline
+            Simulator                      & COOJA \\
+            Mote type                      & Zolertia Z1 \\
+            Simulation Time                & 1000\,s \\
+            Number of Nodes                & 40, 60, 80 \\
+            Sink Placement                 & Centralized \\
+            Node Placement                 & Random \\
+            Transmission rate              & 90\% \\
+            Receiving rate                 & 90\% \\
+            Topology                       & Random with seeds from 1-10 \\
+            MAC Layer Protocol             & CSMA \\
+            Data Rate                      & 250\,kbps \\
+            Bandwidth                      & Up to 250\,kbps (refer to
+            IEEE 802.15.4) \\
+            Radio Range                    & 50\,m \\
+            Interference Range             & 60\,m \\
+            Packet Size                    & 64 bytes \\
+            Routing Protocol               & MLOF, OF0 and MRHOF \\
+            Packet per minute ($\lambda$) & 5, 10, 15 packets/minute\\
+            Overloading client Packet per minute ($\lambda$) & 30 packets/minute\\
+            Overloading client rate        & 5\% \\
+            Confidence Level               & 95\% \\
+            Statistical Test               & Paired t-test ($\alpha = 0.05$) \\
+            \hline
+        \end{tabular}
+    \end{center}
+\end{table}
 
 \section{QoS Evaluation}
 \subsection{Packet Delivery Performance}
@@ -16,7 +55,7 @@ CPU util
 Parent switch
 
 \section{Routing Overhead}
-In the model, we added 7 fields, which increase the overhead 
+In the model, we added 7 fields, which increase the overhead
 
 Memory analysis,
 

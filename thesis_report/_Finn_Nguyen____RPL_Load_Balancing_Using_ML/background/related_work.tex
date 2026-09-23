@@ -76,24 +76,31 @@ Thanks to the flexibility of DIO header option.
 Various objective functions have been proposed, which can be
 categorised into 4 groups: single metric, composite and context aware.
 
-In \cite{kimQURPLQueueUtilization2015}, the authors used queue
+OF0 and MRHOF fit into single metric category.
+
+% TODO: maybe include more OF0 and MRHOF evaluation
+\cite{pradeskaPerformanceAnalysisObjective2016} evaluate  the
+performance of OF0 and MRHOF in COOJA Contiki
+Additionally, ... evaluates the performance of the standardised OFs
+and find performance of OF0 degrade upon increasing load
+
+In \cite{kimQURPLQueueUtilization2015}, the authors argues that most
+of the losses are due to queue loss. Thus they used queue
 utilisation metric in objective function, called QU-RPL to deal with
-dropped packets due to queue overflow. However, only queue metrics
-are taken into consideration, without mentioning latency.
+dropped packets due to queue overflow. Additionally, they also
+modified the trickle timer to reset when a node experiences many
+consecutive queue loss. With the changes, they achive lower queue
+loss ratio and a more balance tree. However, only queue metrics are
+taken into consideration, without mentioning latency.
 
 A new objective function: OF-FL is presented in
 \cite{gaddourOFFLQoSawareFuzzy2014}, which employs fuzzy logic with
 four metrics with the aim of supporting various application requirements.
-
-% TODO: cite here OF evaluation
-Additionally, ... evaluates the performance of the standardised OFs
-and find performance of OF0 degrade upon increasing load
-
-- Various objective functions have been proposed
-- Types of Objective function
-- Single metrics
-- Composite
-- Context aware
+The authors used four metrics hop count, end to end delay, battery
+level and ETX for categorise link quality. Each metric follows fuzzy
+logic to indicate link quality from awful to excellent. The
+simulation results show that OF-FL achieve higher PDR while
+conserving more energy.
 
 - Energy aware: \cite{abreuEnergyawareRoutingBiomedical2014}
 - CLRPL: \cite{taghizadehCLRPLContextAwareLoad2018}
@@ -106,13 +113,17 @@ with little focus on supervised learning
 In \cite{duenassantosQRPLQLearningBasedRouting2024}, the authorse
 puts Q-Learning to OF, award the model when a packet is trasmitted
 successfully and penalise when choosing a link that lead to packet loss.
+% TODO: include more reinforcement learning algo
 % TODO: include the metrics name
 \cite{duenassantosRPLImprovedParent2022} utilised Random Weigth with
 six metrics (...)
 and \cite{mezherGNBRPLGaussianNaive2023},
-\cite{santosMLRPLMachineLearningBased2023} proposed using CatBoost
-models with eight metrics to predict the probability if a packet is
-transmitted successfully.
 
-\cite{pradeskaPerformanceAnalysisObjective2016} evaluate  the
-performance of OF0 and MRHOF in COOJA Contiki
+\cite{santosMLRPLMachineLearningBased2023} proposed using machine
+learning model to train on eight metrics namely RSSI, ETX, ...
+to predict the probability if a packet is
+transmitted successfully. They used CatBoost model to train (...)
+Despite that, they use classification to predict the chance of
+sending one packet successfully instead of whole PDR.
+
+% TODO: more discussion on the limitation of these papers

@@ -1,9 +1,27 @@
 \section{Regression Machine Learning Model}
 The advance of machine learning has led the wide applications in IoT devices.
 
+Given the condition of running the models on constrained devices with
+low computation power, memory and energy. The models must be
+lightweight and fast, while also robust when using interger instead
+of floating point % TODO: talke about quanitisation
+To be specific, the model must be compile in C with less than 10KB
+and must not use floating point in its operation
+
 KNNR: works by comparing a node with the surrounding nodes to predict
 a value. In a sense, KNNR is considered a lazy model, in which it
-remembers all training data, thus result in a heavy model
+remembers all training data, thus result in a heavy model and
+contradict the low memory requirement.
+
+Linear regression: works by fitting the data on a line, forming a
+linear equation % TODO: insert latex equation for this
+. This model satisfies the simplicity, requiring less computational
+power and memory usage as the only storage is the coefficients,
+however the linear regression model relies heavily on floating point
+and is susceptible to category data type (hop count, neightbour
+counts). Thus this is not a suitable model for the application
+
+Likewise, SVM also falls short for similar reason as linear regression.
 
 Gaussian Process Regressor, similar to SVM. However, in \cite{}, the
 authors analyse GPR and conlcude that the memory requirement of GPR
@@ -11,9 +29,10 @@ is $O(n^2)$ while the computation cost is $O(n^3)$, which is quite
 computational and memory expensive for constrained devices
 
 Deep learning is recently a new adavnces and has achieve in terms of
-matching the complex patterns and data. However, due to the
-constrained environment of the working MCU which has several KB of
-RAM and ROM. I rule out this.
+matching the complex patterns and data, and works well for a wide
+range of problems, including image, language and simple regression.
+However, due to the constrained environment of the working MCU which
+has several KB of RAM and ROM. I rule out this.
 
 Random forest and Decision Tree operates on similar algorithm. In
 tree base algorithm, each value is split into left and right,
@@ -24,7 +43,6 @@ decision tree are quite similar to each other. Thus I remove random
 forest from list of considered models as they are much heavier than
 decision tree.
 
-In the end, we decide to proceed with Random Forest, Linear
-Regression and Support Vector Regression due to the design and
+In the end, we decide to proceed with Random Forest and LGBMTreeRegressor due to the design and
 computation simplicity to fit in with the constrained of the devices
 that we operate on.
