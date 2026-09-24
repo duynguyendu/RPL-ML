@@ -1,77 +1,4 @@
-\section{Review of RPL Objective Functions}
-Up to now, the IETF ROLL working group has standardised only two
-objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
-Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
-
-\subsection{OF0 and MRHOF}
-
-% TODO: talk more about step of rank
-OF0 was developed to be a simple objective function, computing
-$Rank\_increase$ as follow
-\[
-    Rank\_Increase = ( Rf \times Sp + Sr) \times Min\_Rank\_Increase
-\]
-where $Rf$ (Rank Factor) is a small positive integer used to scale
-the step of rank
-$Sp$ (Step of Rank) is an integer value representing hop count in
-abstract sense; and
-$Sr$ (Stretch of Rank) is used to inflate $Rank\_Increase$ for
-hysteresis preventing the OF from switching parents constantly.
-Certain implementation such as Contiki-NG simplify OF0 parameters by
-selecting $Rf = 1$, $Sp = $ and $Sr = 0$, which reduces
-$Rank\_Increase$ to a simple fixed per-hop increment of 256.
-
-OF0 can be regarded as implicitly using hop count as
-routing metric. This mean that the traffic from OF0 follow the shortest path
-to root without considering any load balancing requirement.
-However, this also means that OF0 does not consider other link
-qualities such as latency, energy residual in its calculation as well
-as might choose worse off route but have the shortest hop count to root.
-This led to the introduction a more sophisticated MRHOF.
-
-% TODO: define what is load balancing
-
-In contrast, MRHOF propose
-multiple thresholds call hysteresis before switching, in particular path cost
-threshold and time threshold. In path cost threshold, unless the
-potential node is better than the current parent by a threshold, it
-will stick with the current parent. However, after the time
-threshold, if that node is still better then the node will switch
-parent. This would allows a more stabilised DODAG. Additionally,
-MHROF use link metric ETX instead of hop count.
-Several metrics have been proposed to be used in objective functions.
-However, the specification of RPL leaves the choice of which metrics
-to use open to the implementation.
-
-The default metric of MRHOF is Expected Transmission Count (ETX)
-metric. The main goal of ETX is to select routes with high end-to-end
-through put:
-\[
-    ETX = \frac{1}{D_t \times D_a}
-\]
-where $D_t$ is the probability that the receiving node receives the
-packet and $D_a$ is the probability that the transmitting node
-receives acknowledgement packet is successful. So ETX is the average
-number of packets need to send and acknowledgement.
-
-% TODO: include 128 as link divisor in (RFC 6551 and RFC 6719)
-
-% TODO: what word to describe route need less packets TX
-In essense, using ETX as metrics focus on more reliable route.
-
-There are two thresholds in MRHOF, rank threshold and time threshold.
-The specification define $PARENT\_SWITCH\_THRESHOLD$ as the minimum
-path cost improvement before deciding to switch.
-There is time threshold, meaning that if a node consistently perform
-better but not more than the ETX threshold, it still switch.
-
-% TODO: include other metric container
-The specification also open the choices of the routing metrics to energy,...
-However, ETX is the more popular choice when it comes to MHROF.
-
-Thanks to the flexibility of DIO header option.
-% TODO: talk about the flexiblity of DIO
-
+\section{Review of RPL Objective Functions Load Balancing}
 \subsection{Related Work}
 Various objective functions have been proposed, which can be
 categorised into 4 groups: single metric, composite and context aware.
@@ -100,10 +27,15 @@ The authors used four metrics hop count, end to end delay, battery
 level and ETX for categorise link quality. Each metric follows fuzzy
 logic to indicate link quality from awful to excellent. The
 simulation results show that OF-FL achieve higher PDR while
-conserving more energy.
+conserving more energy. However, the process of encoding each metrics into quality label is done manually and subject to the biases of the doers. % TODO: more about limitation in this
 
-- Energy aware: \cite{abreuEnergyawareRoutingBiomedical2014}
-- CLRPL: \cite{taghizadehCLRPLContextAwareLoad2018}
+The authors in \cite{abreuEnergyawareRoutingBiomedical2014} propose an energy-aware objective function in RPL for healthcare monitor application. The nature of this problem means that the sensors is mobile, thus affecting the link quality % TODO: should I include this paper
+
+The authors in \cite{taghizadehCLRPLContextAwareLoad2018} proposed Context-Aware and Load Balancing RPL (CLRPL). They introduced a new metric called Context-Aware Routing Metric (CARM), which considers queue utilisation and the percentage remaining power of a entire parents' chain from root the the node instead of the immediate parent. CARM would cnosider low-power parent but high-power overall route instead of rejecting it like energy of a single parent.
+% TODO: include limitation of this 
+
+
+Weighted Random Forward RPL (WRF-RPL) was propsoed in \cite{acevedoWRFRPLWeightedRandom2021}, which would select parents randomly based on weighted score % TODO: more about this
 
 In recent, there has been many attempts to employ machine learning
 into OFs. Despite that, most of the new application of ML in RPL
@@ -115,15 +47,37 @@ puts Q-Learning to OF, award the model when a packet is trasmitted
 successfully and penalise when choosing a link that lead to packet loss.
 % TODO: include more reinforcement learning algo
 % TODO: include the metrics name
-\cite{duenassantosRPLImprovedParent2022} utilised Random Weigth with
-six metrics (...)
-and \cite{mezherGNBRPLGaussianNaive2023},
 
-\cite{santosMLRPLMachineLearningBased2023} proposed using machine
-learning model to train on eight metrics namely RSSI, ETX, ...
-to predict the probability if a packet is
-transmitted successfully. They used CatBoost model to train (...)
-Despite that, they use classification to predict the chance of
-sending one packet successfully instead of whole PDR.
+There are three researches on applying supervised ML to RPL OF from a
+research group. In RPL+ , the authors utilise Decision Tree to
+perform feature importance evaluation with
+six metrics ETX, channel utilisation, density, through put, queue
+utilisation and MAC losses on data gathered hop by hop from
+simulation \cite{duenassantosRPLImprovedParent2022}. They set
+the $Rank\_Increase$ fixed to 1, which can be regarded as hop count,
+and use the feature
+importance as coefficients in linear equation and select parent with
+the lowest score. Even though they improve the performance of PDR and
+delay, the random forest model is only for feature importance
+analysis and the training data only consider the success chance of
+forwarded by one hop instead of the whole path. Additionally, having
+fixed $Rank\_Increase$ means that the OF would select parents with
+the shortest hop count.
+
+In \cite{mezherGNBRPLGaussianNaive2023}, the research group train a
+Naive Bayes classifier to predict the probability of a packet is sent
+successfully or not on the same training feature as RPL+. This assume
+that the distribution of the features fall into Gaussian distribution
+In this paper, they train on more data and integrate the model into
+the OF. However the evaluation lacks consideration for OF0.
+
+Subsequently, the group proposed ML-RPL, using CatBoost model to
+learn from eight metrics namely hop count, ETX, MAC losses, density,
+channel utilisation, throughput, queu utilisation and RSSI
+\cite{santosMLRPLMachineLearningBased2023}. Similar to previous
+researches, this model predicts the predict the probability of
+successfull one hop transmission. The evaluation of the results lack
+energy or cpu util evaluation % TODO: more about limiation
+
 
 % TODO: more discussion on the limitation of these papers

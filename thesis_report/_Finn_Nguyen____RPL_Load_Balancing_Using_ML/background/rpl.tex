@@ -1,70 +1,99 @@
 \section{Routing Protocol for Low-Power and Lossy Networks (RPL)}
 
-RPL is an oriented distance vector routing protocol, operating on top of
-IEEE 802.15.4 PHY and MAC-layer and over 6LoWPAN (IPv6 over Low-Power
-Wireless Personal Area Networks). Its main target is Wireless
+RPL is an distance-oriented vector routing protocol that builds a
+Destination-Oriented Directed Acyclic Graph (DODAG) over IEEE
+802.15.4 PHY/MAC layers and 6LoWPAN (IPv6 over Low-Power
+Wireless Personal Area Networks) \cite{alexanderRPLIPv6Routing2012}.
+It is primarily designed for Wireless
 Sensor Networks (WSNs),
-where multipoint-to-point is the predominant communication pattern.
+where multipoint-to-point traffic toward one or more roots is the
+predominant communication pattern.
 Routes in RPL are optimised for traffic to or from one or more
 roots in the topology, while maintaining reliable and energy
-efficient data collection. To sustain this, RPL is designed adapt to various
-network conditions, allowing nodes to switch route when route
+efficient data collection. To maintain reliable and energy-efficient
+data collection, RPL is designed to adapt to changing
+network conditions, allowing nodes to switch routes when route
 degradation is detected.
 
-% TODO: talk about suporting multiple sinks DODAG
-% TODO: insert image of DODAG
 \subsection{Destination-Oriented Directed Acyclic Graph (DODAG)}
-In principle, RPL organises nodes under a DODAG, with the sink
-node of the WSN often serving as the root of DODAG.
-When a packet need to be sent to the sink node, the
-packet traverse the path in DODAG until it reach the root node. The
-acyclic nature of DODAG ensures that the packet does not get stuck in
-endless circle.
+RPL organises nodes under a DODAG, with the WSN's sink
+node often serving as the root of DODAG. In a multi-sink deployment,
+each sink node serves as the root of its own separate DODAG.
+Within a DODAG, each node maintains a rank value, which is an estimation of the
+distance between itself and the DODAG
+root, and forms a directed edge toward a parent with a lower rank,
+creating a herarchy network toward the root, as illustrated in
+Figure~\ref{fig:dodag-example}. Thus within this
+hierachy, the root always has the lowest rank.
 
-There are four identifiers to define maintain a topology in RPL
-Table~\ref{tab:rpl-identifiers}, with RPLInstanceID and DODAGID used
-to identify a single DODAG in the network.
-% TODO: talk a bit more about why we have that many identifiers
+% TODO: include how DODAG maintain loop free
 
-\begin{table}[h]
-    \caption{RPL DODAG identifiers} \label{tab:rpl-identifiers}
+A node's rank is computed by an objective function (OF), which
+translates one or more metrics into rank, and the RPL
+specification does not mandate a single OF for all applications.
+Instead, RPL separates its core routing procedures --- packet
+forwarding and DODAG maintenance --- from route optimisation, leaving
+the choice of OF open to fit the diverse requirements of LLNs, such as
+minimising energy consumption, reducing latency, or improving link
+quality. This separation is what gives RPL the flexibility to support
+such a wide range of applications, since a DODAG can be optimised for
+whichever metric best suits its deployment.
+
+\begin{fig}[H]
     \begin{center}
-        \begin{tabular}{@{}p{0.25\linewidth}p{0.65\linewidth}@{}}
-            \hline
-            \textbf{Identifier} & \textbf{Description} \\
-            \hline
-            RPLInstanceID & The identity of a RPL instance, which may
-            contain multiple DODAGs optimised for different OFs and
-            applications. \\
-            DODAGID & Specifies a DODAG within a RPL instance. \\
-            DODAGVersionNumber & When a DODAG rebuild is needed, the root
-            node increments the version number. \\
-            Rank & Defines the distance estimation of a node relative
-            to the DODAG root. \\
-            \hline
-        \end{tabular}
+        \includegraphics[width=0.6\textwidth]{assets/dodag.png}
+        \caption{Example of a DODAG topology, showing nodes organised
+        into a hierarchy rooted at the sink node.}
+        \label{fig:dodag-example}
     \end{center}
-\end{table}
+\end{fig}
 
-During DODAG construction, each node selects parent from its pool of
-potential nodes that have path to the root through objective
-function, which translates one or
-more metrics into rank and determines how to select the best parent.
-The equation of the rank is calculated as
+During DODAG construction, each node selects a parent from a pool of
+candidate parents: neighbouring nodes that have already joined the
+DODAG. The OF computes a candidate's resulting rank as
 \[
     Rank(N) = Rank(P) + Rank\_Increase
 \]
-where $Rank(N)$ is the rank of the current node, $Rank(P)$ is the
-rank advertised by a node and $Rank\_Increase$ is determined by OF,
-which can be considered as the cost of choosing $P$ as parent.
+where $Rank(N)$ is the resulting rank of the node under consideration,
+$Rank(P)$ is the rank already advertised by the candidate parent $P$,
+and $Rank\_Increase$ is a positive value determined by the OF,
+representing the cost of using $P$ as a parent. Because
+$Rank\_Increase$ is always positive, a node's rank strictly increases
+with each hop away from the root. The specific method used to compute
+$Rank\_Increase$ and how parent is selected depends on the OF in use,
+as discussed later in this chapter.
 
-% TODO: emphasize more on this, allowing more flexibility
-RPL offers flexibility by separating the core packet processing and forwarding
-from routing optimisation, leaving the OF to be specified depends on
-application to fit diverse requirements of LLNs, e.g. lowering energy
-usage, lowering latency,...
+% There are four identifiers to define and maintain a topology in RPL shown in
+% Table~\ref{tab:rpl-identifiers}.
+% with RPLInstanceID and DODAGID used
+% to identify a single DODAG in the network.
+% % TODO: talk a bit more about why we have that many identifiers
+%
+% % TODO: talk about local and global repair
+%
+% % TODO: how to include identifier smoothly
+% \begin{table}[h]
+%     \caption{RPL DODAG identifiers} \label{tab:rpl-identifiers}
+%     \begin{center}
+%         \begin{tabular}{@{}p{0.25\linewidth}p{0.65\linewidth}@{}}
+%             \hline
+%             \textbf{Identifier} & \textbf{Description} \\
+%             \hline
+%             RPLInstanceID & The identifier of an RPL Instance, which may
+%             span multiple DODAGs optimised for different applications. \\
+%             DODAGID & The identifier of a specific DODAG within an RPL
+%             Instance. \\
+%             DODAG\-Version\-Number & The version number of a DODAG,
+%             incremented by the root each time the DODAG is rebuilt to
+%             distinguish between versions. \\
+%             Rank & The estimated distance of a node from the DODAG
+%             root; a node closer to the root has a lower rank. \\
+%             \hline
+%         \end{tabular}
+%     \end{center}
+% \end{table}
 
-In addition, RPL introduces five types of control messages to form
+RPL introduces five types of control messages to form
 and control DODAG, as specified in ICMPv6 via RFC 6550
 \cite{alexanderRPLIPv6Routing2012}
 \begin{itemize}
@@ -83,53 +112,74 @@ and control DODAG, as specified in ICMPv6 via RFC 6550
     \item CC: % TODO: what is this
 \end{itemize}
 
-To begin forming DODAG, the root node starts sending DIO to its neighbouring
-nodes. Upon receiving DIO, a node decides whether to join the
-advertised DODAG or not. To prevent loops, a node only considers a
-DIO if it advertises a rank lower than its own rank.
-In certain implementations, a node would wait for several DIOs to
-build the pool of candidate parents before deciding.
+To begin the DODAG forming process, the root node sends its DIO to
+its neighbouring nodes, carrying RPL indentifiers and any
+additional metrics required by the OF. Upon receiving DIO, a node
+compares its rank with the advertised rank and filters out ranks that
+are higher then its own to prevent loop formation, and then decides
+whether to join the advertised DODAG or not.
+In certain implementations, a node waits for several DIOs, building
+the pool of candidate parents before deciding.
 Afterward, the node computes the path cost of the
-corresponding link for each candidate and selects the candidate with
-the lowest path cost as its preferred parent. Once a parent has been
-selected, the node broadcasts its own DIO to
-advertise itself to its neighbours. This process is done until all
-the nodes have join the DODAG.
+corresponding link for each candidate and determines the preferred
+parent according the OF's policy.
+Once a parent has been selected, the node broadcasts its own DIO to
+advertise itself to its neighbours. This process is repated
+outward through the network until every node has join the DODAG.
+% TODO: may include diagram of how DIO transmission work
 
-% TODO: clarify DAO even more
-A node would send DAO message back to the root node after it has
-chosen a parent,
-Afterward, the nodes broadcast its DIO to advertise itself to the
-neighbour nodes. A node only consider the DIO if it has ranks lower
-than the rank advertised in the DIO.
+DIO is crucial in forming and maintaining DODAG, and DODAG requires
+periodic DIOs to repair and update the conditions of the DODAG.
+However, frequent DIO would be redudant in consistent network
+conditions, thus RPL employs Trickle timer to regulate the emission of DIO.
+
+% TODO: talk more about DAO
+A node would send DAO message back to its parent or the root node to
+establish downward communication.
 In the DAO-ACK mode, a node wait
 for the root node to send back DAO-ACK
 before confirming that it is reachable and advertise DIO to surrounding nodes
 
-% TODO: The DIO send rate is determined by trickle timer algorithm,
-% which reduce the redundant send.
-
-RPL also uses DIS when a new node want to join the network. Upon
-receiving DIS, nodes will unicast their DIO to the sending node and
-the sending node can decide whether to join the advertised DODAG and
-choose parents based on DIOs.
+% TODO: talk more about DIS
+In addition for a node waiting to receive DIO to join DODAG, the node
+can send DIS message to request DODAG information. When surrounding
+nodes receive a DIS, it must unicast its DIO to that node, without
+effecting the Trickle Timer policy. After receiving the unicasted
+DIO, the node process the DIO as if it has receive a periodic DIO.
 
 % TODO: write more about trickle timer
 \subsection{Trickle Timer}
-DIO is crucial in forming and maintaining DODAG, thus RPL also employs
-Trickle timer to regulate the emission of DIO.
-Trickle timer works by adjusting the sending interval dynamically
-based on the packets and network condition to ensure timely send
-while reducing redundant message transmission.
+Trickle Timer is a scheduling algorithm based on consistency model.
+The algorithm is structured in a way that would promptly send out DIO
+during the formation process and would slow down when the DODAG has
+been stablised.
+
+adjusting the scheduling
+regulates DIO transmission by adjusting the sending interval dynamically
+based on the packets and network condition, ensuring timely DIO update
+while reducing redundant message transmission \cite{rfc6206}.
 The Trickle timer does this by evaluating the consistency of the
-network. When the network information are consistent, it
+network message with its own state. However, the definition of
+inconsistencies is left
+for interpretation of the implementation. % TODO: give example of
+% inconsistencies in RPL
+In RPL specification, inconsistencies are defined as:
+These inconsistencies$I$ include join new DODAG
+version (e.g. new DODAGVersionNumber, new RPL instance, switching
+parent), when % TODO: does switching parent reset DIO
+nodes detect loop and additional inconsistencies according to the
+implementation.
+However, the specification leaves the implementation adds more
+inconsistencies type when needed
+
+When the network information is consistent, it
 exponentially increases the transmission interval of DIO. However,
 upon detecting inconsistencies, trickle timer reset its send interval
-to boost DIO transmission to spread the latest information to the DODAG.
+to boost DIO transmission to spread the latest information to the
+rest of the DODAG.
 
-Table~\ref{tab:tricker_timer_params} shows three configuration
-parameters: Imin, Imax and k that Tricker timer to determine the send
-interval.
+Trickle Timer employs three configuration
+parameters to determine the sending window of DIO: $I_{min}$, $I_{max}$ and $k$.
 The maximum sending interval time is:
 \[
     I_{max\_time} = I_{min} \times 2^{I_{max}}
@@ -137,7 +187,6 @@ The maximum sending interval time is:
 
 % TODO: give an example
 
-% TODO: what is consisten message
 Trickle timer set the initial sending interval $I$ in the range of
 $[I_{min}, I_{max\_time}]$, usually the initial interval is set to $I = I_{min}$
 % TODO: read more about trickle timer
@@ -151,22 +200,12 @@ After the interval $I$, Trickles double the time of the interval up
 to $I_{max\_time}$ i.e. $I = max(I \times 2, I_{max\_time})$
 
 Upon detecting inconsistent messages, The interval $I$ is reset to
-Imin.
-
-In RPL specification, inconsistencies are defined as:
-These inconsistencies$I$ include join new DODAG
-version (e.g. new DODAGVersionNumber, new RPL instance, switching
-parent), when % TODO: does switching parent reset DIO
-nodes detect loop and additional inconsistencies according to the
-implementation.
-However, the specification leaves the implementation adds more
-inconsistencies type when needed
+$I_{min}$ to increase the DIO sending rate.
 
 \begin{table}
     \caption{Trickle Timer Parameters}\label{tab:tricker_timer_params}
     \begin{center}
-        % TODO: Fix the format of table
-        \begin{tabular}[c]{@{}p{0.25\linewidth}p{0.10\linewidth}p{0.65\linewidth}@{}}
+        \begin{tabular}[c]{@{}p{0.22\linewidth}p{0.10\linewidth}p{0.58\linewidth}@{}}
             \hline
             \textbf{Parameter} & \textbf{Symbol} & \textbf{Description} \\
             \hline
@@ -182,12 +221,14 @@ inconsistencies type when needed
 \end{table}
 
 \subsection{Communication Patterns}
+% TODO: probably combine this with DIO transmission and DAO transmission
 There are two types of communication patterns in RPL: upward route
 and downward route
 \subsubsection{Upward Route}
-In this approach, the upward routes follow the DODAG path to root as
-presented in the earlier section. A node would select one node as a
-preferred parent according the the rank calculated from OF
+A node forwards packets toward the sink by relaying them to its
+parent, which in turn relays them further up the tree until they reach the root.
+Since a parent's rank is always lower than its child's and the root
+rank is lowest, this process cannot get stuck in an endless cycle.
 
 \subsubsection{Downward Route}
 The downward are supported to P2MP and P2P route, in which the
@@ -206,3 +247,113 @@ routing path to the downward node.
 % TODO: clarify this
 The specification also opens option to specify DAO-ACK or not. A node
 would only consider reachable only after it has received the DAO-ACK.
+
+\subsection{OF0 and MRHOF}
+
+Up to now, the IETF ROLL working group has standardised only two
+objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
+Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
+
+% TODO: talk more about step of rank
+OF0 was developed to be a simple objective function that utilise step
+of rank, which is an intermediate computation based on link
+properties of a certain neighbour.
+, computing
+$Rank\_increase$ as follow
+\[
+    Rank\_Increase = ( Rf \times Sp + Sr) \times Min\_Rank\_Increase
+\]
+where $Rf$ (Rank Factor) is a small positive integer used to scale
+the step of rank; $Sp$ (Step of Rank) is an integer value
+representing hop count in
+abstract sense; and $Sr$ (Stretch of Rank) is used to inflate
+$Rank\_Increase$ for
+hysteresis preventing the OF from switching parents constantly.
+We can select
+OF0 parameters by
+selecting $Rf = 1$, $Sp = 1$ and $Sr = 0$, which reduces
+$Rank\_Increase$ to a simple fixed per-hop increment of 256. However,
+The specification of OF0 strongly recommend computing step of rank
+from Expected Transmission Count (ETX) to avoid blind hop count
+measure, where it would select furthest
+node to reduce the number of hops, leading to noisy and lossy link
+
+OF0 can be regarded as implicitly using hop count as
+routing metric. This mean that the traffic from OF0 follow the shortest path
+to root without considering any load balancing requirement.
+However, this also means that OF0 does not consider other link
+qualities such as latency, energy residual in its calculation as well
+as might choose worse off route but have the shortest hop count to root.
+This led to the introduction a more sophisticated MRHOF.
+
+In contrast, MRHOF propose multiple thresholds call hysteresis for
+path cost and time
+. In path cost threshold, unless the
+potential node is better than the current parent by a threshold, it
+will stick with the current parent. However, after the time
+threshold, if that node is still better then the node will switch
+parent. This would allows a more stabilised DODAG. Additionally,
+MHROF allow choosing one from various metrics as the determing factor.
+
+The default metric of MRHOF is Expected Transmission Count (ETX)
+metric. The main goal of ETX is to select routes with high end-to-end
+through put:
+\[
+    ETX = \frac{1}{D_t \times D_a}
+\]
+where $D_t$ is the probability that the receiving node receives the
+packet and $D_a$ is the probability that the transmitting node
+receives acknowledgement packet is successful. So ETX is the average
+number of packets need to send and acknowledgement.
+Since ETX is a floating point number while devices RPL operates on do
+not generally support floating point arithmeic. The specifcation
+indicates that 128 would be 1.0 ETX, improving the performace with
+bitshift instead of expensive division.
+
+% TODO: what word to describe route need less packets TX
+In essense, using ETX as metrics focus on more transmission-efficient route.
+
+There are two thresholds in MRHOF, rank threshold and time threshold.
+The specification define $PARENT\_SWITCH\_THRESHOLD$ as the minimum
+path cost improvement before deciding to switch.
+There is time threshold, meaning that if a node consistently perform
+better but not more than the ETX threshold, it still switch.
+
+% TODO: include other metric container
+The specification also open the choices of the routing metrics to energy,...
+However, ETX is the more popular choice when it comes to MHROF.
+
+Thanks to the flexibility of DIO header option.
+% TODO: talk about the flexiblity of DIO
+
+\section{Load Balancing in RPL}
+Load balancing is an important issue in WSNs since devices are
+expected to operate on battery for a long period of time. Some nodes
+are used more frequently than others, especially the nodes near the
+root, and exhaust their energy rapidly. These also includes when
+there is an imbalance the traffic rate between node, where certain
+nodes have higher data traffic than others e.g. videos or images,
+thus selecting one parent would exhaust the possible routes to the parent node.
+
+In this sense, load balancing is about distributing load from the
+leaf to root node so that the node within the same hop share the
+loads more evenly
+
+These have to account for bursty traffic
+
+% TODO: define what is load balancing
+Despite that, RPL does not consider load balancing since it is
+oriented to handling
+low data traffic. Therefore, the network suffers in terms of latency,
+delivery ratio and energy consumption under imbalance load senerios.
+
+This is where OF0 and MRHOF fall short as they only consider one
+metric: hop count and ETX. This does not capture the different
+load of each node. Generally, ETX value does not change much when a
+node experience heavy load \cite{kimQURPLQueueUtilization2015}
+
+Another problem in load balancing is Thundering Herd problem, when a new node join the DODAG and advertise its existence. Since this node does not have any load, the neighbouring nodes would then choose this as their prefered parents, potentially overloading this node. While leaving their current parent free of load. When the current parent advertise itself, all the node would then switch, thus creating switch back and forth.
+% TODO: insert image for thundering herd
+
+% TODO: include other problems in load balancing as well
+

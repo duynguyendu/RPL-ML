@@ -1,18 +1,76 @@
 \section{Data Collection for Model Training}
+The first step of a ML project is to gather a meaningful dataset. In
+this regards, we have created simulation scenarios using COOJA to
+gather metric data for the model training process. The simulations
+consist of various random topologoies, running under MRHOF with the
+parameters listed in Table~\ref{tab:data-gathering-sim-parameters}. In total, we ran (...) simulations for data gathering process.
 
-We utilise 11 routing metrics for the feature importance analysis
-ETX:
-Hop count:
-RSSI:
+% TODO: talk more about topology and load setting
 
-PPM: the total packet transmission per minute. These include
-retransmission and packets from children nodes
-CPU util: The percentage of active CPU over the total time
-Drop rate: the number of successful transmission per one drop. The
-higher the value the lower the drop ratio
+\begin{table}[ht]
+    \caption{Data gathering simulation parameters}
+    \label{tab:data-gathering-sim-parameters}
+    \begin{center}
+        \begin{tabular}{ll}
+            \hline
+            \textbf{Parameter} & \textbf{Value} \\
+            \hline
+            Simulator                      & COOJA \\
+            Mote type                      & Zolertia Z1 \\
+            Simulation Time                & 1800\,s \\
+            Number of Nodes                & 40, 60, 80 \\
+            Sink Placement                 & Centralized \\
+            Node Placement                 & Random \\
+            Transmission rate              & 90\% \\
+            Receiving rate                 & 90\% \\
+            Topology                       & Random with seeds from 1-10 \\
+            MAC Layer Protocol             & CSMA \\
+            Radio Range                    & 50\,m \\
+            Interference Range             & 60\,m \\
+            Packet Size                    & 64 bytes \\
+            Routing Protocol               & MRHOF \\
+            Packet per minute ($\lambda$) & 5, 10, 15 packets/minute\\
+            Overloading client Packet per minute ($\lambda$) & 30
+            packets/minute\\
+            Overloading client ratio        & 5\% \\
+            \hline
+        \end{tabular}
+    \end{center}
+\end{table}
 
-Is new: which is the metric to differentiate between the current
-parent or new parent, based on the way that we collect the metrics
+Since parent update only happens when a node receive a DIO with a
+rank lower than its own, we collected the metrics on
+two circumstances: on switching
+parent and on receiving the DIO update from its current parent and
+decide not to switch parent. Because of this, we add $is\_new$ to the
+training data feature in addition to routing metrics to differentiate
+between current parent or new parent as current parent metric already include
+the load of the current node.
+
+In the end, we collected seven routing metrics
+\begin{itemize}
+    \item ETX: Expected Transmission Count so a packet would be sent
+        and receive acknowledgement
+    \item Hop count: the number of hop to get to the parent node
+    \item RSSI: The receiving signal strength of the parent
+    \item Packet per minute (PPM): the number of packets going
+        through the current node, included all of its children
+    \item Drop rate: the number of transmission per drop of the current node
+    \item Path weighted PPM: the weighted number of packets going
+        through the parent nodej for the whole path
+    \item Path weighted drop rate: the weighted drop rate of the
+        parent node for the whole path
+\end{itemize}
+and two node metrics:
+\begin{itemize}
+    \item CPU Util: the percentage of time in CPU util
+    \item Path weighted CPU util: the weighted percentage of time in
+        CPU util for the whole path
+\end{itemize}
+and one feature to indicate whether the parent is new or not:
+\begin{itemize}
+    \item Is new: differentiate the DIO update from old parent or new parent
+\end{itemize}
 
 In our evaluation, the nodes closer to root node would have higher
 CPU util since they have to process more packets from children node,
@@ -25,12 +83,6 @@ link the load increase of the current node onto the selected parent
 And finally choose 6 most importance metrics to train the model for
 PDR prediction
 
-The routing metrics are collected on two circumstances: on switching
-parent and on receiving the DIO update from its current parent and
-decide not to switch parent. Because of this, we add is new to the
-training data feature to differentiate between current parent or new
-parent as current parent also include the load of the current node.
-
 Afterward, the training label PDR is calculated within a scope of a
 node by calculating TX / RX between the current row and next data input time
 the current row and the next row of the same node. We want the model
@@ -38,9 +90,4 @@ to be able to predict if this parent is selected, what would be the
 potential PDR is.
 
 Additionally, we filter the chunk having less than 30 seconds to
-reduce the noise in
-the training dataset.
-
-The data is collected from simulation in COOJA with parameters include in Table ...
-
-% TODO: add table for parameters here
+reduce the noise in the training dataset.

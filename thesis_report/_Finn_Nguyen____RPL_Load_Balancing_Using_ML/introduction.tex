@@ -1,22 +1,15 @@
 \chapter{Introduction}\label{C:intro}
-Recent development in the Internet of Things (IoT) have driven a
-rapid increase the number of devices connected to the Internet, with
-growth continues to accelerate in many areas: health care,
-construction, building.
-These devices typically communicate wirelessly, exchanging data over
-radio frequency links instead of relying on wired connections, which
-allows flexible deployment across wide range of physical environments.
-% TODO: may be cite the growth of IoT
-However, many such deploymens invole large number of constrained
-devices, which are bounded by low computational power, memory and energy
-(battery), to cover large geographic areas.
-% TODO: what is LLNs
-Because the
-underlying network technologies are limited in range, multi-hop
-routing is often required. Such networks are categorised as
-Low-power and Lossy Networks (LLN) as links in LLN are
-susceptible to loss and frequent packet drops in addtion to contrains
-on individual devices.
+Recent developments in the Internet of Things (IoT) have driven a
+rapid increase in the number of devices connected to the Internet,
+with growth continuing to accelerate across many domains such as
+healthcare, industrial automation, and building automation.
+% TODO: maybe cite the growth of IoT
+These devices typically communicate wirelessly with limited range and
+generally requires multi-hop solution, and
+are bounded by low computational power, memory, and energy (battery).
+Furthermore, their communication links are susceptible to loss and
+frequent packet drops. Such networks are categorised as Low-power and
+Lossy Networks (LLNs).
 
 These limitations led the Internet Engineering Task Force (IETF),
 which is an international organisation of network designers and
@@ -31,28 +24,26 @@ protocols Open Shortest Path First (OSPF), Intermediate System to
 Intermediate System (IS-IS), Ad hoc On-Demand Distance Vector (AODV),
 and Optimized Link State Routing Protocol (OLSR), to which they found out that
 they do not satisfy all of
-the routing requirements. % TODO: include the reason why these protocols faile
+the routing requirements.
 This led to ROLL introducing a new routing protocol
 designed specifically for LLNs called IPv6 based routing protocol for
 low power and lossy networks (RPL), standardised in RFC 6550
 \cite{alexanderRPLIPv6Routing2012}.
 
 At its core, RPL constructs a Destination-Oriented Directed Acyclic
-Graph (DODAG) to route packets from nodes toward a root, using
-objective function (OF) to calculate path cost and select parents
-during DODAG construction. Because of this, OFs determine how the
-traffic is distributed across DODAG
-% TODO: and directly affect the link quality and power usage.
-% TODO: talk a bit more about this
+Graph (DODAG) to route packets from nodes toward a root, using an
+objective function (OF) to compute path cost and select parents
+during DODAG construction. Since the OF governs parent selection, it
+directly determines how traffic is distributed across the DODAG,
+which in turn affects the link quality and power consumption
+experienced by individual nodes.
 
-% TODO: make this better
-The protocol fell short when it comes to performing under high traffic as
-load balancing was not considered in the design. Furthermore, the OFs
-that ROLL propose only consider one metric, which might not be enough
-to capture the inherent conditions of the network
-Moreover, most of
-the OFs are reactive in nature, meaning that would react after a
-route has degraded, leading to decrease in network quality and reliability.
+The protocol falls short when it comes to performing under high traffic as
+load balancing was not considered in the design. The OFs
+that the ROLL working group proposes only consider one metric, which does not
+capture the load of the network.
+Moreover, most of the OFs are reactive in nature, meaning that would
+react after a route has degraded in quality and reliability.
 
 % TODO: make this better
 In this project, we propose a new machine learning based OF that take
@@ -76,6 +67,6 @@ The rest of this report is structured as follow
     \item Chapter \ref{C:ProposedOf} provides the motivation and overview
         the machine learning techniques and models used for our
         proposed objective function
-    \item Chapter \ref{C:Experiments} shows the experiment and result
+    \item Chapter \ref{C:Evaluation} shows the experiment and result
         from applying ML to OF
 \end{itemize}

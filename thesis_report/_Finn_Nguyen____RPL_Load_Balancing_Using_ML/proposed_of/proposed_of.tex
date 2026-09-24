@@ -2,7 +2,9 @@
 
 \section{Proposed Objective Function MLOF}
 
-Most of the OFs have been using one metrics, in which the objective function in a sense is greedy, selecting nearby neighbours with the best link quality without regarding the overall performance of the whole route.
+Most of the OFs have been using one metrics, in which the objective
+function in a sense is greedy, selecting nearby neighbours with the
+best link quality without regarding the overall performance of the whole route.
 
 In this sense, I propose using a ML technique to analyse the feature
 importance of quality of a link. Once we know the most important
@@ -15,7 +17,7 @@ however only predict the success transmission probability of one
 packet, missing the whole picture.
 
 In this OF, we proposed using machine learning model to predict the
-packet delivery ratio (PDR) and the use the predicted PDR to
+packet delivery ratio (PDR), avoiding loaded path and the use the predicted PDR to
 calculate the rank as follow
 
 \[
@@ -33,14 +35,14 @@ machine learning model to the OFs
 
 Metrics of interest
 - End-to-End latency:
-- Hop Count
+- Hop Count:
 - Parent switch:
 - CPU util: in this metrics, we want to see the the CPU util to be
 more even depends on the hop count. Due to the energy usage are
-similar to each other in CSMA MAC, we opted for CPU util instead.
+similar to each other in CSMA MAC, we opted for CPU util instead. Higher CPU util generally means that there are more load in the node and there are more to process, this combine with packet per minute and drop rate to accounts for the load of the node.
 
-% TODO: include the steps in model training pipeline
-Gather metrics, processing data -> Train model -> Evaluation and Porting to C
+% TODO: include the steps in model training pipeline image
+% TODO: talk about adding metrics to DIO
 
 \input{proposed_of/data_collection}
 \input{proposed_of/model_selection}
