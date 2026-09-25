@@ -405,3 +405,5 @@ __pycache__/
 
 *.pdf
 *.aux
+
+aux/

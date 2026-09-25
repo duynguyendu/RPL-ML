@@ -1,18 +1,58 @@
-\section{MAC-Layer in \ieeemac{} Protcol}
+\section{\ieeemac{}}
+\ieeemac{} is a technical standard that defines the physical layer
+(PHY) and media access control (MAC) for Low Rate
+Wireless Personal Area Networks (LR-WPANs) \cite{salmanOverviewIEEE8021542010},
+targetting devices bounded by low computing
+power, memory and energy. It is designed to operate in Personal
+Operating Space (POS) of 10 meters or less on three license free
+industrial scientific medical frequency bands with the % TODO: how is
+% this 10 meters fit into RPL
+throughput of 250kpbs in the 2.4GHz band 40kpbs at 915MHz and 20kpbs
+at 868MHz. The topologies in consideration for the protocol includes star,
+peer-to-peer and mesh topology, which connects a large number of
+nodes through relaying messages.
 
-\subsection{Carrier Sense Multiple Access (CSMA)}
-In \ieeemac{} offers fundamental lower network layers of a type of wireless
-personal area network (WPAN), which focuses on low-cost, low-speed
-ubiquitous communication between devices. Designed to operate on simple transceiver while enabling flexibility and adaptability % TODO: explain this by saying RPL, IPv6LOWAN
+The MAC layer in \ieeemac{} is basically CSMA/CA of WLAN IEEE 802.11
+\cite{salmanOverviewIEEE8021542010} with support for two mode:
+unslotted and slotted mode. In unslotted mode, the .... is, this is
+the mode that IPv6LoWPAN and RPL operates on
+In slotted mode, the ... is ...
 
-CSMA is the default of this MAC layer to avoid collision. The radio receiver is turned on the whole running time to detect if there is any transmission in the process.
-Upon not detecting anyone sending, the node would then send.
-This is a simple solution, however would consume more power as the transceiver is always on.
+CSMA/CA works by sensing the transmission medium to avoid collision
+before sending packets. If a node has packets to send, it would sense
+the medium for at least x (time) and only send if the link is free.
+% TODO: discuss why collision detection is not implemented here
 
-\subsection{Time-Slotted Channel Hopping (TSCH)}
+- Nodes send transmission only after sensing the channel does not have traffic
+- Discuss how is this relevant to RPL
 
-RFC 7554 ammended \ieeemacE{} with the additiona of TSCH. The idea of TSCH is that nodes would transmit and receive during a time slot, which would eliminate the need to listen the whole time. Instead, a node would wake up and listen for first potion of the time slot and then go to sleep if there is no packets.
+CSMA/CA is a fairly simple mechanism for collision avoidance.
+Since CSMA/CA need to sense the radio frequency for collision and
+does not have schedule transmission or receiving time frame, the
+radio must be turned on the whole running time, which would
+potentially increase the energy usage
 
-The time is divided into slots, and frequency channels. Each next transmission would hop to different channels to avoid consuming the whole channel and collision.
+\section{\ieeemacE{} (TSCH)}
+The RFC 7554 ammended \ieeemacE{} with the addition of Time-Slotted
+Channel Hopping (TSCH). The idea of
+TSCH is that nodes would transmit and receive during a time slot,
+which would eliminate the need to listen the whole time. Instead, a
+node would wake up and listen for first potion of the time slot and
+then go to sleep if there is no packets.
+Each send is hop to the next channel to avoid collision, the chance is ...
+
+The time is divided into slots, and frequency channels. Each next
+transmission would hop to different channels to avoid consuming the
+whole channel and collision.
+Compare to CSMA/CA, the radio receiver does not have to turn on the
+whole period, thus saving energy but potentially delay the message
+transmission to the slotted frame.
 
 % TODO: explain TSCH a bit
+% TODO: explain how TSCH avoid collision
+
+\section{IPv6 over Low-Power Wireless Personal Area Networks (6LoWPAN)}
+
+6LoWPAN is a working group of Internet Engineering Task Force (IETF),
+dedicated to applying IPv6 to low-power devices operating on
+\ieeemac{} PHY and MAC layers.

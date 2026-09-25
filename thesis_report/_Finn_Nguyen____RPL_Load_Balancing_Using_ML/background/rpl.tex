@@ -1,9 +1,10 @@
 \section{Routing Protocol for Low-Power and Lossy Networks (RPL)}
 
+% TODO: include image of the layers in RPL
+
 RPL is an distance-oriented vector routing protocol that builds a
 Destination-Oriented Directed Acyclic Graph (DODAG) over IEEE
-802.15.4 PHY/MAC layers and 6LoWPAN (IPv6 over Low-Power
-Wireless Personal Area Networks) \cite{alexanderRPLIPv6Routing2012}.
+802.15.4 PHY/MAC layers and 6LoWPAN \cite{alexanderRPLIPv6Routing2012}.
 It is primarily designed for Wireless
 Sensor Networks (WSNs),
 where multipoint-to-point traffic toward one or more roots is the
@@ -21,17 +22,18 @@ node often serving as the root of DODAG. In a multi-sink deployment,
 each sink node serves as the root of its own separate DODAG.
 Within a DODAG, each node maintains a rank value, which is an estimation of the
 distance between itself and the DODAG
-root, and forms a directed edge toward a parent with a lower rank,
+root. This value is used to determine a direct parent link, which
+must have a lower rank,
 creating a herarchy network toward the root, as illustrated in
-Figure~\ref{fig:dodag-example}. Thus within this
+Figure~\ref{fig:dodag-example}. Within this
 hierachy, the root always has the lowest rank.
 
 % TODO: include how DODAG maintain loop free
 
 A node's rank is computed by an objective function (OF), which
-translates one or more metrics into rank, and the RPL
-specification does not mandate a single OF for all applications.
-Instead, RPL separates its core routing procedures --- packet
+translates one or more metrics into rank. The RPL
+specification does not mandate a single OF for all applications,
+instead, RPL separates its core routing procedures --- packet
 forwarding and DODAG maintenance --- from route optimisation, leaving
 the choice of OF open to fit the diverse requirements of LLNs, such as
 minimising energy consumption, reducing latency, or improving link
@@ -97,19 +99,18 @@ RPL introduces five types of control messages to form
 and control DODAG, as specified in ICMPv6 via RFC 6550
 \cite{alexanderRPLIPv6Routing2012}
 \begin{itemize}
-        % TODO: paraphrase this
-    \item DODAG Information Object (DIO): carries information that
+    \item DODAG Information Object (DIO): a DODAG advertisement message,
+        carrying information that
         allow nodes to discover a RPL instance, select parents and
         maintain the DODAG.
     \item DODAG Information Solicitation (DIS): a request message
-        when a node want to join a DODAG
-    \item Destination Advertisement Object (DAO): the node advertise
-        itself to the root node, indicating that it has join DODAG
-        and is reachable
+        when a node wants to join a DODAG.
+    \item Destination Advertisement Object (DAO): a node
+        advertisement message, indicating that it has joined DODAG
+        and is reachable for downward route.
     \item Destination Advertisement Object Acknowledgement (DAO-ACK):
         the acknowledgement of the root, confirming the downward path
-        to the node
-    \item CC: % TODO: what is this
+        to the node.
 \end{itemize}
 
 To begin the DODAG forming process, the root node sends its DIO to
@@ -152,12 +153,8 @@ DIO, the node process the DIO as if it has receive a periodic DIO.
 Trickle Timer is a scheduling algorithm based on consistency model.
 The algorithm is structured in a way that would promptly send out DIO
 during the formation process and would slow down when the DODAG has
-been stablised.
+been stablised to reduce redundant DIO transmission \cite{rfc6206}.
 
-adjusting the scheduling
-regulates DIO transmission by adjusting the sending interval dynamically
-based on the packets and network condition, ensuring timely DIO update
-while reducing redundant message transmission \cite{rfc6206}.
 The Trickle timer does this by evaluating the consistency of the
 network message with its own state. However, the definition of
 inconsistencies is left
@@ -179,8 +176,10 @@ to boost DIO transmission to spread the latest information to the
 rest of the DODAG.
 
 Trickle Timer employs three configuration
-parameters to determine the sending window of DIO: $I_{min}$, $I_{max}$ and $k$.
-The maximum sending interval time is:
+parameters to determine the sending window of DIO: $I_{min}$,
+$I_{max}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params};
+and the maximum sending interval time
+$I_{max\_time}$ is calculated as:
 \[
     I_{max\_time} = I_{min} \times 2^{I_{max}}
 \]
@@ -257,9 +256,7 @@ Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 % TODO: talk more about step of rank
 OF0 was developed to be a simple objective function that utilise step
 of rank, which is an intermediate computation based on link
-properties of a certain neighbour.
-, computing
-$Rank\_increase$ as follow
+properties of a certain neighbour, which compute $Rank\_increase$ as
 \[
     Rank\_Increase = ( Rf \times Sp + Sr) \times Min\_Rank\_Increase
 \]
@@ -277,6 +274,7 @@ The specification of OF0 strongly recommend computing step of rank
 from Expected Transmission Count (ETX) to avoid blind hop count
 measure, where it would select furthest
 node to reduce the number of hops, leading to noisy and lossy link
+% TODO: Include Convert ETX to step of rank
 
 OF0 can be regarded as implicitly using hop count as
 routing metric. This mean that the traffic from OF0 follow the shortest path
@@ -352,7 +350,13 @@ metric: hop count and ETX. This does not capture the different
 load of each node. Generally, ETX value does not change much when a
 node experience heavy load \cite{kimQURPLQueueUtilization2015}
 
-Another problem in load balancing is Thundering Herd problem, when a new node join the DODAG and advertise its existence. Since this node does not have any load, the neighbouring nodes would then choose this as their prefered parents, potentially overloading this node. While leaving their current parent free of load. When the current parent advertise itself, all the node would then switch, thus creating switch back and forth.
+Another problem in load balancing is Thundering Herd problem, when a
+new node join the DODAG and advertise its existence. Since this node
+does not have any load, the neighbouring nodes would then choose this
+as their prefered parents, potentially overloading this node. While
+leaving their current parent free of load. When the current parent
+advertise itself, all the node would then switch, thus creating
+switch back and forth.
 % TODO: insert image for thundering herd
 
 % TODO: include other problems in load balancing as well

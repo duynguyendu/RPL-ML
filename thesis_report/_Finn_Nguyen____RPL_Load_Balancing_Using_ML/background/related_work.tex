@@ -27,15 +27,37 @@ The authors used four metrics hop count, end to end delay, battery
 level and ETX for categorise link quality. Each metric follows fuzzy
 logic to indicate link quality from awful to excellent. The
 simulation results show that OF-FL achieve higher PDR while
-conserving more energy. However, the process of encoding each metrics into quality label is done manually and subject to the biases of the doers. % TODO: more about limitation in this
+conserving more energy. However, the process of encoding each metrics
+into quality label is done manually and subject to the biases of the
+doers. % TODO: more about limitation in this
 
-The authors in \cite{abreuEnergyawareRoutingBiomedical2014} propose an energy-aware objective function in RPL for healthcare monitor application. The nature of this problem means that the sensors is mobile, thus affecting the link quality % TODO: should I include this paper
+The authors in \cite{abreuEnergyawareRoutingBiomedical2014} propose
+an energy-aware objective function in RPL for healthcare monitor
+application. The nature of this problem means that the sensors is
+mobile, thus affecting the link quality % TODO: should I include this paper
 
-The authors in \cite{taghizadehCLRPLContextAwareLoad2018} proposed Context-Aware and Load Balancing RPL (CLRPL). They introduced a new metric called Context-Aware Routing Metric (CARM), which considers queue utilisation and the percentage remaining power of a entire parents' chain from root the the node instead of the immediate parent. CARM would cnosider low-power parent but high-power overall route instead of rejecting it like energy of a single parent.
-% TODO: include limitation of this 
+The authors in \cite{taghizadehCLRPLContextAwareLoad2018} proposed
+Context-Aware and Load Balancing RPL (CLRPL). They introduced a new
+metric called Context-Aware Routing Metric (CARM), which considers
+queue utilisation and the percentage remaining power of a entire
+parents' chain from root the the node instead of the immediate
+parent. CARM would cnosider low-power parent but high-power overall
+route instead of rejecting it like energy of a single parent.
+% TODO: include limitation of this
 
+\cite{liuLoadBalancedRouting2013} calculate the load differences
+between parents to make parent switch decision. % TODO: more on this
 
-Weighted Random Forward RPL (WRF-RPL) was propsoed in \cite{acevedoWRFRPLWeightedRandom2021}, which would select parents randomly based on weighted score % TODO: more about this
+\cite{homaeiLoadBalancingIoT2025} uses learning automaton (LA) inear
+Reward-Penalty (L\_R-P) updating scheme. Utilising traffic index, hop
+count to root and remaining energy level. Reward the parent for
+successful transmission. Also update the Trickle Timer to increase
+DIO transmission when traffic is low.
+% TODO: talk about this
+
+Weighted Random Forward RPL (WRF-RPL) was propsoed in
+\cite{acevedoWRFRPLWeightedRandom2021}, which would select parents
+randomly based on weighted score % TODO: more about this
 
 In recent, there has been many attempts to employ machine learning
 into OFs. Despite that, most of the new application of ML in RPL
@@ -47,6 +69,18 @@ puts Q-Learning to OF, award the model when a packet is trasmitted
 successfully and penalise when choosing a link that lead to packet loss.
 % TODO: include more reinforcement learning algo
 % TODO: include the metrics name
+
+\cite{ahmedCongestionAwareQLearning2022}
+Also solve Thunder Herd Problem by introducing parent switch probability.
+% TODO: talk about this
+
+\cite{sangeethaFederatedLearningBasedParent2025} employs federated
+learning to train the weights on fly and update the optimal weight
+through DIO messages
+% TODO: what did they predict
+
+\cite{faragCongestionAwareRoutingDynamic2021}
+Using reinforcement learning to do this
 
 There are three researches on applying supervised ML to RPL OF from a
 research group. In RPL+ , the authors utilise Decision Tree to
@@ -78,6 +112,5 @@ channel utilisation, throughput, queu utilisation and RSSI
 researches, this model predicts the predict the probability of
 successfull one hop transmission. The evaluation of the results lack
 energy or cpu util evaluation % TODO: more about limiation
-
 
 % TODO: more discussion on the limitation of these papers

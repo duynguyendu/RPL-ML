@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Cross-run comparison plots: how #nodes and PPM affect each metric.
+"""Cross-run comparison plots: how #nodes and offered load affect each metric.
 
 Reads ``aggregate.json`` (written by plot_metrics.py) and ``config.json``
 (written by pipeline.py) from every run directory under ``--runs-dir`` and emits
 a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
 Per metric (PDR / latency / CPU util / parent switch) the page offers two
-views -- fix #nodes (x = PPM) or fix PPM (x = #nodes) -- each a
-box-and-whisker candle per objective function.
+views -- fix #nodes (x = bit/s per node) or fix bit/s per node (x = #nodes) --
+each a box-and-whisker candle per objective function. The load axis is the
+config's PPM restated as bits per second per node: ppm * packet_size * 8 / 60.
 """
 
 from __future__ import annotations
@@ -20,6 +21,14 @@ from plotly_utils import plotly_src
 
 # statistics kept per metric in aggregate.json (written by plot_metrics.py)
 AGGREGATIONS = ["min", "q1", "median", "avg", "q3", "max"]
+
+
+def bits_per_second(ppm: object, packet_size: object) -> float | int | None:
+    """Offered load per node in bit/s: packets/min * bytes/packet * 8 / 60 s."""
+    if ppm is None or packet_size is None:
+        return None
+    bps = round(ppm * packet_size * 8 / 60, 2)
+    return int(bps) if bps == int(bps) else bps
 
 
 def collect_runs(runs_dir: Path) -> list[dict]:
@@ -48,6 +57,7 @@ def collect_runs(runs_dir: Path) -> list[dict]:
                 "run_id": run_dir.name,
                 "num_of_nodes": cfg.get("num_of_nodes"),
                 "ppm": cfg.get("ppm"),
+                "bps": bits_per_second(cfg.get("ppm"), cfg.get("packet_size")),
                 "seed": cfg.get("seed"),
                 "rpl_of": cfg.get("rpl_of"),
                 "topo_type": cfg.get("topo_type"),
@@ -147,7 +157,7 @@ __FIXED_CONFIG_HTML__
   <fieldset>
     <legend>View</legend>
     <label><input type="radio" name="mode" value="fix_nodes" checked> Fix #nodes</label>
-    <label><input type="radio" name="mode" value="fix_ppm"> Fix PPM</label>
+    <label><input type="radio" name="mode" value="fix_bps"> Fix bit/s per node</label>
     <label><input type="radio" name="mode" value="dashboard"> Run dashboard</label>
   </fieldset>
   <fieldset id="fixedWrap">
@@ -159,7 +169,7 @@ __FIXED_CONFIG_HTML__
   <fieldset>
     <legend id="pickLegend">Pick a run</legend>
     <label>#nodes <select id="pickNodes"></select></label>
-    <label>PPM <select id="pickPpm"></select></label>
+    <label>bit/s per node <select id="pickBps"></select></label>
     <label>OF <select id="pickOf"></select></label>
     <label>seed <select id="pickSeed"></select></label>
   </fieldset>
@@ -207,7 +217,7 @@ function init(){
   if(!RUNS.length){ $('#charts').hidden = true; $('#empty').hidden = false; return; }
   $('#meta').textContent =
     RUNS.length + ' runs · #nodes: ' + uniqNums(RUNS.map(r => r.num_of_nodes)).join(', ')
-    + ' · PPM: ' + uniqNums(RUNS.map(r => r.ppm)).join(', ')
+    + ' · bit/s per node: ' + uniqNums(RUNS.map(r => r.bps)).join(', ')
     + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
 
   METRICS.forEach((m, i) => {
@@ -223,12 +233,12 @@ function init(){
   render();
 }
 
-// dropdowns to pick one run's (#nodes, PPM, OF, seed) and link to its dashboard.html.
+// dropdowns to pick one run's (#nodes, bit/s per node, OF, seed) and link to its dashboard.html.
 // Each select is rebuilt from only the runs still matching the selects "above" it, so
 // every reachable combination corresponds to a real run -- no dead-end picks possible.
 const PICK_CHAIN = [
   {id: '#pickNodes', key: 'num_of_nodes', uniq: uniqNums},
-  {id: '#pickPpm', key: 'ppm', uniq: uniqNums},
+  {id: '#pickBps', key: 'bps', uniq: uniqNums},
   {id: '#pickOf', key: 'rpl_of', uniq: uniqStrs},
   {id: '#pickSeed', key: 'seed', uniq: uniqNums},
 ];
@@ -293,8 +303,8 @@ function syncFixed(){
   const wrap = $('#fixedWrap');
   if(m === 'dashboard'){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
-  const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'ppm';
-  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'PPM';
+  const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'bps';
+  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'bit/s per node';
   const vals = uniqNums(RUNS.map(r => r[key]));
   const prev = $('#fixed').value;
   $('#fixed').innerHTML = vals.map(v => '<option value="' + v + '">' + v + '</option>').join('');
@@ -306,11 +316,11 @@ function valueOf(r, agg, key, scale){
   return (raw == null || Number.isNaN(raw)) ? null : raw * scale;
 }
 
-// free-axis values (PPM, or node counts) present for the current fixed view
+// free-axis values (bit/s per node, or node counts) present for the current fixed view
 function fixedXs(m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'ppm' : 'num_of_nodes';
+  const freeKey = (m === 'fix_nodes') ? 'bps' : 'num_of_nodes';
   const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.ppm === fixedVal;
+                                           : r.bps === fixedVal;
   return uniqNums(RUNS.filter(inScope).map(r => r[freeKey]));
 }
 
@@ -318,9 +328,9 @@ function fixedXs(m, fixedVal){
 // Box = Q1..Q3, line = median, whiskers = min/max, dashed = mean. Runs that
 // share the same (fixed value, free value, OF) are averaged stat-by-stat.
 function tracesCandle(metric, m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'ppm' : 'num_of_nodes';
+  const freeKey = (m === 'fix_nodes') ? 'bps' : 'num_of_nodes';
   const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.ppm === fixedVal;
+                                           : r.bps === fixedVal;
   const xs = fixedXs(m, fixedVal);
   const out = [];
   for(const of_ of RPL_OFS){
@@ -360,9 +370,9 @@ function layout(metric, m, fixedVal, chartHeight){
     paper_bgcolor:'white', plot_bgcolor:'#E5ECF6',
     title:{text:'', font:{size:20}},
   };
-  const xtitle = (m === 'fix_nodes') ? 'PPM' : 'number of nodes';
+  const xtitle = (m === 'fix_nodes') ? 'bits per second per node' : 'number of nodes';
   const fixtxt = (m === 'fix_nodes')
-    ? ('number of nodes = ' + fixedVal) : ('PPM = ' + fixedVal);
+    ? ('number of nodes = ' + fixedVal) : ('bit/s per node = ' + fixedVal);
   const cats = fixedXs(m, fixedVal).map(String);
   base.title.text = metric.label + ' vs ' + xtitle + '  (' + fixtxt + ')';
   base.boxmode = 'group';
