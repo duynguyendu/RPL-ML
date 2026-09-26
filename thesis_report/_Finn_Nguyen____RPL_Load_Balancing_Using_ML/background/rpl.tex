@@ -53,16 +53,16 @@ whichever metric best suits its deployment.
 During DODAG construction, each node selects a parent from a pool of
 candidate parents: neighbouring nodes that have already joined the
 DODAG. The OF computes a candidate's resulting rank as
-\[
-    Rank(N) = Rank(P) + Rank\_Increase
-\]
-where $Rank(N)$ is the resulting rank of the node under consideration,
-$Rank(P)$ is the rank already advertised by the candidate parent $P$,
-and $Rank\_Increase$ is a positive value determined by the OF,
+\begin{equation}
+    \mathit{Rank}(N) = \mathit{Rank}(P) + \mathit{Rank\_Increase}
+\end{equation}
+where $\mathit{Rank}(N)$ is the resulting rank of the node under consideration,
+$\mathit{Rank}(P)$ is the rank already advertised by the candidate parent $P$,
+and $\mathit{Rank\_Increase}$ is a positive value determined by the OF,
 representing the cost of using $P$ as a parent. Because
-$Rank\_Increase$ is always positive, a node's rank strictly increases
+$\mathit{Rank\_Increase}$ is always positive, a node's rank strictly increases
 with each hop away from the root. The specific method used to compute
-$Rank\_Increase$ and how parent is selected depends on the OF in use,
+$\mathit{Rank\_Increase}$ and how parent is selected depends on the OF in use,
 as discussed later in this chapter.
 
 % There are four identifiers to define and maintain a topology in RPL shown in
@@ -176,18 +176,18 @@ to boost DIO transmission to spread the latest information to the
 rest of the DODAG.
 
 Trickle Timer employs three configuration
-parameters to determine the sending window of DIO: $I_{min}$,
-$I_{max}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params};
+parameters to determine the sending window of DIO: $I_{\mathrm{min}}$,
+$I_{\mathrm{max}}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params};
 and the maximum sending interval time
-$I_{max\_time}$ is calculated as:
-\[
-    I_{max\_time} = I_{min} \times 2^{I_{max}}
-\]
+$I_{\mathrm{max\_time}}$ is calculated as:
+\begin{equation}
+    I_{\mathrm{max\_time}} = I_{\mathrm{min}} \times 2^{I_{\mathrm{max}}}
+\end{equation}
 
 % TODO: give an example
 
 Trickle timer set the initial sending interval $I$ in the range of
-$[I_{min}, I_{max\_time}]$, usually the initial interval is set to $I = I_{min}$
+$[I_{\mathrm{min}}, I_{\mathrm{max\_time}}]$, usually the initial interval is set to $I = I_{\mathrm{min}}$
 % TODO: read more about trickle timer
 The trickle timer will select a random time $t$ between $[I/2, I)$ as the
 sending interval. When Trickle detects a consistent message, it will
@@ -196,10 +196,10 @@ At the time $t$, if the value of $c$ is less than the
 redundancy constant $k$, the trickle transmits the message, otherwise
 it would suppress the transmission.
 After the interval $I$, Trickles double the time of the interval up
-to $I_{max\_time}$ i.e. $I = max(I \times 2, I_{max\_time})$
+to $I_{\mathrm{max\_time}}$ i.e. $I = \min(I \times 2, I_{\mathrm{max\_time}})$
 
 Upon detecting inconsistent messages, The interval $I$ is reset to
-$I_{min}$ to increase the DIO sending rate.
+$I_{\mathrm{min}}$ to increase the DIO sending rate.
 
 \begin{table}
     \caption{Trickle Timer Parameters}\label{tab:tricker_timer_params}
@@ -208,9 +208,9 @@ $I_{min}$ to increase the DIO sending rate.
             \hline
             \textbf{Parameter} & \textbf{Symbol} & \textbf{Description} \\
             \hline
-            Min interval length & $I_{min}$ & The minimum sending
+            Min interval length & $I_{\mathrm{min}}$ & The minimum sending
             interval between two messages \\ % TODO: problably fix this
-            Max interval length & $I_{max}$  & The maximum number of
+            Max interval length & $I_{\mathrm{max}}$  & The maximum number of
             times that the sending interval can double \\
             DIO redundancy constant & $k$ & The number of consistent
             DIOs before suppresses its own DIO transmission \\
@@ -256,20 +256,20 @@ Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 % TODO: talk more about step of rank
 OF0 was developed to be a simple objective function that utilise step
 of rank, which is an intermediate computation based on link
-properties of a certain neighbour, which compute $Rank\_increase$ as
-\[
-    Rank\_Increase = ( Rf \times Sp + Sr) \times Min\_Rank\_Increase
-\]
-where $Rf$ (Rank Factor) is a small positive integer used to scale
-the step of rank; $Sp$ (Step of Rank) is an integer value
+properties of a certain neighbour, which compute $\mathit{Rank\_Increase}$ as
+\begin{equation}
+    \mathit{Rank\_Increase} = (\mathit{Rf} \times \mathit{Sp} + \mathit{Sr}) \times \mathit{MinHopRankIncrease}
+\end{equation}
+where $\mathit{Rf}$ (Rank Factor) is a small positive integer used to scale
+the step of rank; $\mathit{Sp}$ (Step of Rank) is an integer value
 representing hop count in
-abstract sense; and $Sr$ (Stretch of Rank) is used to inflate
-$Rank\_Increase$ for
+abstract sense; and $\mathit{Sr}$ (Stretch of Rank) is used to inflate
+$\mathit{Rank\_Increase}$ for
 hysteresis preventing the OF from switching parents constantly.
 We can select
 OF0 parameters by
-selecting $Rf = 1$, $Sp = 1$ and $Sr = 0$, which reduces
-$Rank\_Increase$ to a simple fixed per-hop increment of 256. However,
+selecting $\mathit{Rf} = 1$, $\mathit{Sp} = 1$ and $\mathit{Sr} = 0$, which reduces
+$\mathit{Rank\_Increase}$ to a simple fixed per-hop increment of 256. However,
 The specification of OF0 strongly recommend computing step of rank
 from Expected Transmission Count (ETX) to avoid blind hop count
 measure, where it would select furthest
@@ -296,9 +296,9 @@ MHROF allow choosing one from various metrics as the determing factor.
 The default metric of MRHOF is Expected Transmission Count (ETX)
 metric. The main goal of ETX is to select routes with high end-to-end
 through put:
-\[
-    ETX = \frac{1}{D_t \times D_a}
-\]
+\begin{equation}
+    \mathit{ETX} = \frac{1}{D_t \times D_a}
+\end{equation}
 where $D_t$ is the probability that the receiving node receives the
 packet and $D_a$ is the probability that the transmitting node
 receives acknowledgement packet is successful. So ETX is the average

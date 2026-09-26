@@ -1,27 +1,85 @@
 \section{Energy modeling}
-% TODO: talk a bit about existing energy modeling system
+Contiki-NG estimates energy consumption using a
+software-based online mechanism proposed by
+\cite{dunkelsSoftwarebasedOnlineEnergy2007}. It uses a linear
+model in which each hardware component such as the CPU, the radio transmitter
+and the radio receiver, draws a roughly constant current while it is active.
 
-Despite that, it lacks the implementation in the OS of the sensors, which is compute constrained and does not support floating point arithmetic. 
+The total energy is then the sum of each component's active time
+multiplied by its average current draw and the supply voltage:
+\begin{equation}
+    E = V \sum_{i} I_i \, t_i ,
+\end{equation}
+where $V$ is the supply voltage, $I_i$ is the average current draw of
+component $i$, and $t_i$ is the time it spent active. Because the
+estimation runs entirely in software, it needs no additional
+measurement hardware and can easily be ported to different platforms.
 
-The energy is model based on Energest module provided by Contiki.
-The module measures the number of ticks each mode in namely CPU, LPM, TX, RX
+Contiki-NG implements this model in its \emph{Energest} module, which
+records how long each
+component stays in each power state, measured in timer ticks.
+Energest tracks give states. Three describe the MCU: active (CPU),
+low power mode (LPM),
+deep low power mode (DLPM). The other two describe the radio:
+transmitting (TX) and receiving (RX). So the energy estimate in
+Contiki-NG is calculated as follow. The time $t_x$ spent in each state is
+obtained by dividing its tick count by the number of ticks per second
+$t_x = \mathit{ticks}_x / \mathit{ENERGEST\_SECOND}$
+And the energy consumed by a node is estimated as
+\begin{equation}
+    E = V \left( I_{\mathrm{CPU}}\, t_{\mathrm{CPU}}
+        + I_{\mathrm{LPM}}\, t_{\mathrm{LPM}}
+        + I_{\mathrm{DLPM}}\, t_{\mathrm{DLPM}}
+        + I_{\mathrm{TX}}\, t_{\mathrm{TX}}
+    + I_{\mathrm{RX}}\, t_{\mathrm{RX}} \right),
+\end{equation}
+where $V$ is the supply voltage, and $I_x$ and $t_x$ are the
+average current
+draw and the time spent in each state. In many cases where the energy
+estimation is used to compare between
+homogeneous nodes within the same network, V does not need to be
+explicitly calculated to simplify the calculation.
 
-Whereas previous research estimate energy consumption in off-line simulation, which would precompile the energy algorithm
+The value of current drawn of each state is gathered from the
+datasheet of the MCU and transceiver. Table~\ref{tab:current-draw}
+shows the current drawn
+of two platforms Z1 \cite{zolertia_z1} and Tmote Sky
+\cite{moteiv_tmotesky} with transceiver CC2420 \cite{ti_cc2420}. The
+current draw from datasheet should only be taken as a reference
+point, which can vary a lot in different situation.
 
-\cite{dunkelsSoftwarebasedOnlineEnergy2007} proposed a simple on-line software-based linear equation for energy estimation instead of ..., which can be used in devices that do not support floating point arithmetic
-% TODO: the floating point arithmetic limitation should be include in other part
-\[
-\frac{E}{V} = I_m t_m + I_l t_l + I_t t_t + I_r t_r + \sum_i I_{c_i} t_{c_i},
-\]
+\begin{table}[htbp]
+    \centering
+    \caption{Average current draw per Energest state for the Zolertia
+    Z1 and Tmote Sky platforms.}
+    \label{tab:current-draw}
+    \begin{tabular}{llcc}
+        \hline
+        \textbf{Component} & \textbf{State} & \textbf{Z1} &
+        \textbf{Tmote Sky} \\
+        \hline
+        MCU   & Active (CPU)                 & 10\,mA       & 1.8\,mA \\
+        & Low-power mode (LPM)         & 23\,$\mu$A   & 54\,$\mu$A   \\
+        & Deep low-power mode (DLPM)   & 0\,$\mu$A    & 0\,$\mu$A    \\
+        \hline
+        Radio & Receive (RX)                 & 18.8\,mA     & 18.8\,mA     \\
+        & Transmit (TX)                & 17.4\,mA     & 17.4\,mA     \\
+        \hline
+    \end{tabular}
+\end{table}
 
-In many cases, the energy estimation is used to compare between hemogenous nodes within the same network, thus V does not need to be eplicitly calculated.
+% TODO: should I include this
+% Time measurement is implemented using the on-chip timers
+% of the MSP430. Since the on-chip timers work even when
+% the microcontroller is in low-power mode, the time measure-
+% ment is non-intrusive. We use the 32768 Hz clock divided
+% by 8, producing 4096 clock ticks per second
 
-This resulted in the implementation of module Energest in Contiki, which counts the number of tick the node operate in. The current implementation measures four types: CPU, Low power CPU, Transmission and Receiving. The value for amplitude is gathered from datasheet
-
-Each of this combine with the datasheet of the MCU and the transciver to estimate the energy consumption of a node
-% TODO: add the energy equation
-
-
-However, due to the removal of duty cycling ContikiMAC, which operates on a similar basis of TSCH focusing on cycling on and off to save energy, in Contiki-NG, we opted for CSMA, which turns the radio receiver on the whole simulated time.
-TSCH is a much more complicated and round off algorithms design for high delivery ratio, which does not fit the Z1 mote in COOJA.
-Since the energy consmutpm of this is much bigger than CPU. We decide to measure CPU instead.
+From the table, radio power is much more significant than MCU power.
+Since the removal of duty cycling layer in Contiki-NG in favor of
+TSCH, the energy consumption in CSMA mode is dominated by radio
+turning for the whole period.
+However, TSCH is a much more complicated and memory heavy algorithm
+for such old devices. Hence we opt for CSMA and use active CPU ticks
+as intermediate value to measure the energy consumption relative to
+other nodes in the network.

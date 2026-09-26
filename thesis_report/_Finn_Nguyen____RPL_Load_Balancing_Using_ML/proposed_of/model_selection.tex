@@ -3,13 +3,25 @@ The advance of machine learning has led the wide applications in IoT devices.
 
 Given the condition of running the models on constrained devices with
 low computation power, memory and energy. The models must be
-lightweight and fast, while also robust when using interger instead
+lightweight and fast during inference process, while also robust when
+using interger instead
 of floating point % TODO: talke about quanitisation
 To be specific, the model must be compile in C with less than 10KB
-and must not use floating point in its operation
+and must not use floating point in its operation.
+We have considered ... models namely: K-nearest neightbour
+regression, linear regression, support vector regression, Gaussian
+Process Regressor, Decision Tree, Random Forest and Multilayer perceptron model.
 
 KNNR: works by comparing a node with the surrounding nodes to predict
-a value. In a sense, KNNR is considered a lazy model, in which it
+a value. The closeness of values is typically calculated by Euclid
+distance (...equation). Training in KNNR is very fast as the model
+only remembers the training data. The inference is slow as the model
+has to go through each point to calculate the distance and select the
+best one. This means that KNNR does not fit our requirement of being
+fast and lightweight as the model is heavy and computational heavy in inference.
+
+However, KNNR is considered a lazy model as it has to remember all
+the training data to calculate the distance with each node
 remembers all training data, thus result in a heavy model and
 contradict the low memory requirement.
 
@@ -34,6 +46,11 @@ range of problems, including image, language and simple regression.
 However, due to the constrained environment of the working MCU which
 has several KB of RAM and ROM. I rule out this.
 
+Random forest:
+- Does not need scaling or normalisation
+- Fairly simple
+- Can work well with discrete value type:
+
 Random forest and Decision Tree operates on similar algorithm. In
 tree base algorithm, each value is split into left and right,
 following the path to reach the end. In Random Forest, multiple trees
@@ -43,6 +60,7 @@ decision tree are quite similar to each other. Thus I remove random
 forest from list of considered models as they are much heavier than
 decision tree.
 
-In the end, we decide to proceed with Random Forest and LGBMTreeRegressor due to the design and
+In the end, we decide to proceed with Random Forest and
+LGBMTreeRegressor due to the design and
 computation simplicity to fit in with the constrained of the devices
 that we operate on.

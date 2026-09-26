@@ -88,14 +88,14 @@ perform feature importance evaluation with
 six metrics ETX, channel utilisation, density, through put, queue
 utilisation and MAC losses on data gathered hop by hop from
 simulation \cite{duenassantosRPLImprovedParent2022}. They set
-the $Rank\_Increase$ fixed to 1, which can be regarded as hop count,
+the $\mathit{Rank\_Increase}$ fixed to 1, which can be regarded as hop count,
 and use the feature
 importance as coefficients in linear equation and select parent with
 the lowest score. Even though they improve the performance of PDR and
 delay, the random forest model is only for feature importance
 analysis and the training data only consider the success chance of
 forwarded by one hop instead of the whole path. Additionally, having
-fixed $Rank\_Increase$ means that the OF would select parents with
+fixed $\mathit{Rank\_Increase}$ means that the OF would select parents with
 the shortest hop count.
 
 In \cite{mezherGNBRPLGaussianNaive2023}, the research group train a

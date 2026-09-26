@@ -1,49 +1,11 @@
 \chapter{Proposed Objective Function}\label{C:ProposedOf}
 
-\section{Proposed Objective Function MLOF}
-
-Most of the OFs have been using one metrics, in which the objective
-function in a sense is greedy, selecting nearby neighbours with the
-best link quality without regarding the overall performance of the whole route.
-
-In this sense, I propose using a ML technique to analyse the feature
-importance of quality of a link. Once we know the most important
-routing metrics that effect the quality of a link, we can design an
-efficient objective function based on that result
-
-The proposed ML-based OFs in the related work section are
-reinforcement learning by design. The one using supervised learning
-however only predict the success transmission probability of one
-packet, missing the whole picture.
-
-In this OF, we proposed using machine learning model to predict the
-packet delivery ratio (PDR), avoiding loaded path and the use the predicted PDR to
-calculate the rank as follow
-
-\[
-    Rank\_Increase = \alpha \times Predicted\_PDR + (1 - \alpha) \times ETX
-\]
-
-We include ETX as a measure to control the prediciton of the model
-incase of wild prediction, which could lead to unstable DODAG and
-reduce the network performance.
-
-Addition to this, we also measured the overhead of introducing
-machine learning model to the OFs
-
-% TODO: why include ETX in this equation
-
-Metrics of interest
-- End-to-End latency:
-- Hop Count:
-- Parent switch:
-- CPU util: in this metrics, we want to see the the CPU util to be
-more even depends on the hop count. Due to the energy usage are
-similar to each other in CSMA MAC, we opted for CPU util instead. Higher CPU util generally means that there are more load in the node and there are more to process, this combine with packet per minute and drop rate to accounts for the load of the node.
 
 % TODO: include the steps in model training pipeline image
 % TODO: talk about adding metrics to DIO
 
+\input{proposed_of/topology_generator.tex}
+\input{proposed_of/mlof.tex}
 \input{proposed_of/data_collection}
 \input{proposed_of/model_selection}
 \input{proposed_of/feature_importance}
