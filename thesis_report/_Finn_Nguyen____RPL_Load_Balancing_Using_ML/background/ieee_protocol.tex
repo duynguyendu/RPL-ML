@@ -4,55 +4,89 @@
 Wireless Personal Area Networks (LR-WPANs) \cite{salmanOverviewIEEE8021542010},
 targetting devices bounded by low computing
 power, memory and energy. It is designed to operate in Personal
-Operating Space (POS) of 10 meters or less on three license free
-industrial scientific medical frequency bands with the % TODO: how is
-% this 10 meters fit into RPL
-throughput of 250kpbs in the 2.4GHz band 40kpbs at 915MHz and 20kpbs
-at 868MHz. The topologies in consideration for the protocol includes star,
-peer-to-peer and mesh topology, which connects a large number of
-nodes through relaying messages.
+Operating Space (POS) of 10 meters or less,
+with the main topologies in consideration being star,
+peer-to-peer and mesh topology (a network that connects a large number of
+nodes through relaying messages). The standard offers three free bands
+throughout the world with the throughput of 250kpbs in the 2.4GHz
+band 40kpbs at 915MHz and 20kpbs at 868MHz.
+% TODO: how is this 10 meters fit into RPL
 
-The MAC layer in \ieeemac{} is basically CSMA/CA of WLAN IEEE 802.11
-\cite{salmanOverviewIEEE8021542010} with support for two mode:
-unslotted and slotted mode. In unslotted mode, the .... is, this is
-the mode that IPv6LoWPAN and RPL operates on
-In slotted mode, the ... is ...
+The 802.15.4 standard uses Carrier-Sense Multiple Access with
+Collision Avoidance (CSMA/CA) and defines two channel access mechanisms ---
+beacon enabled for synchronous access and non-beacon enabled for
+asynchronous access. In beacond enabled mode, nodes use unslotted
+CSMA/CA, without exchaning request-to-send and clear-to-send
+messages. When a node has packets to send, it delays the transmission for a
+random backoff period. Afterward, it senses the medium, making sure that the
+channel is free before sending. If the channel is busy, it waits for
+another random backoff period and check the channel again.
+This means that nodes in multihop topology must stay awake
+all the time to be able to receive data, as packets could be sent
+at any time without any synchronisation.
 
-CSMA/CA works by sensing the transmission medium to avoid collision
-before sending packets. If a node has packets to send, it would sense
-the medium for at least x (time) and only send if the link is free.
-% TODO: discuss why collision detection is not implemented here
+In slotted mode, the standard cuts time into superframes. Each
+superframe starts when the coordinator sends a beacon to synchronise
+the send time. Backoff period in this mode must respect the
+superframe slot boundary. This allows an active period when nodes use
+slotted CSMA/CA to transmit and an inactive period where nodes waiting
+for next beacon.
 
-- Nodes send transmission only after sensing the channel does not have traffic
 - Discuss how is this relevant to RPL
 
-CSMA/CA is a fairly simple mechanism for collision avoidance.
-Since CSMA/CA need to sense the radio frequency for collision and
-does not have schedule transmission or receiving time frame, the
-radio must be turned on the whole running time, which would
-potentially increase the energy usage
-
 \section{\ieeemacE{} (TSCH)}
-The RFC 7554 ammended \ieeemacE{} with the addition of Time-Slotted
-Channel Hopping (TSCH). The idea of
-TSCH is that nodes would transmit and receive during a time slot,
-which would eliminate the need to listen the whole time. Instead, a
-node would wake up and listen for first potion of the time slot and
-then go to sleep if there is no packets.
-Each send is hop to the next channel to avoid collision, the chance is ...
+The RFC 7554 ammended \ieeemacE{} with the addition of a new radical
+media access control technique: Time-Slotted Channel Hopping (TSCH)
+\cite{rfc7554}, which are tightly time synchronised. In a TSCH
+networks, time is cut into timeslots, which are combined as a
+slotframe. % TODO: what is slot frame.
+% TODO: insert figure ro illustrate
+A slot is long enough (typically 10ms) for a node to transmit data and
+for receiving node sending acknowledgement back, and sending and
+receiving must be done stricly within one slot.
+There are three actions that a node can do during a slot: transmit,
+receive or sleep. When a node have something to send, it waits until
+the start of a slot before sending. Nodes would sense the channel for
+incoming packets. If a node has not received anything for a period of
+time (smaller than the time slot), it goes to sleep to conserve
+energy by not staying on during the whole slot.
 
-The time is divided into slots, and frequency channels. Each next
-transmission would hop to different channels to avoid consuming the
-whole channel and collision.
-Compare to CSMA/CA, the radio receiver does not have to turn on the
-whole period, thus saving energy but potentially delay the message
-transmission to the slotted frame.
+The specifation also include channel hopping, having a different
+frequency for each transmission. This means that successive
+transmission will go through different channel offsets, resulting in
+"channel hopping" % TODO: why channle hopping
 
-% TODO: explain TSCH a bit
+\ieeemacE{} does not define how to build or maintain the TSCH
+schedule, leaving the details up to the implementation and upper
+layer such as 6LoWPAN.
+
+Compare to CSMA/CA, TSCH is a much more complicated and orchestrated
+technique. It saves more energy general with the tradeoff of higher
+latency as nodes have to wait for time slot.
+
 % TODO: explain how TSCH avoid collision
 
 \section{IPv6 over Low-Power Wireless Personal Area Networks (6LoWPAN)}
+Before this, people used proprietary protocols and link-only solution
+such as ZigBee, given that the IP was too computational and memory
+heavy for these low-power devices.
 
-6LoWPAN is a working group of Internet Engineering Task Force (IETF),
-dedicated to applying IPv6 to low-power devices operating on
-\ieeemac{} PHY and MAC layers.
+6LoWPAN is a protocol applying IPv6 to low-power devices operating on
+top of low power wireless networks, specifically \ieeemac{} PHY and MAC layers.
+6LoWPAN introduces an adapatation layer between IPv6 and network
+layers to establish efficient transmission of IPv6 datagrams over
+802.15.4 links by compressing the header to reduce transmission
+overhead, fragmentation to support minimum MTU requirement and
+layer-two forwarding
+
+- Header compression
+- Fragmentation: Normally, the IPv6 payload does not fit the payload of \ieeemac{}, 6LoWPAN is crucial by providing scheme to assemble fragmented packets over multiple hops.
+- Layer-two forwarding: the adaptation layer can carry link-level addresses for the ends of an IP hop
+
+The original intention is to use the widely supported Interet
+Protocol, simplifying the connection between different networks and
+reduce the complexity of the gateways that were needed to translate
+between proprietary protocl and standard Internet Protocol.
+Additionally, by using IP, users can utilise well-developed tools for
+commissioning, configuring, managing and debugging these networks.
+The protocol removes some of the fields in IP header to save something

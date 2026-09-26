@@ -1,67 +1,100 @@
-\section{Contiki-NG and COOJA Simulator}
-\subsection{Contiki}
-% TODO: cite ContikiOS
-Contiki-NG is a lightweight operating system for resource-constrained
-devices in WSNs and IoT.
+\section{Contiki Operating System and COOJA Simulator}
+\subsection{ContikiOS and Contiki-NG}
+Contiki is a lightweight operating system (OS) built for constrained
+devices in WSN with a few kilobytes of RAM and tens of kilobytes of
+flash memory to run \cite{contiki}.
+Originally developed by Adam Dunkels in 2002, it has since received support
+from a community of developers, industrial partners and research institutions.
+Contiki has been ported to a wide range of architectures, from 8-bit
+AVR processors to
+16-bit TI MSP430 and 32-bit ARM Cortex-M devices.
+The MSP430 family is the most widely used target in WSN research
+because of its very low power consumption, and it is the basis of several
+popular sensor motes that the Cooja simulator can emulate at the instruction
+level.
 
-which was built on the Contiki.
+At its core, Contiki uses an event-driven kernel combined with
+\emph{protothread} --- lightweight stackless threads --- to achieve
+linear code execution for event-driven systems while keeping the
+memory footprint small \cite{dunkels2006protothreads}. Compare to
+multi-thread systems, event-driven systems do not need to allocate
+memory for each thread stack.
+protothread provides conditional blocking wait operation the reduce
+the explicit state machines to save the memory even more.
+% TODO: why does it need to be linear
 
-The Swedish Institute of Computer Science (SICS) released the first
-version of Contiki in 2003 % TODO: cite this
-Contiki was created by Adam Dunkels in 2002, which supports various
-protocol for IoT devices
-and have been support from various research instutitions
-Later on, ContikiMAC was introduce as the sole duty cycle MAC layer for RPL.
+Contiki also ships with a full network stack for WSNs, including IPv4 and IPv6
+support through 6LoWPAN and RPL routing protocol.
+To save energy, Contiki adds radio duty cycling (RDC) layer between
+PHY and MAC layer, and provides several low-power RDC protocols,
+including X-MAC, LPP and ContikiMAC, allowing nodes to turn radio off.
+Of these, ContikiMAC became the default RDC layer.
 
-% TODO: paraphrase this paragraph
-However, recently a new Contiki cross-platform has been released on
-Nov 2017 named Contiki-NG 4.0, which licensed under the 3-clause BSD
-license. Contiki-NG concentrates on the Next-Generation IoT devices
-such as ARM Cortex M3 and other 32-bit MCUs and on reliable and
-secure standard protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoAP
-\cite{ContikiNG}.
+In November 2017, Contiki-NG (Contiki Next Generation) was released
+as version 4.0, a fork of the original Contiki under the 3-clause BSD
+license \cite{ContikiNG}. It targets modern IoT devices,
+mainly 32-bit MCUs such as ARM Cortex-M3, and focuses on reliable and
+secure standardised protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoAP.
+To this end, Contiki-NG removes the support for 8-bits and 16-bits
+platforms, and older, experimental and non-standarised protocols. It
+drops the non-IP Rim and IPv4 support, making the system IPv6-only.
+It also removes the RDC layer, leaving only CSMA, \ieeemacE{} TSCH
+and a minimal \texttt{nullmac}, a MAC layer that neither sends or
+receives packets.
+Although the main support of Contiki-NG is 32 bits MCUs, several older 16-bit
+MSP430 platforms such as Tmote Sky and Zolertia Z1 are still
+maintained, and can be emulated in Cooja simulator.
 
-In Contiki-NG, RPL implementation was rewritten as RPL-lite while the
-original version of RPL in Contiki is kept as RPL-classic. RPL-lite
-removes certain features RPL based on year of experience, keeping the
-supports one single DAG at a time, one single “RPL instance”, and
-only the non-storing mode of operation.
+Contiki-NG also rewrote the RPL implementation and
+called the new version RPL-lite.
+The original Contiki implementation is still kept and is called RPL-classic.
+Draws from years of experience, RPL-lite drops several RPL features
+that are rarely needed in practice.
+It only supports a single RPL instance with only one DODAG at a time, and
+only the non-storing mode of operation, in which the root node holds
+all the downward routes.
+RPL-lite is the default option in Contiki-NG and is the
+implementation used in this work.
 
-Addionally, ContikiMAC was removed in favor of TSCH implemetation,
-thus making TSCH the default for duty cycle MAC implementation.
+\subsection{Cooja Simulator}
+Cooja is a network simulator tool distributed with Contiki-NG. It is
+capable of emulating hardware motes to instruction level from
+firmware image built for a real platform
+or software motes, which run Contiki compiled for the host machine.
+Out of the box, Cooja provides two hardware mote types: Tmote Sky
+(TelosB) and Zolertia Z1 with the platform specifications shown in
+Table~\ref{tab:mote-specs}, and a software-based mote type called Cooja.
 
-\subsection{COOJA Simulator for Contiki-NG}
-The Cooja simulator is widely used among RPL OF researches % TODO:
-% reference here
+For hardward emulation, Cooja uses MSPSim, a Java-based
+instruction-level emulator, to emulate the MSP430 family MCUs with
+cycle accurate, including timing, memory limits and peripherals.
+The Cooja mote, in constrast, is compiled directly into native code
+of the host machine, and Cooja loads this code through the Java
+Naive Interface (JNI). Cooja skips the internal working of this mote
+type.
+% TODO: these 3 lines are a bit wierd
+Because of this, Cooja motes are not bounded
+by the limitation of computation power or memory of real hardware.
+This makes the simulation much faster but less time-accurate. For this
+reason, Cooja mote is typically used to test the protocols and
+application logic quickly before running the slower but more accurate
+hardware emulation.
 
-Cooja is an elastic Java-based simulator dedicated for WSNs based on
-Contiki Operating System.
-Cooja is capable of simulating different node types, including
-simulated hardward (consisting of clock cycle and MCU) and software
-based simulation (which skip the internal working of an MCU).
-
-In this regard, Cooja is a tool for real hardware simulation.
-
-depends on the mote type, provides three mote types out-of-the-box:
-Sky, Z1 and Cooja where Sky and Z1 are emulated hardware for TelosB
-and Zolertia Z1 and Cooja is the software simulation.
-Table~\ref{tab:mote-specs} summarises the board specification.
-
-% TODO: double checkthe MCU and Transceiver
 \begin{table}[h]
     \caption{Supported mote hardware specifications in COOJA simulator}
     \label{tab:mote-specs}
     \begin{center}
         \begin{tabular}{lll}
             \hline
-            \textbf{Specification} & \textbf{Zolertia Z1} & \textbf{TelosB} \\
+            \textbf{Specification} & \textbf{Zolertia Z1} &
+            \textbf{TMote Sky} \\
             \hline
             Microcontroller        & MSP430F2617 (2nd gen)     & Texas
             Instruments MSP430 \\
             CPU                    & 16-bit RISC @ 16\,MHz     & 8\,MHz \\
             RAM                    & 8\,KB                     & 10\,KB \\
             Flash memory           & 92\,KB                    & 48\,KB \\
-            Transceiver            & CC2420, IEEE 802.15.4     & Chipcon,
+            Transceiver            & CC2420, IEEE 802.15.4     & CC2420,
             IEEE 802.15.4 \\
             Frequency band         & 2.4\,GHz                  & 2.4\,GHz \\
             Data rate              & 250\,kbps                 & 250\,kbps \\
@@ -72,11 +105,3 @@ Table~\ref{tab:mote-specs} summarises the board specification.
 
 Thus to maximise the computing power for machine learning model, Z1
 is the most suitable mote for our need.
-
-% TODO: paraphrase this
-This platform is a virtual platform, used by the Cooja platform to
-run Contiki-NG as ‘Cooja motes’. It compiles Contiki-NG as a native
-process, and connects directly all hardware accesses to the Cooja
-simulator. Unlike emulations, simulation with Cooja motes are not
-perfectly time-accurate, but the timing is still good enough to run
-the MAC layers CSMA and TSCH
