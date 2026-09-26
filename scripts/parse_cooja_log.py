@@ -17,6 +17,8 @@ RE_DODAG_PARENT = re.compile(
 RE_METRICS_LOG = re.compile(
     r"^ENERGEST: CPU=(\d+) LPM=(\d+) LISTEN=(\d+) TRANSMIT=(\d+) OFF=(\d+) TOTAL=(\d+) HOP_COUNT=(\d+) "
     r"ETX=(\d+\.\d{2}) RSSI=(-?\d+) TX=(\d+) RX=(\d+) ACKED=(\d+) DROPPED=(\d+)"
+    # DIO_SENT is a cumulative counter since boot; optional so older logs still parse
+    r"(?: DIO_SENT=(\d+))?"
 )
 
 # LATENCY
@@ -90,6 +92,11 @@ def process_log(log_path):
                         "rx_packets": int(metrics.group(11)),
                         "acked_packets": int(metrics.group(12)),
                         "dropped_packets": int(metrics.group(13)),
+                        "dio_sent": (
+                            int(metrics.group(14))
+                            if metrics.group(14) is not None
+                            else None
+                        ),
                     }
                 )
                 continue

@@ -9,6 +9,7 @@
  *   - Hop count (from the IPv6 hop limit field)
  *   - CPU utilization (%)
  *   - Tx power
+ *   - DIO messages sent since boot
  *
  * All output is tagged (e.g. "ETX:", "LATENCY:") so it can be grep'd /
  * parsed straight out of the Cooja mote log.
@@ -39,7 +40,8 @@
 #define METRICS_LOG                                                            \
   "ENERGEST: CPU=%lu LPM=%lu LISTEN=%lu "                                      \
   "TRANSMIT=%lu OFF=%lu TOTAL=%lu HOP_COUNT=%u "                               \
-  "ETX=%u.%02u RSSI=%d TX=%d RX=%d ACKED=%d DROPPED=%d\n"
+  "ETX=%u.%02u RSSI=%d TX=%d RX=%d ACKED=%d DROPPED=%d "                       \
+  "DIO_SENT=%lu\n"
 
 #define LATENCY_LOG "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 "\n"
 /// -------------------- METRICS LOG END -------------------------------
@@ -109,7 +111,7 @@ PROCESS_THREAD(metrics_process, ev, data) {
 
     printf(METRICS_LOG, cpu, lpm, listen, transmit, off, total, hop_count,
            etx_int, etx_frac, rssi, tx_packets, rx_packets, ack_packets,
-           dropped_packets);
+           dropped_packets, (unsigned long)rpl_dio_sent_count);
 
     etimer_reset(&metrics_timer);
   }

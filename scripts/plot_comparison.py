@@ -5,7 +5,7 @@ Reads ``aggregate.json`` (written by plot_metrics.py) and ``config.json``
 (written by pipeline.py) from every run directory under ``--runs-dir`` and emits
 a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
-Per metric (PDR / latency / CPU util / parent switch) the page offers two
+Per metric (PDR / latency / CPU util / parent switch / DIO sent per minute) the page offers two
 views -- fix #nodes (x = bit/s per node) or fix bit/s per node (x = #nodes) --
 each a box-and-whisker candle per objective function. The load axis is the
 config's PPM restated as bits per second per node: ppm * packet_size * 8 / 60.
@@ -194,6 +194,7 @@ const METRICS = [
   {key:'latency',       label:'Latency',       scale:1,   unit:' s', axis:'Latency (s)'},
   {key:'cpu_util',      label:'CPU util',      scale:1,   unit:'%',  axis:'CPU util (%)'},
   {key:'parent_switch', label:'Parent switch', scale:1,   unit:'',   axis:'Parent switches (per node)'},
+  {key:'dio_per_min',   label:'DIO sent',      scale:1,   unit:'/min', axis:'DIO sent per minute (per node)'},
 ];
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.

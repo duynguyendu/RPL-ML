@@ -123,6 +123,31 @@ def compute_latency(data):
     )
 
 
+def compute_dio_rate(data):
+    """Average DIOs sent per minute per node.
+
+    ``dio_sent`` is a cumulative counter since boot, so each node's last
+    reading divided by its elapsed simulated time gives the mean rate.
+    """
+    df = data["metrics"]
+    columns = ["node_id", "dio_per_min"]
+    if df is None or df.empty or "dio_sent" not in df:
+        return pd.DataFrame(columns=columns)
+    return _query(
+        """
+        SELECT node_id,
+               arg_max(dio_sent, time_s) * 60.0 / max(time_s) AS dio_per_min
+        FROM df
+        WHERE dio_sent IS NOT NULL
+        GROUP BY node_id
+        HAVING max(time_s) > 0
+        ORDER BY node_id
+        """,
+        df,
+        columns,
+    )
+
+
 def compute_metrics(data):
     latest = compute_latest(data)
     latency = compute_latency(data)
@@ -131,6 +156,7 @@ def compute_metrics(data):
         "etx": compute_etx(data),
         "cpu": compute_cpu(latest),
         "pdr": compute_pdr(data),
+        "dio_rate": compute_dio_rate(data),
         "latency": latency,
         "latency_by_hop": (
             latency_known_hop.groupby(["node_id", "hop_count"])
@@ -149,6 +175,7 @@ GRAPH_COLORS = {
     "cpu": "#3cb44b",
     "pdr": "#4363d8",
     "plr": "#f58231",
+    "dio": "#911eb4",
 }
 
 # Overloading clients (higher send rate) are drawn as a spiky star instead of a circle
@@ -369,6 +396,30 @@ def plot_packet_delivery(metrics):
     return [fig]
 
 
+def plot_dio_rate(metrics):
+    df = metrics["dio_rate"]
+    if df.empty:
+        return []
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=df["node_id"],
+            y=df["dio_per_min"],
+            name="DIO / min",
+            marker_color=GRAPH_COLORS["dio"],
+            hovertemplate="Node %{x}<br>DIO: %{y:.2f} /min<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title=_title("Average DIO sent per minute"),
+        xaxis=_axis("Node ID", type="category"),
+        yaxis=_axis("DIO sent per minute"),
+    )
+    print("  Add dio_rate")
+    return [fig]
+
+
 # config keys that make up the run_id (see pipeline.py); "etx" is derived
 RUN_ID_CONFIG_KEYS = [
     "num_of_nodes",
@@ -473,6 +524,7 @@ _SUMMARY_METRICS = {
         "parent switch",
         lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
     ),
+    "dio_per_min": ("DIO/min", lambda v: f"{v:.2f}"),
 }
 
 # aggregation name -> reducer over a per-node Series. avg/max/min/p95 are shown
@@ -508,6 +560,7 @@ def _summary_node_series(metrics, df_dir):
         "latency": lat,
         "cpu_util": _col(metrics.get("cpu"), "cpu_usage"),
         "parent_switch": _parent_switches_by_node(df_dir),
+        "dio_per_min": _col(metrics.get("dio_rate"), "dio_per_min"),
     }
 
 
@@ -517,8 +570,8 @@ def compute_aggregate(metrics, data, df_dir):
     ``total`` holds packet / parent-switch counts; the remaining keys
     (min, q1, median, avg, q3, p95, max) each map every summary metric to that
     statistic taken across nodes. Metric values are raw numbers -- pdr as a 0..1
-    fraction, latency in seconds, cpu_util in percent, parent_switch as a count
-    -- and missing values are ``None``.
+    fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
+    dio_per_min in DIOs per minute -- and missing values are ``None``.
     """
     series_map = _summary_node_series(metrics, df_dir)
 
@@ -1056,6 +1109,7 @@ def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
         *plot_cpu_usage(metrics),
         *plot_by_hop(metrics),
         *plot_packet_delivery(metrics),
+        *plot_dio_rate(metrics),
     ]
 
     html_config = {"toImageButtonOptions": {"format": "png", "scale": 8}}
