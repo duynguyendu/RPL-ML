@@ -39,11 +39,7 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from models.data import LABEL_COLUMN, MAXUINT16
-from models.train import _load_training_data, _with_params, get_model_configs
-
-
-def _to_maep(mae):
-    return mae / MAXUINT16 * 100
+from models.train import _load_training_data, _with_params, get_model_configs, mae_to_maep as _to_maep
 
 
 def _best_params(grid_search_df: pd.DataFrame, model_name: str, param_grid: dict) -> tuple[dict, int | None]:

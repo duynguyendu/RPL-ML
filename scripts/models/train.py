@@ -14,11 +14,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import clone
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import GridSearchCV, ParameterGrid, ShuffleSplit, cross_val_score
+from sklearn.model_selection import ParameterGrid, ShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.svm import LinearSVR
@@ -45,27 +46,27 @@ def _with_params(estimator, is_pipeline: bool, params: dict):
     return clone(estimator).set_params(**params)
 
 
-def _cv_mae(
-    df: pd.DataFrame,
-    y: pd.Series,
-    cv: ShuffleSplit,
-    features: list[str],
-    data_seed: int | None,
-    model_name: str,
-    is_pipeline: bool,
-    estimator,
-    params: dict,
-) -> dict:
-    """Cross-validated MAE of one hyperparameter set on one data seed's sample."""
-    scores = cross_val_score(
-        _with_params(estimator, is_pipeline, params),
-        df[features],
-        y,
-        scoring="neg_mean_absolute_error",
-        cv=cv,
-        n_jobs=1,
-    )
-    return {"model": model_name, "params": params, "data_seed": data_seed, "avg_mae": -scores.mean()}
+def mae_to_maep(mae: float) -> float:
+    """MAE as a percentage of the 0-65535 PDR scale."""
+    return mae / MAXUINT16 * 100
+
+
+def _cv_maes(X, y, splits: list, feature_idx: list[int], is_pipeline: bool, estimator, params_list: list[dict]) -> list[float]:
+    """Cross-validated MAE of each hyperparameter set on one feature set / data seed.
+
+    X and y are plain numpy arrays so joblib memory-maps them once and shares
+    them between workers, instead of pickling a DataFrame for every job.
+    """
+    X = X[:, feature_idx]
+    maes = []
+    for params in params_list:
+        fold_maes = []
+        for train_idx, test_idx in splits:
+            model = _with_params(estimator, is_pipeline, params)
+            model.fit(X[train_idx], y[train_idx])
+            fold_maes.append(np.abs(model.predict(X[test_idx]) - y[test_idx]).mean())
+        maes.append(float(np.mean(fold_maes)))
+    return maes
 
 
 def _ported_size(model) -> dict[str, int] | None:
@@ -81,7 +82,6 @@ def _ported_size(model) -> dict[str, int] | None:
 
 def _refit_and_size(
     df: pd.DataFrame,
-    y: pd.Series,
     features: list[str],
     data_seed: int | None,
     model_name: str,
@@ -92,7 +92,7 @@ def _refit_and_size(
 ) -> dict:
     """Refit one hyperparameter set on its best data seed and measure its compiled size."""
     model = _with_params(estimator, is_pipeline, params)
-    model.fit(df[features], y)
+    model.fit(df[features], df[LABEL_COLUMN])
     inner_estimator = model.named_steps["model"] if is_pipeline else model
     size = _ported_size(model) or {}
 
@@ -103,7 +103,7 @@ def _refit_and_size(
         **params,
         **({"scaler": "minmax+standard"} if is_pipeline else {}),
         "avg_mae": avg_mae,
-        "avg_maep": avg_mae / MAXUINT16 * 100,
+        "avg_maep": mae_to_maep(avg_mae),
         "text": size.get("text"),
         "data": size.get("data"),
         "bss": size.get("bss"),
@@ -113,65 +113,13 @@ def _refit_and_size(
     }
 
 
-def _fit_one(
-    df: pd.DataFrame,
-    y: pd.Series,
-    cv: ShuffleSplit,
-    included_features: list[str],
-    data_seed: int,
-    model_name: str,
-    is_pipeline: bool,
-    estimator,
-    param_grid: dict,
-) -> dict:
-    X = df[included_features]
-    if is_pipeline:
-        search_param_grid = {f"model__{key}": values for key, values in param_grid.items()}
-    else:
-        search_param_grid = param_grid
-    search = GridSearchCV(
-        estimator,
-        search_param_grid,
-        scoring="neg_mean_absolute_error",
-        cv=cv,
-        n_jobs=1,
-    )
-    search.fit(X, y)
-
-    best_params = (
-        {key.removeprefix("model__"): value for key, value in search.best_params_.items()}
-        if is_pipeline
-        else search.best_params_
-    )
-    if is_pipeline:
-        best_params["scaler"] = "minmax+standard"
-
-    best_estimator = search.best_estimator_
-    inner_estimator = best_estimator.named_steps["model"] if is_pipeline else best_estimator
-
-    avg_mae = -search.best_score_
-    avg_importance = _feature_importance(inner_estimator, included_features)
-
-    return {
-        "model": model_name,
-        "features": included_features,
-        "data_seed": data_seed,
-        **best_params,
-        "avg_mae": avg_mae,
-        # MAE as a percentage of the 0-65535 PDR scale
-        "avg_maep": avg_mae / MAXUINT16 * 100,
-        "feature_importance": avg_importance,
-        "_model": best_estimator,
-    }
-
-
 def print_pdr_ppm_summary(df: pd.DataFrame) -> None:
     """Print the PDR-category breakdown, and avg ppm per hop_count within each.
 
     PDR categories are percentages of the label's 0-65535 scale:
     low = 0-30%, medium = >30-65%, high = >65%.
     """
-    pdr_pct = df[LABEL_COLUMN] / 65535 * 100
+    pdr_pct = df[LABEL_COLUMN] / MAXUINT16 * 100
     category = pd.cut(
         pdr_pct, bins=[-0.01, 30, 65, 100.01], labels=["low", "medium", "high"]
     )
@@ -191,12 +139,20 @@ def print_pdr_ppm_summary(df: pd.DataFrame) -> None:
         print(f"  {cat}, hop_count={hop_count}: avg ppm={avg_ppm:.2f}")
 
 
-def plot_feature_importance(top_by_group: dict, models_dir: Path) -> None:
-    """Plot the best model's feature importance for each (model, scaler) group."""
-    for (model_name, scaler), group_results in top_by_group.items():
-        importance = group_results[0].get("feature_importance")
+def plot_feature_importance(results: list[dict], models_dir: Path) -> None:
+    """Plot the best model's feature importance for each model type.
+
+    ``results`` must be sorted best-first.
+    """
+    best_by_model = {}
+    for result in results:
+        best_by_model.setdefault(result["model"], result)
+
+    for model_name, result in best_by_model.items():
+        importance = result.get("feature_importance")
         if not importance:
             continue
+        scaler = result.get("scaler")
         label = model_name if scaler is None else f"{model_name} ({scaler} scaler)"
         features, values = zip(
             *sorted(importance.items(), key=lambda kv: abs(kv[1]))
@@ -301,36 +257,41 @@ def grid_search() -> list[dict]:
 
     df = _load_training_data(train_config)
     if len(df) > train_config.max_train_rows:
-        data_by_seed = {}
-        for data_seed in train_config.training_data_seeds:
-            sample = df.sample(n=train_config.max_train_rows, random_state=data_seed)
-            data_by_seed[data_seed] = (sample, sample[LABEL_COLUMN])
+        data_by_seed = {
+            data_seed: df.sample(n=train_config.max_train_rows, random_state=data_seed)
+            for data_seed in train_config.training_data_seeds
+        }
         print(
             f"Training on {train_config.max_train_rows} of {len(df)} rows per data seed "
             f"(seeds={train_config.training_data_seeds})"
         )
     else:
         # everything fits under the cap -- no sampling, so data seeds are moot
-        data_by_seed = {None: (df, df[LABEL_COLUMN])}
+        data_by_seed = {None: df}
         print(f"Training on all {len(df)} rows (no data-seed sampling)")
+
+    all_features = train_config.FEATURE_COLUMNS
+    arrays_by_seed = {
+        data_seed: (sample[all_features].to_numpy(), sample[LABEL_COLUMN].to_numpy())
+        for data_seed, sample in data_by_seed.items()
+    }
 
     cv = ShuffleSplit(
         n_splits=len(train_config.seeds), test_size=test_size, random_state=0
     )
 
     model_configs = get_model_configs(train_config)
+    configs_by_name = {model_name: (is_pipeline, estimator) for model_name, is_pipeline, estimator, _ in model_configs}
     hyperparam_names = sorted({name for _, _, _, grid in model_configs for name in grid})
     if any(is_pipeline for _, is_pipeline, _, _ in model_configs):
         hyperparam_names.append("scaler")
         hyperparam_names.sort()
 
-    jobs = [
-        (train_config.FIXED_FEATURES + list(dynamic_subset), data_seed, model_name, is_pipeline, estimator, param_grid)
+    feature_sets = [
+        train_config.FIXED_FEATURES + list(dynamic_subset)
         for dynamic_subset in combinations(train_config.DYNAMIC_FEATURES, train_config.min_dynamic_features)
-        for data_seed in data_by_seed
-        for model_name, is_pipeline, estimator, param_grid in model_configs
     ]
-    if not jobs:
+    if not feature_sets:
         raise ValueError(
             "No feature combinations to search: "
             f"min_dynamic_features={train_config.min_dynamic_features}, "
@@ -339,77 +300,94 @@ def grid_search() -> list[dict]:
             "-- check exclude_features/min_dynamic_features in train_config."
         )
 
-    # stage 1: pick the best feature set per model (best hyperparameters and
-    # data seed for each feature set)
+    # one CV run per (feature set, data seed, model, hyperparameter set); every
+    # later stage reuses these scores instead of cross-validating again
+    cv_runs = [
+        {"model": model_name, "features": features, "data_seed": data_seed, "params": params}
+        for features in feature_sets
+        for data_seed in data_by_seed
+        for model_name, _, _, param_grid in model_configs
+        for params in ParameterGrid(param_grid)
+    ]
+    # the same splits for every run (and every data seed: all samples have
+    # the same length), so all hyperparameter sets are compared fairly
+    splits = list(cv.split(next(iter(arrays_by_seed.values()))[0]))
+
+    # batch runs sharing (feature set, data seed, model) into chunks: small
+    # enough to keep every worker busy, big enough to amortise dispatch cost
+    n_workers = joblib.cpu_count() if train_config.n_jobs < 0 else train_config.n_jobs
+    chunk_size = max(1, len(cv_runs) // (n_workers * 4))
+    chunks = []
+    for run in cv_runs:
+        key = (run["model"], tuple(run["features"]), run["data_seed"])
+        if not chunks or chunks[-1][0] != key or len(chunks[-1][1]) >= chunk_size:
+            chunks.append((key, []))
+        chunks[-1][1].append(run)
+
     start_time = time.monotonic()
-    feature_results = Parallel(n_jobs=train_config.n_jobs)(
-        delayed(_fit_one)(
-            *data_by_seed[data_seed], cv, included_features, data_seed, model_name, is_pipeline, estimator, param_grid
+    chunk_maes = Parallel(n_jobs=train_config.n_jobs)(
+        delayed(_cv_maes)(
+            *arrays_by_seed[runs[0]["data_seed"]],
+            splits,
+            [all_features.index(f) for f in runs[0]["features"]],
+            *configs_by_name[runs[0]["model"]],
+            [run["params"] for run in runs],
         )
-        for included_features, data_seed, model_name, is_pipeline, estimator, param_grid in jobs
+        for _, runs in chunks
     )
-    print(f"\nFeature search: trained {len(jobs)} models in {time.monotonic() - start_time:.1f}s")
-    feature_results.sort(key=lambda result: result["avg_mae"])
+    for (_, runs), maes in zip(chunks, chunk_maes):
+        for run, mae in zip(runs, maes):
+            run["avg_mae"] = mae
+    print(f"\nCross-validated {len(cv_runs)} configurations in {time.monotonic() - start_time:.1f}s")
+
+    # stage 1: best feature set per model; per (feature set, data seed, model)
+    # keep the best hyperparameters for the report
+    feature_results = {}
+    for run in cv_runs:
+        key = (run["model"], tuple(run["features"]), run["data_seed"])
+        if key not in feature_results or run["avg_mae"] < feature_results[key]["avg_mae"]:
+            feature_results[key] = run
+    feature_results = sorted(feature_results.values(), key=lambda run: run["avg_mae"])
     _save_results(
-        feature_results,
+        [{**run, **run["params"], "avg_maep": mae_to_maep(run["avg_mae"])} for run in feature_results],
         models_dir / "feature_search.csv",
-        ["model", "features", "data_seed", *hyperparam_names, "avg_mae", "avg_maep", "feature_importance"],
+        ["model", "features", "data_seed", *hyperparam_names, "avg_mae", "avg_maep"],
     )
 
     best_features = {}
-    for result in feature_results:
-        best_features.setdefault(result["model"], result["features"])
+    for run in feature_results:
+        best_features.setdefault(run["model"], run["features"])
     print("\nBest feature set per model:")
     for model_name, features in best_features.items():
         print(f"  {model_name}: {features}")
 
-    # stage 2: every hyperparameter set on that feature set, scored on each
-    # data seed; keep the best seed, refit on it and measure the ported C size
-    cv_jobs = [
-        (best_features[model_name], data_seed, model_name, is_pipeline, estimator, params)
-        for model_name, is_pipeline, estimator, param_grid in model_configs
-        for params in ParameterGrid(param_grid)
-        for data_seed in data_by_seed
-    ]
-    start_time = time.monotonic()
-    cv_results = Parallel(n_jobs=train_config.n_jobs)(
-        delayed(_cv_mae)(*data_by_seed[data_seed], cv, features, data_seed, model_name, is_pipeline, estimator, params)
-        for features, data_seed, model_name, is_pipeline, estimator, params in cv_jobs
-    )
-
+    # stage 2: every hyperparameter set on that feature set, with its best
+    # data seed; refit on that seed and measure the ported C size
     best_seed_by_config = {}
-    for cv_result in cv_results:
-        key = (cv_result["model"], tuple(sorted(cv_result["params"].items())))
-        best = best_seed_by_config.get(key)
-        if best is None or cv_result["avg_mae"] < best["avg_mae"]:
-            best_seed_by_config[key] = cv_result
+    for run in cv_runs:
+        if run["features"] != best_features[run["model"]]:
+            continue
+        key = (run["model"], tuple(sorted(run["params"].items())))
+        if key not in best_seed_by_config or run["avg_mae"] < best_seed_by_config[key]["avg_mae"]:
+            best_seed_by_config[key] = run
 
-    configs_by_name = {model_name: (is_pipeline, estimator) for model_name, is_pipeline, estimator, _ in model_configs}
+    start_time = time.monotonic()
     results = Parallel(n_jobs=train_config.n_jobs)(
         delayed(_refit_and_size)(
-            *data_by_seed[best["data_seed"]],
-            best_features[best["model"]],
-            best["data_seed"],
-            best["model"],
-            *configs_by_name[best["model"]],
-            best["params"],
-            best["avg_mae"],
+            data_by_seed[run["data_seed"]],
+            run["features"],
+            run["data_seed"],
+            run["model"],
+            *configs_by_name[run["model"]],
+            run["params"],
+            run["avg_mae"],
         )
-        for best in best_seed_by_config.values()
+        for run in best_seed_by_config.values()
     )
-    print(
-        f"\nHyperparameter search: {len(cv_jobs)} CV runs, {len(results)} models ported "
-        f"and compiled in {time.monotonic() - start_time:.1f}s"
-    )
+    print(f"\nRefit, ported and compiled {len(results)} models in {time.monotonic() - start_time:.1f}s")
 
     results.sort(key=lambda result: result["avg_mae"])
-
-    top_by_group = {}
-    for result in results:
-        key = (result["model"], result.get("scaler"))
-        top_by_group.setdefault(key, []).append(result)
-
-    plot_feature_importance(top_by_group, models_dir)
+    plot_feature_importance(results, models_dir)
 
     _save_results(
         results,
@@ -476,7 +454,7 @@ def _save_results(results: list[dict], output_path: Path, desired_columns: list[
             {
                 **result,
                 "features": ",".join(result["features"]),
-                "feature_importance": json.dumps(result["feature_importance"]),
+                "feature_importance": json.dumps(result.get("feature_importance")),
             }
             for result in results
         ]
@@ -484,6 +462,7 @@ def _save_results(results: list[dict], output_path: Path, desired_columns: list[
     out_df = out_df[[col for col in desired_columns if col in out_df.columns]]
     out_df.to_csv(output_path, index=False)
     print(f"\nSaved {len(out_df)} results to {output_path}")
+
 
 if __name__ == "__main__":
     grid_search()
