@@ -5,15 +5,111 @@
 
 Machine learning techniques have ...
 
-In this, we used permutation importance and SHAP to evaluate the importrance of each feature
+In this, we used permutation importance and SHAP to evaluate the
+importrance of each feature
 
 \subsection{Permutation Importance}
 
+\cite{altmannPermutationImportanceCorrected2010}
+
 \subsection{SHAP}
+% TODO: include a bit of math
+\cite{lundbergUnifiedApproachInterpreting2017}
+\cite{lundbergLocalExplanationsGlobal2020}
 
+Figure ... shows the feature importance of the model trained on RF
+and LGBMTreeRegressor.
 
-Figure ... shows the feature importance of the model trained on RF and LGBMTreeRegressor.
+Afterward, we did train the models on reduce number of features from
+1 to 11. From that we choose the ... features, to reduce the size of
+the tree significantly while trading the performance of the model minimally.
 
-Afterward, we did train the models on reduce number of features from 1 to 11. From that we choose the ... features, to reduce the size of the tree significantly while trading the performance of the model minimally.
+% TODO: have to specify how feature correlation and feature
+% importance are different
+\subsection{Feature Correlation}
+This is done before training the model to see which features are
+related to each other
 
+Figure~\ref{fig:feature_dendrogram} and
+Figure~\ref{fig:feature_correlation} illustrates the ... respectively.
+In this feature dendrogram, we can see that three parent metrics are
+highly correlated to each other
+IN the correlation diagram, number of neighbour and RSSI are weakly
+correlate to the output PDR.
 
+% TODO: spearman or pearson
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=0.7\textwidth]{assets/feature_dendrogram.png}
+        \caption{Spearman feature dendrogram of 11 collected features.}
+        \label{fig:feature_dendrogram}
+    \end{center}
+\end{fig}
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=0.9\textwidth]{assets/feature_correlation.png}
+        \caption{Spearman feature correlation of 11 collected features.}
+        \label{fig:feature_correlation}
+    \end{center}
+\end{fig}
+
+\subsection{Feature Analysis}
+Figure ... shows the correlation and the influence of the features to
+the result of the prediction.
+
+From the Table, we remove ETX, RSSI,... out of the features for the model.
+Which resulted in reducing ... \% in the performance.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Feature importance for the decision tree model (MAEP points).}
+    \label{tab:fi_dtree}
+    \begin{tabular}{l|c|c}
+        \hline
+        \textbf{Feature} & Permutation & Mean $|\mathrm{SHAP}|$ \\
+        \hline
+        \texttt{hop\_count}         & 7.402 & 11.319 \\
+        \texttt{p\_cpu}             & 7.047 & 15.794 \\
+        \texttt{drop\_rate}         & 1.920 &  2.388 \\
+        \texttt{parent\_drop\_rate} & 1.242 &  2.827 \\
+        \texttt{etx}                & 0.815 &  2.107 \\
+        \texttt{is\_new}            & 0.758 &  2.159 \\
+        \texttt{rssi}               & 0.635 &  1.328 \\
+        \texttt{ppm}                & 0.580 &  1.484 \\
+        \texttt{cpu}                & 0.517 &  1.160 \\
+        \texttt{parent\_ppm}        & 0.512 &  2.314 \\
+        \texttt{nbr\_count}         & 0.099 &  0.434 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Feature importance for the LightGBM model (MAEP points).}
+    \label{tab:fi_lgbm}
+    \begin{tabular}{l|c|c}
+        \hline
+        \textbf{Feature} & Permutation & Mean $|\mathrm{SHAP}|$ \\
+        \hline
+        \texttt{p\_cpu}             &  8.661   & 12.868 \\
+        \texttt{hop\_count}         &  7.194   & 12.898 \\
+        \texttt{parent\_drop\_rate} &  1.465   &  2.569 \\
+        \texttt{drop\_rate}         &  1.256   &  1.641 \\
+        \texttt{cpu}                &  0.842   &  1.342 \\
+        \texttt{ppm}                &  0.776   &  1.472 \\
+        \texttt{is\_new}            &  0.716   &  1.595 \\
+        \texttt{etx}                &  0.695   &  1.824 \\
+        \texttt{rssi}               &  0.234   &  0.808 \\
+        \texttt{nbr\_count}         &  0.063   &  0.304 \\
+        \texttt{parent\_ppm}        & $-0.037$ &  2.203 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Afterward, we remove the lowest features subsequent and retrain the model to obtain new model performance on reduced training features until the MAEP is larger than 1\% of the best model.
+
+In the end, we removed ... features and keep ... features
+The performance of the new model is ..., resulting in ...
+This is a reasonable tradeoff between memory, computation and accuracy for constrained devices

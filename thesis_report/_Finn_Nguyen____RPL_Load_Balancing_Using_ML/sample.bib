@@ -513,3 +513,56 @@
   urldate = {2026-09-27},
   abstract = {This tutorial aims to provide an intuitive introduction to Gaussian process regression (GPR). GPR models have been widely used in machine learning applications due to their representation flexibility and inherent capability to quantify uncertainty over predictions. The tutorial starts with explaining the basic concepts that a Gaussian process is built on, including multivariate normal distribution, kernels, nonparametric models, and joint and conditional probability. It then provides a concise description of GPR and an implementation of a standard GPR algorithm. In addition, the tutorial reviews packages for implementing state-of-the-art Gaussian process algorithms. This tutorial is accessible to a broad audience, including those new to machine learning, ensuring a clear understanding of GPR fundamentals.}
 }
+
+@article{altmannPermutationImportanceCorrected2010,
+  title = {Permutation Importance: A Corrected Feature Importance Measure},
+  shorttitle = {Permutation Importance},
+  author = {Altmann, Andr{\'e} and Tolo{\c s}i, Laura and Sander, Oliver and Lengauer, Thomas},
+  year = 2010,
+  month = may,
+  journal = {Bioinformatics},
+  volume = {26},
+  number = {10},
+  pages = {1340--1347},
+  issn = {1367-4803},
+  doi = {10.1093/bioinformatics/btq134},
+  urldate = {2026-09-27},
+  abstract = {Motivation: In life sciences, interpretability of machine learning models is as important as their prediction accuracy. Linear models are probably the most frequently used methods for assessing feature relevance, despite their relative inflexibility. However, in the past years effective estimators of feature relevance have been derived for highly complex or non-parametric models such as support vector machines and RandomForest (RF) models. Recently, it has been observed that RF models are biased in such a way that categorical variables with a large number of categories are preferred.Results: In this work, we introduce a heuristic for normalizing feature importance measures that can correct the feature importance bias. The method is based on repeated permutations of the outcome vector for estimating the distribution of measured importance for each variable in a non-informative setting. The P-value of the observed importance provides a corrected measure of feature importance. We apply our method to simulated data and demonstrate that (i) non-informative predictors do not receive significant P-values, (ii) informative variables can successfully be recovered among non-informative variables and (iii) P-values computed with permutation importance (PIMP) are very helpful for deciding the significance of variables, and therefore improve model interpretability. Furthermore, PIMP was used to correct RF-based importance measures for two real-world case studies. We propose an improved RF model that uses the significant variables with respect to the PIMP measure and show that its prediction accuracy is superior to that of other existing models.Availability: R code for the method presented in this article is available at http://www.mpi-inf.mpg.de/{$\sim$}altmann/download/PIMP.RContact: ~altmann@mpi-inf.mpg.de, laura.tolosi@mpi-inf.mpg.deSupplementary information: ~Supplementary data are available at Bioinformatics online.},
+  file = {/home/duy/Zotero/storage/BSQ8E6HR/Altmann et al. - 2010 - Permutation importance a corrected feature importance measure.pdf}
+}
+
+@misc{lundbergUnifiedApproachInterpreting2017,
+  title = {A {{Unified Approach}} to {{Interpreting Model Predictions}}},
+  author = {Lundberg, Scott and Lee, Su-In},
+  year = 2017,
+  month = nov,
+  number = {arXiv:1705.07874},
+  eprint = {1705.07874},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.1705.07874},
+  urldate = {2026-09-27},
+  abstract = {Understanding why a model makes a certain prediction can be as crucial as the prediction's accuracy in many applications. However, the highest accuracy for large modern datasets is often achieved by complex models that even experts struggle to interpret, such as ensemble or deep learning models, creating a tension between accuracy and interpretability. In response, various methods have recently been proposed to help users interpret the predictions of complex models, but it is often unclear how these methods are related and when one method is preferable over another. To address this problem, we present a unified framework for interpreting predictions, SHAP (SHapley Additive exPlanations). SHAP assigns each feature an importance value for a particular prediction. Its novel components include: (1) the identification of a new class of additive feature importance measures, and (2) theoretical results showing there is a unique solution in this class with a set of desirable properties. The new class unifies six existing methods, notable because several recent methods in the class lack the proposed desirable properties. Based on insights from this unification, we present new methods that show improved computational performance and/or better consistency with human intuition than previous approaches.},
+  archiveprefix = {arXiv},
+  langid = {english},
+  file = {/home/duy/Zotero/storage/87X8YWV9/Lundberg and Lee - 2017 - A Unified Approach to Interpreting Model Predictions.pdf}
+}
+
+@article{lundbergLocalExplanationsGlobal2020,
+  title = {From Local Explanations to Global Understanding with Explainable {{AI}} for Trees},
+  author = {Lundberg, Scott M. and Erion, Gabriel and Chen, Hugh and DeGrave, Alex and Prutkin, Jordan M. and Nair, Bala and Katz, Ronit and Himmelfarb, Jonathan and Bansal, Nisha and Lee, Su-In},
+  year = 2020,
+  month = jan,
+  journal = {Nature Machine Intelligence},
+  volume = {2},
+  number = {1},
+  pages = {56--67},
+  publisher = {Nature Publishing Group},
+  issn = {2522-5839},
+  doi = {10.1038/s42256-019-0138-9},
+  urldate = {2026-09-27},
+  abstract = {Tree-based machine learning models such as random forests, decision trees and gradient boosted trees are popular nonlinear predictive models, yet comparatively little attention has been paid to explaining their predictions. Here we improve the interpretability of tree-based models through three main contributions. (1) A polynomial time algorithm to compute optimal explanations based on game theory. (2) A new type of explanation that directly measures local feature interaction effects. (3) A new set of tools for understanding global model structure based on combining many local explanations of each prediction. We apply these tools to three medical machine learning problems and show how combining many high-quality local explanations allows us to represent global structure while retaining local faithfulness to the original model. These tools enable us to (1) identify high-magnitude but low-frequency nonlinear mortality risk factors in the US population, (2) highlight distinct population subgroups with shared risk characteristics, (3) identify nonlinear interaction effects among risk factors for chronic kidney disease and (4) monitor a machine learning model deployed in a hospital by identifying which features are degrading the model's performance over time. Given the popularity of tree-based machine learning models, these improvements to their interpretability have implications across a broad set of domains.},
+  copyright = {2020 The Author(s), under exclusive licence to Springer Nature Limited},
+  langid = {english},
+  file = {/home/duy/Zotero/storage/RZP3FIPL/Lundberg et al. - 2020 - From local explanations to global understanding with explainable AI for trees.pdf}
+}

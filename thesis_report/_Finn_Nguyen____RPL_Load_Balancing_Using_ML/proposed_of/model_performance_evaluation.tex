@@ -4,3 +4,8 @@ Three models
 Quanitisation: the quanitisation reduces the performance of linear regression and support vector regression significantly. This is probably due to the fact that these models rely heavily on floating point for coefficients and the different in range of the features and predicted value.
 
 Size of the models 
+
+% TODO: write this better
+We select the model whose size when compile to C code does not exceed 10KB while within the 1\% error rate of the best model (without any regard to the size of the model).
+
+Table ... gives the accuracy, size and features that dtree and lgbm includes.
