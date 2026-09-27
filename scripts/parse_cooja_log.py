@@ -178,7 +178,8 @@ def save_data(data, out_dir):
         print(f"  Saved {path} ({len(df)} rows)")
 
 
-def parse_log(log_dir: str | None = None, output_dir: str | None = None) -> None:
+def parse_log(log_dir: str | None = None, output_dir: str | None = None) -> bool:
+    """Parse COOJA.testlog into CSVs; return False if the log is missing."""
     log_name = "COOJA.testlog"
     if log_dir is None:
         log_dir = os.getcwd()
@@ -188,7 +189,7 @@ def parse_log(log_dir: str | None = None, output_dir: str | None = None) -> None
 
     if not os.path.exists(log_file):
         print(f"Error: log file not found: {log_file}", file=sys.stderr)
-        sys.exit(1)
+        return False
     print(f"Parsing {log_file} ...")
     data = process_log(log_file)
     print(f"Saving parsed DataFrames to {output_dir}/ ...")
@@ -203,6 +204,7 @@ def parse_log(log_dir: str | None = None, output_dir: str | None = None) -> None
             print(f"  {name:12s}: {len(df)} rows, {n} nodes")
 
     print("\nDone.")
+    return True
 
 
 if __name__ == "__main__":
@@ -213,4 +215,5 @@ if __name__ == "__main__":
         help="Where to save parsed CSVs (default: parsed_data)",
     )
     args = parser.parse_args()
-    parse_log(log_dir=args.log_dir, output_dir=args.output_dir)
+    if not parse_log(log_dir=args.log_dir, output_dir=args.output_dir):
+        sys.exit(1)

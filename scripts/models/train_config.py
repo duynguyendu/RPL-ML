@@ -18,6 +18,12 @@ seeds = [0, 1, 2]
 # cap on rows used for training; each training-data seed draws its own sample
 max_train_rows = 80000
 training_data_seeds = [0, 1, 2]
+# stratified sampling around overloading clients: this fraction of the sampled
+# rows comes from nodes within near_overloading_hops radio hops of an
+# overloading client (0 = the overloading client itself), the rest from the
+# remainder of the network. 0.0 disables stratification (plain random sample).
+near_overloading_hops = 1
+near_overloading_fraction = 0.4
 # final report lists every model whose MAEP is within this many percentage
 # points of the best model's; per model type, the smallest (flash) model
 # within this many points of that type's best is the one ported to C
@@ -85,7 +91,7 @@ dtree_param_grid = {
 }
 
 svr_param_grid = {
-    "C": [0.1, 1.0, 10.0],
+    "C": [1.0, 10.0, 100, 1000],
     "epsilon": [0.01, 0.1, 1.0],
 }
 

@@ -22,7 +22,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import ParameterGrid, ShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.svm import LinearSVR
+from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -239,12 +239,55 @@ def get_model_configs(train_config) -> list[tuple]:
         #         [
         #             ("minmax", MinMaxScaler(feature_range=(0, 65535))),
         #             ("scaler", StandardScaler()),
-        #             ("model", LinearSVR(random_state=0)),
+        #             ("model", SVR()),
         #         ]
         #     ),
         #     train_config.svr_param_grid,
         # ),
     ]
+
+
+def _stratified_samples(df: pd.DataFrame, train_config) -> dict:
+    """One sample per training-data seed, mixing near-overloading and other rows.
+
+    ``near_overloading_fraction`` of each sample comes from rows whose node is
+    within ``near_overloading_hops`` radio hops of an overloading client; the
+    rest comes from the other rows. The sample size is capped by
+    ``max_train_rows`` and shrunk if either pool is too small to hold the
+    ratio, so every seed's sample has the same length (required by the shared
+    CV splits).
+    """
+    frac = train_config.near_overloading_fraction
+    is_near = df["overloading_hops"] <= train_config.near_overloading_hops
+    near, far = df[is_near], df[~is_near]
+
+    n_total = min(train_config.max_train_rows, len(df))
+    n_total = min(n_total, int(len(near) / frac))
+    if frac < 1.0:
+        n_total = min(n_total, int(len(far) / (1.0 - frac)))
+    n_near = round(n_total * frac)
+    n_far = n_total - n_near
+    if n_total == 0:
+        raise ValueError(
+            f"Cannot sample {frac:.0%} near-overloading rows: {len(near)} near rows "
+            f"(<= {train_config.near_overloading_hops} hops), {len(far)} other rows"
+        )
+
+    print(
+        f"Training on {n_total} of {len(df)} rows per data seed "
+        f"(seeds={train_config.training_data_seeds}): {n_near} of {len(near)} rows within "
+        f"{train_config.near_overloading_hops} hop(s) of an overloading client, "
+        f"{n_far} of {len(far)} other rows"
+    )
+    return {
+        data_seed: pd.concat(
+            [
+                near.sample(n=n_near, random_state=data_seed),
+                far.sample(n=n_far, random_state=data_seed),
+            ]
+        ).sample(frac=1.0, random_state=data_seed)
+        for data_seed in train_config.training_data_seeds
+    }
 
 
 def grid_search() -> list[dict]:
@@ -256,7 +299,14 @@ def grid_search() -> list[dict]:
     test_size = 0.2
 
     df = _load_training_data(train_config)
-    if len(df) > train_config.max_train_rows:
+    if train_config.near_overloading_fraction > 0.0 and "overloading_hops" not in df:
+        print(
+            "Warning: train.csv has no overloading_hops column (re-run process_data) "
+            "-- falling back to plain random sampling"
+        )
+    if 0.0 < train_config.near_overloading_fraction <= 1.0 and "overloading_hops" in df:
+        data_by_seed = _stratified_samples(df, train_config)
+    elif len(df) > train_config.max_train_rows:
         data_by_seed = {
             data_seed: df.sample(n=train_config.max_train_rows, random_state=data_seed)
             for data_seed in train_config.training_data_seeds

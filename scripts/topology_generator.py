@@ -231,17 +231,19 @@ def random_positions(
     lower_x, lower_y = -tx_range, -tx_range
     positions = [(0, 0)]
 
-    min_spacing_sqr = (tx_range * 0.35) ** 2
-    max_spacing_sqr = (tx_range * 0.65) ** 2
+    min_spacing_sqr = (tx_range * 0.4) ** 2
+    max_spacing_sqr = (tx_range * 0.80) ** 2
     range_mul = 0.8
     for i in range(num_clients):
+        # the first client only has the root to connect to; later ones need 2 neighbours
+        min_neighbours = min(3, len(positions))
         for _ in range(max_attempts):
             x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
             if all(
                 (x - x0) ** 2 + (y - y0) ** 2 >= min_spacing_sqr for (x0, y0) in positions
-            ) and any(
+            ) and sum(
                 (x - x0) ** 2 + (y - y0) ** 2 <= max_spacing_sqr for (x0, y0) in positions
-            ):
+            ) >= min_neighbours:
                 positions.append((x, y))
                 upper_x = max(upper_x, x + tx_range * range_mul)
                 lower_x = min(lower_x, x - tx_range * range_mul)

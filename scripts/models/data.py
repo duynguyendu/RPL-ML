@@ -8,6 +8,8 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from topology_utils import build_connectivity_graph
 from train_config import FEATURE_COLUMNS, LABEL_COLUMN
 
 LINE_RE = re.compile(r"^(\d+):(\d+):(.+)$")
@@ -99,6 +101,38 @@ def _parse_log(log_path: Path):
     return pd.DataFrame(rows_mlof), pd.DataFrame(rows_send), pd.DataFrame(rows_recv)
 
 
+def _overloading_hops(run_dir: Path) -> dict[int, int]:
+    """Radio-hop distance from each node to its nearest overloading client.
+
+    Hops are counted on the topology's tx_range connectivity graph, so an
+    overloading client is 0 and its direct radio neighbours are 1. Nodes with
+    no reachable overloading client (or runs without topology.json) are
+    absent from the result -- callers map them to ``MAXUINT16``.
+    """
+    topo_path = run_dir / "topology.json"
+    if not topo_path.exists():
+        return {}
+    with open(topo_path) as fh:
+        topo = json.load(fh)
+    motes = topo.get("motes", [])
+    adjacency = build_connectivity_graph(motes, topo.get("radio", {}).get("tx_range", 0))
+
+    # multi-source BFS from every overloading client
+    frontier = [
+        int(m["id"]) for m in motes if str(m.get("role", "")).lower() == "overloading_client"
+    ]
+    hops = {node_id: 0 for node_id in frontier}
+    while frontier:
+        next_frontier = []
+        for u in frontier:
+            for v in adjacency.get(u, ()):
+                if v not in hops:
+                    hops[v] = hops[u] + 1
+                    next_frontier.append(v)
+        frontier = next_frontier
+    return hops
+
+
 def _window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:
     if df.empty:
         return df
@@ -126,6 +160,7 @@ _OUTPUT_COLUMNS = [
     "chunk_start",
     "chunk_end",
     "chunk_duration",
+    "overloading_hops",
     *FEATURE_COLUMNS,
     LABEL_COLUMN,
 ]
@@ -145,6 +180,7 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
     # by newer runs) -- older/no-overloading-client runs won't have it.
     overloading_client_seed = cfg.get("overloading_client_seed")
 
+    hops_by_node = _overloading_hops(run_dir)
     mlof, send, recv = _parse_log(run_dir / "COOJA.testlog")
     if mlof.empty:
         return pd.DataFrame(columns=_OUTPUT_COLUMNS)
@@ -179,6 +215,8 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
                     "chunk_start": chunk_start,
                     "chunk_end": chunk_end,
                     "chunk_duration": chunk_end - chunk_start,
+                    # MAXUINT16: no overloading client reachable in this run
+                    "overloading_hops": hops_by_node.get(int(node_id), MAXUINT16),
                     **{col: row[col] for col in FEATURE_COLUMNS},
                     "pdr": _chunk_pdr(
                         send_node, received_seqnos, chunk_start, chunk_end
