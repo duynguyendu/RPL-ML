@@ -7,5 +7,6 @@ all:
         # piccolo: {}
         red-tomatoes: {}
         cuda15: {}
-        cuda14: {}
+        # cuda14: {}
         cuda13: {}
+        cuda12: {}

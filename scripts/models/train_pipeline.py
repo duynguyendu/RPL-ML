@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import train_config
 from models.data import process_data
+from models.feature_analysis import analyse_correlation, analyse_features
 from models.to_c import (
     convert_to_c_fixed,
     convert_to_c_linear,
@@ -17,7 +18,7 @@ from models.to_c import (
     verify_fixed,
     verify_linear,
 )
-from models.train import NON_PORTABLE_MODELS, analyse_data, grid_search
+from models.train import NON_PORTABLE_MODELS, analyse_data, grid_search, select_for_porting
 
 
 def run_pipeline() -> None:
@@ -52,8 +53,20 @@ def run_pipeline() -> None:
                 joblib.dump(row["_model"], model_path)
                 rank += 1
 
-        for row in portable_rows:
-            best_by_model.setdefault(row["model"], row)
+        best_by_model = select_for_porting(portable_rows, train_config.maep_tolerance)
+        print(
+            f"\nSelected for porting (smallest flash within {train_config.maep_tolerance} "
+            "percentage point(s) of each model type's best MAEP):"
+        )
+        for model_name, row in best_by_model.items():
+            print(
+                f"  {model_name}: MAEP={row['avg_maep']:.3f}%, flash={row['flash']} B, "
+                f"features={row['features']}"
+            )
+
+    if train_config.is_feature_analysis:
+        analyse_correlation()
+        analyse_features()
 
     # Deliberately NOT nested inside `is_training_model`: with
     # is_training_model=False (skip the expensive grid search) and
@@ -71,8 +84,11 @@ def run_pipeline() -> None:
             if model_name in best_by_model:
                 joblib.dump(best_by_model[model_name]["_model"], best_model_path)
                 avg_mae = best_by_model[model_name]["avg_mae"]
+                avg_maep = best_by_model[model_name]["avg_maep"]
+                flash = best_by_model[model_name]["flash"]
                 print(
-                    f"\n=== best {model_name} -> mlof-{type_name} (avg_mae={avg_mae:.4f}) ==="
+                    f"\n=== selected {model_name} -> mlof-{type_name} "
+                    f"(avg_mae={avg_mae:.4f}, avg_maep={avg_maep:.2f}%, flash={flash} B) ==="
                 )
             elif best_model_path.exists():
                 print(

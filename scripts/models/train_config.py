@@ -6,6 +6,7 @@ from pathlib import Path
 is_processing_data = True
 is_analyse_data = True
 is_training_model = True
+is_feature_analysis = True
 is_porting = True
 
 # data config
@@ -14,6 +15,13 @@ rpl_lite_dir = Path("../rpl/contiki-ng/os/net/routing/rpl-lite").resolve()
 
 # training config
 seeds = [0, 1, 2]
+# cap on rows used for training; each training-data seed draws its own sample
+max_train_rows = 80000
+training_data_seeds = [0, 1, 2]
+# final report lists every model whose MAEP is within this many percentage
+# points of the best model's; per model type, the smallest (flash) model
+# within this many points of that type's best is the one ported to C
+maep_tolerance = 0.5
 filter_unknown = True
 exclude_features: list[str] = []
 
@@ -29,6 +37,7 @@ FEATURE_COLUMNS = [
     "parent_ppm",
     "parent_drop_rate",
     "hop_count",
+    "nbr_count",
 ]
 
 FIXED_FEATURES = []
@@ -53,6 +62,12 @@ lgbm_n_jobs = 1
 min_dynamic_features = 2
 top_n_per_model = 5
 
+# feature analysis (permutation importance + SHAP, see feature_analysis.py)
+permutation_repeats = 10
+shap_sample_rows = 2000
+# feature pairs at least this correlated are reported and clustered together
+corr_threshold = 0.7
+
 lgbm_param_grid = {
     "n_estimators": [10, 20, 30, 50],
     "num_leaves": [7, 15, 31],
@@ -67,8 +82,7 @@ ridge_param_grid = {
 
 dtree_param_grid = {
     "max_depth": [7, 10, 12],
-    "min_samples_leaf": [1, 5, 10],
-    "splitter": ["best", "random"],
+    "min_samples_leaf": [1, 5, 10, 15],
 }
 
 svr_param_grid = {

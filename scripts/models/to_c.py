@@ -531,7 +531,8 @@ def verify_fixed(model_path: str | Path, data_dir: str | Path) -> float | None:
     return mae
 
 
-def measure_size(c_path: str | Path, mcu: str = "msp430f2617") -> str | None:
+def _run_size(c_path: str | Path, mcu: str) -> str | None:
+    """Compile ``c_path`` with msp430-gcc -Os and return msp430-size's output."""
     gcc = shutil.which("msp430-gcc")
     size_tool = shutil.which("msp430-size")
     if gcc is None or size_tool is None:
@@ -563,5 +564,24 @@ def measure_size(c_path: str | Path, mcu: str = "msp430f2617") -> str | None:
         size_result = subprocess.run(
             [size_tool, str(o_path)], capture_output=True, text=True
         )
-        print(size_result.stdout)
         return size_result.stdout
+
+
+def measure_size(c_path: str | Path, mcu: str = "msp430f2617") -> str | None:
+    output = _run_size(c_path, mcu)
+    if output is not None:
+        print(output)
+    return output
+
+
+def compiled_size(c_path: str | Path, mcu: str = "msp430f2617") -> dict[str, int] | None:
+    """{"text", "data", "bss", "flash"} byte counts of the compiled object.
+
+    flash = text + data, i.e. what the model costs in the mote's ROM.
+    """
+    output = _run_size(c_path, mcu)
+    if output is None:
+        return None
+    # msp430-size prints a header line, then "text data bss dec hex filename"
+    text, data, bss = (int(v) for v in output.splitlines()[1].split()[:3])
+    return {"text": text, "data": data, "bss": bss, "flash": text + data}
