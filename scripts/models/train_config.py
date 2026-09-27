@@ -60,7 +60,6 @@ LABEL_COLUMN = "pdr"
 n_jobs = -1
 lgbm_n_jobs = 1
 min_dynamic_features = 2
-top_n_per_model = 5
 
 # feature analysis (permutation importance + SHAP, see feature_analysis.py)
 permutation_repeats = 10
