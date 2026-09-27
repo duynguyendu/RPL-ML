@@ -1,5 +1,6 @@
-\section{Regression Machine Learning Model}
+\section{Regression Machine Learning Model Selection}
 The advance of machine learning has led the wide applications in IoT devices.
+% TODO: include how machine learning has been apply in IoT applications
 
 Given the condition of running the models on constrained devices with
 low computation power, memory and energy. The models must be
@@ -12,18 +13,41 @@ We have considered ... models namely: K-nearest neightbour
 regression, linear regression, support vector regression, Gaussian
 Process Regressor, Decision Tree, Random Forest and Multilayer perceptron model.
 
-KNNR: works by comparing a node with the surrounding nodes to predict
-a value. The closeness of values is typically calculated by Euclid
-distance (...equation). Training in KNNR is very fast as the model
-only remembers the training data. The inference is slow as the model
-has to go through each point to calculate the distance and select the
-best one. This means that KNNR does not fit our requirement of being
-fast and lightweight as the model is heavy and computational heavy in inference.
+\subsubsection{K-Nearest Neighbor Regression (KNNR)}
+% TODO: what is nonparametric
+KNNR is a common nonparametric supervised learning model
+\cite{KNNRSONG201726}. It works by
+mapping the unseen point with the k-nearest neightbours to predict
+the value that the new point should that, usually the average of the
+k-neighbours
+. The principle behind this
+model is that points that are similar to each other would have the
+similar property.
+The prediction can include inverse weight based on the distance from
+the neighbours
+Generally, the closeness between points is measured by the Euclidean
+or Mahalanobis distance between them,
+% TODO: list some other distance as well
+% TODO: insert equation for Euclid distance
+The choice of k depends on the application and is usually the subject
+of hyperparameter searching.
+Since KNNR relies on the distance between features, normalisation and
+scaling can often improve the accuracy of the model.
 
-However, KNNR is considered a lazy model as it has to remember all
-the training data to calculate the distance with each node
-remembers all training data, thus result in a heavy model and
-contradict the low memory requirement.
+KNNR has the advantage of not needing to train at all, instead the
+model remembers the training data, which would be used for the
+interference. This also means that appending new training data to the
+model is very simple as the new observations can be appended.
+However, this is also one of the weakness of KNNR, it cannot work
+effciently with large datasets and in high dimensional space, it also
+quite sensitive to noise, outliers and missing values.
+
+Despite KNNR is relatively simple, KNNR does not meet our requirement
+of being lightweight and is quite computational heavy interference as
+it has to perform O(n) calculation, evaluating each point in the
+training dataset.
+
+\subsubsection{Linear Regression}
 
 Linear regression: works by fitting the data on a line, forming a
 linear equation % TODO: insert latex equation for this
@@ -33,25 +57,57 @@ however the linear regression model relies heavily on floating point
 and is susceptible to category data type (hop count, neightbour
 counts). Thus this is not a suitable model for the application
 
+\subsubsection{Support Vector Regression}
 Likewise, SVM also falls short for similar reason as linear regression.
-% TODO: include number in the model testing to show that quanitisation make the model suffers terriblely
+% TODO: include number in the model testing to show that
+% quanitisation make the model suffers terriblely
 
-Gaussian Process Regressor, similar to SVM. However, in \cite{}, the
+\subsubsection{Gaussian Process Regression (GPR)}
+GPR is a probabilistic supervised machine learning model. It makes
+prediction by incorperating the knowledge from the kernel and
+provides the uncertainty measure over its prediction
+\cite{wangIntuitiveTutorialGaussian2023}.
+
+Use multivariate Gaussian distribution
+\begin{equation}
+    P_X(x) = \frac{1}{\sqrt{2\pi}\,\sigma} \exp\left( -\frac{(x -
+    \mu)^2}{2\sigma^2} \right).
+\end{equation}
+
+The Gaussian Process is the process that fits each feature in the training dataset to a Gaussian Distribution and then join them together to create a probabilistic prediction functions.
+In regression model, the output is mean and variance with the ... is the predicted value.
+
+The kernel, or covariance function, plays a pivotal role in this
+smoothing process, encapsulating our prior knowledge about the
+functions we aim to model
+The squared exponential (SE) kernel, also known as the Gaussian or
+radial basis function (RBF) kernel
+he SE kernel function is defined as follows
+There are many other kernel types
+
+The computational complexity is O(N3), where N represents the
+dimension of the covariance matrix K. 2) The memory consumption
+increases quadratically with data size.
+
+However, in , the
 authors analyse GPR and conlcude that the memory requirement of GPR
 is $O(n^2)$ while the computation cost is $O(n^3)$, which is quite
 computational and memory expensive for constrained devices
 
+\subsubsection{Multilayer Perceptron Model (Deep learning)}
 Deep learning is recently a new adavnces and has achieve in terms of
 matching the complex patterns and data, and works well for a wide
 range of problems, including image, language and simple regression.
 However, due to the constrained environment of the working MCU which
 has several KB of RAM and ROM. I rule out this.
 
+\subsubsection{Decision Tree}
 Random forest:
 - Does not need scaling or normalisation
 - Fairly simple
 - Can work well with discrete value type:
 
+\subsubsection{Ensemble Tree}
 Random forest and Decision Tree operates on similar algorithm. In
 tree base algorithm, each value is split into left and right,
 following the path to reach the end. In Random Forest, multiple trees
@@ -65,3 +121,8 @@ In the end, we decide to proceed with Random Forest and
 LGBMTreeRegressor due to the design and
 computation simplicity to fit in with the constrained of the devices
 that we operate on.
+
+\subsubsection{Choosen Models for Evaluation}
+In the end, we decided to go with SVR, Linear Regression, RF and
+LightGBMRegressor. The rest are discarded as they do not fit into our
+requirements, either too heavy or too computational expensive.

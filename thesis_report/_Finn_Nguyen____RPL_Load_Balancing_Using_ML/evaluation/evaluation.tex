@@ -7,7 +7,7 @@ MRHOF from result obtained from 120 simulations in COOJA simulator
 using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
 
 \begin{table}[h]
-    \caption{Simulation parameters}
+    \caption{Simulation parameters for performance evaluation.}
     \label{tab:sim-parameters}
     \begin{center}
         \begin{tabular}{ll}
@@ -18,24 +18,18 @@ using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
             Mote type                      & Zolertia Z1 \\
             Simulation Time                & 1800\,s \\
             Number of Nodes                & 40, 60, 80 \\
-            Sink Placement                 & Centralized \\
-            Node Placement                 & Random \\
             Transmission rate              & 90\% \\
             Receiving rate                 & 90\% \\
             Topology                       & Random with seeds from 1-10 \\
             MAC Layer Protocol             & CSMA \\
-            Data Rate                      & 250\,kbps \\
-            Bandwidth                      & Up to 250\,kbps (refer to
-            IEEE 802.15.4) \\
             Radio Range                    & 50\,m \\
             Interference Range             & 60\,m \\
             Packet Size                    & 64 bytes \\
             Routing Protocol               & MLOF, OF0 and MRHOF \\
-            Packet per minute ($\lambda$) & 5, 10, 15 packets/minute\\
-            Overloading client Packet per minute ($\lambda$) & 30 packets/minute\\
+            Packet per minute  & 5, 10, 15 packets/minute\\
+            Overloading client Packet per minute  & 30
+            packets/minute\\
             Overloading client rate        & 5\% \\
-            Confidence Level               & 95\% \\
-            Statistical Test               & Paired t-test ($\alpha = 0.05$) \\
             \hline
         \end{tabular}
     \end{center}
@@ -55,10 +49,12 @@ CPU util
 Parent switch
 
 \section{Routing Overhead}
-The ML-RPL OF increases the memory usage by (...) bytes, leaving 20KB free on top.
+The ML-RPL OF increases the memory usage by (...) bytes, leaving 20KB
+free on top.
 
 The DIO includes new ..., with ... bytes.
-In total, the whole network send arounds ... DIOs and ... packets, which translate to ...\% increase in the network overhead.
+In total, the whole network send arounds ... DIOs and ... packets,
+which translate to ...\% increase in the network overhead.
 However, this reduce the CPU usage and increase in PDR,...
 
 \section{Routing Topology}
