@@ -68,6 +68,8 @@ def collect_runs(runs_dir: Path) -> list[dict]:
                 "interference_range": cfg.get("interference_range"),
                 "etx": etx,
                 "agg": {k: agg.get(k, {}) for k in AGGREGATIONS},
+                "predict_us": agg.get("total", {}).get("predict_us"),
+                "predict_count": agg.get("total", {}).get("predict_count"),
             }
         )
     return runs
@@ -95,6 +97,19 @@ def compute_fixed_config(runs: list[dict]) -> list[tuple[str, object]]:
         if not values:
             continue
         items.append((key, values.pop() if len(values) == 1 else "mixed"))
+    return items
+
+
+def compute_predict_time(runs: list[dict]) -> list[tuple[str, object]]:
+    """Average MLOF predict_pdr() run time per rpl_of, over all its runs' calls."""
+    items = []
+    for of in sorted({r["rpl_of"] for r in runs if r.get("rpl_of") is not None}):
+        of_runs = [r for r in runs if r.get("rpl_of") == of and r.get("predict_count")]
+        if not of_runs:
+            continue
+        us = sum(r["predict_us"] for r in of_runs)
+        count = sum(r["predict_count"] for r in of_runs)
+        items.append((of, f"{us / count:.1f} us ({len(of_runs)} runs)"))
     return items
 
 
@@ -414,7 +429,9 @@ init();
 
 
 def build_html(runs: list[dict], plotly_js_src: str) -> str:
-    fixed_config_html = _render_strip("Fixed config", compute_fixed_config(runs))
+    fixed_config_html = _render_strip(
+        "Fixed config", compute_fixed_config(runs)
+    ) + _render_strip("Avg predict_pdr() time", compute_predict_time(runs))
     return (
         HTML_TEMPLATE.replace("__TITLE__", "Metric comparison across runs")
         .replace("__PLOTLY_SRC__", plotly_js_src)

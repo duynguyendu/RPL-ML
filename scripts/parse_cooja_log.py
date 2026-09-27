@@ -19,6 +19,9 @@ RE_METRICS_LOG = re.compile(
     r"ETX=(\d+\.\d{2}) RSSI=(-?\d+) TX=(\d+) RX=(\d+) ACKED=(\d+) DROPPED=(\d+)"
     # DIO_SENT is a cumulative counter since boot; optional so older logs still parse
     r"(?: DIO_SENT=(\d+))?"
+    # cumulative MLOF predict_pdr() run time (us) and call count since boot;
+    # optional so older logs still parse (always 0 for non-MLOF OFs)
+    r"(?: PREDICT_US=(\d+) PREDICT_COUNT=(\d+))?"
 )
 
 # LATENCY
@@ -95,6 +98,16 @@ def process_log(log_path):
                         "dio_sent": (
                             int(metrics.group(14))
                             if metrics.group(14) is not None
+                            else None
+                        ),
+                        "predict_us": (
+                            int(metrics.group(15))
+                            if metrics.group(15) is not None
+                            else None
+                        ),
+                        "predict_count": (
+                            int(metrics.group(16))
+                            if metrics.group(16) is not None
                             else None
                         ),
                     }

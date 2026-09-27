@@ -10,6 +10,7 @@
  *   - CPU utilization (%)
  *   - Tx power
  *   - DIO messages sent since boot
+ *   - MLOF predict_pdr() run time and call count since boot
  *
  * All output is tagged (e.g. "ETX:", "LATENCY:") so it can be grep'd /
  * parsed straight out of the Cooja mote log.
@@ -26,6 +27,7 @@
 #include "net/routing/rpl-lite/rpl.h"
 #include "sys/clock.h"
 #include "sys/energest.h"
+#include "sys/rtimer.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -41,12 +43,18 @@
   "ENERGEST: CPU=%lu LPM=%lu LISTEN=%lu "                                      \
   "TRANSMIT=%lu OFF=%lu TOTAL=%lu HOP_COUNT=%u "                               \
   "ETX=%u.%02u RSSI=%d TX=%d RX=%d ACKED=%d DROPPED=%d "                       \
-  "DIO_SENT=%lu\n"
+  "DIO_SENT=%lu PREDICT_US=%lu PREDICT_COUNT=%lu\n"
 
 #define LATENCY_LOG "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 "\n"
 /// -------------------- METRICS LOG END -------------------------------
 
 extern int hop_count;
+
+#if RPL_MULTIPLE_METRICS
+/* Defined in rpl-mlof.c */
+extern uint32_t mlof_predict_ticks;
+extern uint32_t mlof_predict_count;
+#endif
 
 PROCESS(metrics_process, "Metrics process");
 
@@ -109,9 +117,16 @@ PROCESS_THREAD(metrics_process, ev, data) {
       }
     }
 
+    unsigned long predict_us = 0, predict_count = 0;
+#if RPL_MULTIPLE_METRICS
+    predict_us = RTIMERTICKS_TO_US_64(mlof_predict_ticks);
+    predict_count = mlof_predict_count;
+#endif
+
     printf(METRICS_LOG, cpu, lpm, listen, transmit, off, total, hop_count,
            etx_int, etx_frac, rssi, tx_packets, rx_packets, ack_packets,
-           dropped_packets, (unsigned long)rpl_dio_sent_count);
+           dropped_packets, (unsigned long)rpl_dio_sent_count, predict_us,
+           predict_count);
 
     etimer_reset(&metrics_timer);
   }

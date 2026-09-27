@@ -515,6 +515,35 @@ def _packet_totals(data):
     return sent, recv, not_joined, unreachable, in_network
 
 
+def _predict_totals(data):
+    """(total predict_pdr() time in us, total calls) summed over nodes.
+
+    The firmware logs both as cumulative counters since boot, so each node's
+    last metrics row holds its totals. Returns (None, None) for logs without
+    the PREDICT_US / PREDICT_COUNT fields.
+    """
+    df = data.get("metrics")
+    if df is None or df.empty or "predict_count" not in df:
+        return None, None
+    totals = _query(
+        """
+        SELECT SUM(predict_us) AS predict_us, SUM(predict_count) AS predict_count
+        FROM (
+            SELECT predict_us, predict_count
+            FROM df
+            WHERE predict_count IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY node_id ORDER BY time_s DESC) = 1
+        )
+        """,
+        df,
+        ["predict_us", "predict_count"],
+    )
+    us, count = totals["predict_us"].iloc[0], totals["predict_count"].iloc[0]
+    if pd.isna(count):
+        return None, None
+    return int(us), int(count)
+
+
 # per-node metric key -> (strip label, value formatter)
 _SUMMARY_METRICS = {
     "pdr": ("PDR", lambda v: f"{v * 100:.1f}%"),
@@ -584,6 +613,7 @@ def compute_aggregate(metrics, data, df_dir):
 
     switch = series_map["parent_switch"]
     sent, recv, not_joined, unreachable, in_network = _packet_totals(data)
+    predict_us, predict_count = _predict_totals(data)
     result = {
         "total": {
             "parent_switch": int(switch.sum()) if len(switch) else None,
@@ -594,6 +624,11 @@ def compute_aggregate(metrics, data, df_dir):
                 None if _isnan(unreachable) else int(unreachable)
             ),
             "packets_lost_in_network": None if _isnan(in_network) else int(in_network),
+            "predict_us": predict_us,
+            "predict_count": predict_count,
+            "avg_predict_us": (
+                predict_us / predict_count if predict_count else None
+            ),
         }
     }
     for name, fn in _AGGREGATIONS.items():
@@ -631,6 +666,20 @@ def render_summary_html(aggregate):
         title = name.capitalize()
         strips.append(_render_strip(title, _fmt_row(title, aggregate.get(name, {}))))
     return "".join(strips)
+
+
+def render_predict_time_html(aggregate):
+    """Render the average MLOF predict_pdr() run time as a header strip."""
+    total = aggregate.get("total", {})
+    avg = total.get("avg_predict_us")
+    count = total.get("predict_count")
+    return _render_strip(
+        "Computation time",
+        [
+            ("Avg predict_pdr() time", "n/a" if avg is None else f"{avg:.1f} us"),
+            ("predict_pdr() calls", "n/a" if count is None else str(count)),
+        ],
+    )
 
 
 def plot_topology(df_dir, metrics):
@@ -1123,8 +1172,10 @@ def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
         json.dump(aggregate, f, indent=2)
     print(f"  Wrote {os.path.join(output_dir, 'aggregate.json')}")
 
-    header_html = render_run_config_html(load_run_config(df_dir)) + render_summary_html(
-        aggregate
+    header_html = (
+        render_run_config_html(load_run_config(df_dir))
+        + render_predict_time_html(aggregate)
+        + render_summary_html(aggregate)
     )
 
     with open(f"{output_dir}/dashboard.html", "w") as f:
