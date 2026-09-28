@@ -154,7 +154,7 @@ _OUTPUT_COLUMNS = [
     "node_id",
     "parent_id",
     "num_of_nodes",
-    "config_ppm",
+    "config_bps",
     "topo_seed",
     "overloading_client_seed",
     "chunk_start",
@@ -174,7 +174,12 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
     # run-level config, constant across every row from this run -- distinct
     # from the per-row "ppm" MLOF feature (an observed per-neighbor metric).
     num_of_nodes = cfg["num_of_nodes"]
-    config_ppm = cfg["ppm"]
+    # older runs predate bps and only carry ppm -- restate it in bit/s
+    config_bps = (
+        cfg["bps"]
+        if "bps" in cfg
+        else cfg["ppm"] * cfg["packet_size"] * 8 / 60
+    )
     topo_seed = cfg["seed"]
     # only present when add_overloading_client is on (and in configs dumped
     # by newer runs) -- older/no-overloading-client runs won't have it.
@@ -209,7 +214,7 @@ def build_chunks(run_dir: Path) -> pd.DataFrame:
                     "node_id": node_id,
                     "parent_id": row["parent_id"],
                     "num_of_nodes": num_of_nodes,
-                    "config_ppm": config_ppm,
+                    "config_bps": config_bps,
                     "topo_seed": topo_seed,
                     "overloading_client_seed": overloading_client_seed,
                     "chunk_start": chunk_start,

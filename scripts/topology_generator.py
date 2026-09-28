@@ -435,7 +435,7 @@ def build_topology(
         motes.append({"id": i, "role": "client", "x": float(x), "y": float(y)})
 
     # Randomly turn some clients into overloading clients that send at a higher
-    # rate (config.overloading_client_ppm). Uses its own RNG so node positions
+    # rate (config.overloading_client_bps). Uses its own RNG so node positions
     # for a given seed are unchanged by this option.
     if add_overloading_client:
         rng = random.Random(overloading_client_seed)

@@ -8,7 +8,8 @@ a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 Per metric (PDR / latency / CPU util / parent switch / DIO sent per minute) the page offers two
 views -- fix #nodes (x = bit/s per node) or fix bit/s per node (x = #nodes) --
 each a box-and-whisker candle per objective function. The load axis is the
-config's PPM restated as bits per second per node: ppm * packet_size * 8 / 60.
+config's ``bps`` (bits per second per node); runs from before ``bps`` existed
+fall back to their PPM restated as ppm * packet_size * 8 / 60.
 """
 
 from __future__ import annotations
@@ -23,8 +24,12 @@ from plotly_utils import plotly_src
 AGGREGATIONS = ["min", "q1", "median", "avg", "q3", "max"]
 
 
-def bits_per_second(ppm: object, packet_size: object) -> float | int | None:
-    """Offered load per node in bit/s: packets/min * bytes/packet * 8 / 60 s."""
+def bits_per_second(cfg: dict) -> float | int | None:
+    """Offered load per node in bit/s: the config's bps, or for older runs
+    packets/min * bytes/packet * 8 / 60 s."""
+    if cfg.get("bps") is not None:
+        return cfg["bps"]
+    ppm, packet_size = cfg.get("ppm"), cfg.get("packet_size")
     if ppm is None or packet_size is None:
         return None
     bps = round(ppm * packet_size * 8 / 60, 2)
@@ -45,8 +50,9 @@ def collect_runs(runs_dir: Path) -> list[dict]:
         except json.JSONDecodeError as exc:
             print(f"  Skipping {run_dir.name}: {exc}")
             continue
-        if cfg.get("num_of_nodes") is None or cfg.get("ppm") is None:
-            print(f"  Skipping {run_dir.name}: missing num_of_nodes / ppm")
+        bps = bits_per_second(cfg)
+        if cfg.get("num_of_nodes") is None or bps is None:
+            print(f"  Skipping {run_dir.name}: missing num_of_nodes / bps")
             continue
         try:
             etx = round(1 / (cfg["success_tx"] * cfg["success_rx"]), 2)
@@ -56,8 +62,7 @@ def collect_runs(runs_dir: Path) -> list[dict]:
             {
                 "run_id": run_dir.name,
                 "num_of_nodes": cfg.get("num_of_nodes"),
-                "ppm": cfg.get("ppm"),
-                "bps": bits_per_second(cfg.get("ppm"), cfg.get("packet_size")),
+                "bps": bps,
                 "seed": cfg.get("seed"),
                 "rpl_of": cfg.get("rpl_of"),
                 "topo_type": cfg.get("topo_type"),
@@ -75,7 +80,7 @@ def collect_runs(runs_dir: Path) -> list[dict]:
     return runs
 
 
-# Config keys not swept by simulate.sh (those are num_of_nodes / ppm / rpl_of /
+# Config keys not swept by simulate.sh (those are num_of_nodes / bps / rpl_of /
 # seed, already surfaced by the page's own controls) but still worth knowing
 # at a glance, mirroring dashboard.html's "Run config" strip.
 FIXED_CONFIG_KEYS = [

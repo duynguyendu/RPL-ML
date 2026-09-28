@@ -108,7 +108,7 @@ def role_build_dirs(
     name = getattr(config, "build_dir_name", "") or "build"
     return {
         "client": (platform_spec.client_base_dir() / name).as_posix(),
-        # Same firmware as the client but built with a different PPM, so it
+        # Same firmware as the client but built with a different send rate, so it
         # needs its own build tree.
         "overloading_client": (
             platform_spec.client_base_dir() / f"{name}_overloading"
@@ -135,10 +135,14 @@ def make_header(
     )
     client_fw = f"{client_build}/{target}/{platform_spec.client_binary_name()}"
 
-    def make_parameters(ppm: int) -> str:
-        return f"PPM={ppm} DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
+    def make_parameters(bps: float) -> str:
+        # Send interval (s) = packet_size * 8 / bps, passed to the firmware in
+        # ms and scaled to clock ticks in C (CLOCK_SECOND is platform-specific).
+        # UL keeps the product from overflowing msp430's 16-bit int.
+        send_interval_ms = round(config.packet_size * 8 * 1000 / bps)
+        return f"SEND_TICK={send_interval_ms}UL*CLOCK_SECOND/1000 DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
 
-    parameters = make_parameters(config.ppm)
+    parameters = make_parameters(config.bps)
 
     server_cmd = f"$(MAKE) -C {server_spec.server_base_dir()} -j$(CPUS) {server_spec.server_binary_name()} {parameters} {log_level_params('server')} NETWORK_SIZE={config.num_of_nodes} TARGET={server_spec.target} BUILD_DIR={server_build}"
     client_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {parameters} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={client_build}"
@@ -149,12 +153,12 @@ def make_header(
         overloading_fw = (
             f"{overloading_build}/{target}/{platform_spec.client_binary_name()}"
         )
-        overloading_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {make_parameters(config.overloading_client_ppm)} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={overloading_build}"
+        overloading_cmd = f"$(MAKE) -C {platform_spec.client_base_dir()} -j$(CPUS) {platform_spec.client_binary_name()} {make_parameters(config.overloading_client_bps)} {log_level_params('client')} GATHER_METRICS={config.gather_metrics} TARGET={target} BUILD_DIR={overloading_build}"
         overloading_motetype = f"""
     <motetype>
       {platform_spec.mote_type}
       <identifier>{platform_spec.name}_overloading_client</identifier>
-      <description>RPL Overloading Client ({config.overloading_client_ppm} PPM) - {platform_spec.name.upper()}</description>
+      <description>RPL Overloading Client ({config.overloading_client_bps} bit/s) - {platform_spec.name.upper()}</description>
       <source>{platform_spec.client_source_path()}</source>
       <commands>{overloading_cmd}</commands>
       <firmware>{overloading_fw}</firmware>

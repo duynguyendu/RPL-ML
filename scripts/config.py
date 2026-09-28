@@ -23,7 +23,7 @@ side_length = 600  # For random topology
 # csc config
 gather_metrics = 1
 platform = "z1"
-ppm = 6  # packets per minute; drives the client's send cadence (see udp-client.c)
+bps = 64  # offered load per client in bit/s; send interval = packet_size * 8 / bps seconds
 buffer_size = 8
 ramp_up_duration = 120
 duration = 3600
@@ -53,7 +53,7 @@ base_cooja = "../rpl/contiki-ng/tools/cooja/"
 add_overloading_client = False
 overloading_client_ratio = 0.05
 overloading_client_seed = 999
-overloading_client_ppm = 30
+overloading_client_bps = 256
 
 build_dir_name = "build"
 

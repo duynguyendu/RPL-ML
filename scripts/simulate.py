@@ -3,7 +3,7 @@
 functions. Local replacement for simulate.sh's parallel-dispatch loop, with
 optional sharding across machines (see --shard-index/--num-shards).
 
-Every (num_nodes, ppm, rpl_of, seed, overloading_client_seed) combination is one job. Up to
+Every (num_nodes, bps, rpl_of, seed, overloading_client_seed) combination is one job. Up to
 --max-active-jobs run concurrently, each pinned to its own reusable
 --build_dir_name slot (named with this machine's hostname, since multiple
 machines may share this same filesystem -- see ansible/simulate_seeds.yml).
@@ -13,7 +13,7 @@ Usage:
 
 Override the swept grid (each defaults to the hardcoded *_LIST constant
 below; comma/space-separated):
-    python3 simulate.py --node-list=30,60 --ppm-list=15,30 --seed-list=111,222 --overloading-client-seed-list=999,998
+    python3 simulate.py --node-list=30,60 --bps-list=128,256 --seed-list=111,222 --overloading-client-seed-list=999,998
 
 Sharding across machines (they must share this filesystem -- job identities
 never collide across shards, so every machine can safely write into the
@@ -40,8 +40,10 @@ BASE_COOJA = "../rpl/contiki-ng/tools/cooja/"
 
 PLATFORM = "z1"
 NODE_LIST = [30, 60]
-PPM_LIST = [60, 45, 30, 15]
-OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_svm", "mlof_linear", "mlof_lgbm"]
+# offered load per client in bit/s (send interval = PACKET_SIZE * 8 / bps)
+BPS_LIST = [512, 384, 256, 128]
+# OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_lgbm"]
+OF_LIST = ["of0"]
 SEED_LIST = [12756, 826352, 927106, 538256, 389271]
 OVERLOADING_CLIENT_SEED_LIST = [999, 998]
 BUFFER_SIZE = 8
@@ -64,14 +66,14 @@ def parse_list(value: str | None, default: list, cast=str) -> list:
 
 def build_jobs(
     node_list: list[int],
-    ppm_list: list[int],
+    bps_list: list[int],
     of_list: list[str],
     seed_list: list[int],
     overloading_seed_list: list[int],
 ) -> list[tuple[int, int, str, int, int]]:
     return list(
         itertools.product(
-            node_list, ppm_list, of_list, seed_list, overloading_seed_list
+            node_list, bps_list, of_list, seed_list, overloading_seed_list
         )
     )
 
@@ -80,7 +82,7 @@ def start_job(
     slot: str,
     run_dir: Path,
     num_nodes: int,
-    ppm: int,
+    bps: int,
     rpl_of: str,
     seed: int,
     overloading_seed: int,
@@ -95,14 +97,14 @@ def start_job(
             sys.executable,
             "pipeline.py",
             f"--duration={duration}",
-            "--is_simulate=True",
+            "--is_simulate=False",
             "--is_generate_topology=True",
             "--is_plot_metrics=True",
             f"--packet_size={PACKET_SIZE}",
             f"--buffer_size={BUFFER_SIZE}",
             f"--rpl_of={rpl_of}",
             f"--num_of_nodes={num_nodes}",
-            f"--ppm={ppm}",
+            f"--bps={bps}",
             f"--platform={PLATFORM}",
             f"--seed={seed}",
             "--add_overloading_client=True",
@@ -123,12 +125,12 @@ def job_desc(
     shard_total: int,
     slot: str,
     num_nodes: int,
-    ppm: int,
+    bps: int,
     rpl_of: str,
     seed: int,
     overloading_seed: int,
 ) -> str:
-    return f"({job_id}/{shard_total}) {slot} of={rpl_of} nodes={num_nodes} ppm={ppm} seed={seed} overloading_seed={overloading_seed}"
+    return f"({job_id}/{shard_total}) {slot} of={rpl_of} nodes={num_nodes} bps={bps} seed={seed} overloading_seed={overloading_seed}"
 
 
 def terminate_all(active: dict) -> None:
@@ -167,9 +169,9 @@ def main() -> None:
         help=f"Comma/space-separated node counts to sweep (default: {NODE_LIST})",
     )
     parser.add_argument(
-        "--ppm-list",
+        "--bps-list",
         default=None,
-        help=f"Comma/space-separated packet rates to sweep (default: {PPM_LIST})",
+        help=f"Comma/space-separated offered loads in bit/s to sweep (default: {BPS_LIST})",
     )
     parser.add_argument(
         "--of-list",
@@ -216,7 +218,7 @@ def main() -> None:
         parser.error("--shard-index must be in [0, num_shards)")
 
     node_list = parse_list(args.node_list, NODE_LIST, int)
-    ppm_list = parse_list(args.ppm_list, PPM_LIST, int)
+    bps_list = parse_list(args.bps_list, BPS_LIST, int)
     of_list = parse_list(args.of_list, OF_LIST, str)
     seed_list = parse_list(args.seed_list, SEED_LIST, int)
 
@@ -225,7 +227,7 @@ def main() -> None:
     )
 
     all_jobs = build_jobs(
-        node_list, ppm_list, of_list, seed_list, overloading_seed_list
+        node_list, bps_list, of_list, seed_list, overloading_seed_list
     )
     total_global = len(all_jobs)
     my_jobs = all_jobs[args.shard_index :: args.num_shards]
@@ -234,12 +236,12 @@ def main() -> None:
         run_dir = Path(args.run_dir)
     else:
         max_nodes = max(node_list)
-        min_rate = min(ppm_list)
+        min_rate = min(bps_list)
         label_part = f"_{args.label}" if args.label else ""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = (
             Path("runs")
-            / f"sim_{PLATFORM}_n{max_nodes}_ppm{min_rate}_buffer{BUFFER_SIZE}{label_part}_{ts}"
+            / f"sim_{PLATFORM}_n{max_nodes}_bps{min_rate}_buffer{BUFFER_SIZE}{label_part}_{ts}"
         )
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -249,9 +251,9 @@ def main() -> None:
     )
 
     if args.dry_run:
-        for i, (num_nodes, ppm, rpl_of, seed, ol_seed) in enumerate(my_jobs, start=1):
+        for i, (num_nodes, bps, rpl_of, seed, ol_seed) in enumerate(my_jobs, start=1):
             print(
-                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, ppm, rpl_of, seed, ol_seed)}"
+                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, bps, rpl_of, seed, ol_seed)}"
             )
         return
 
@@ -278,28 +280,28 @@ def main() -> None:
 
     while pending or active:
         while pending and free_slots:
-            job_id, (num_nodes, ppm, rpl_of, seed, ol_seed) = pending.pop(0)
+            job_id, (num_nodes, bps, rpl_of, seed, ol_seed) = pending.pop(0)
             slot = free_slots.pop()
             desc = job_desc(
-                job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed, ol_seed
+                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed
             )
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
             proc = start_job(
-                slot, run_dir, num_nodes, ppm, rpl_of, seed, ol_seed, args.duration
+                slot, run_dir, num_nodes, bps, rpl_of, seed, ol_seed, args.duration
             )
             active[slot] = (
                 proc,
                 time.monotonic(),
-                (job_id, num_nodes, ppm, rpl_of, seed, ol_seed),
+                (job_id, num_nodes, bps, rpl_of, seed, ol_seed),
             )
 
         finished = [
             slot for slot, (proc, _, _) in active.items() if proc.poll() is not None
         ]
         for slot in finished:
-            proc, start, (job_id, num_nodes, ppm, rpl_of, seed, ol_seed) = active.pop(slot)
+            proc, start, (job_id, num_nodes, bps, rpl_of, seed, ol_seed) = active.pop(slot)
             desc = job_desc(
-                job_id, len(my_jobs), slot, num_nodes, ppm, rpl_of, seed, ol_seed
+                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed
             )
             status = (
                 "DONE" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"

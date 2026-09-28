@@ -19,7 +19,9 @@
 #define RAMP_UP_DURATION 60
 #endif
 
-#define SEND_TICK (60 * CLOCK_SECOND / PPM)
+#ifndef SEND_TICK
+#define SEND_TICK (10 * CLOCK_SECOND)
+#endif
 
 #define MAX_PENDING 10
 
