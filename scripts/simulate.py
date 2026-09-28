@@ -9,7 +9,7 @@ Every (num_nodes, bps, rpl_of, seed, overloading_client_seed) combination is one
 machines may share this same filesystem -- see ansible/simulate_seeds.yml).
 
 Usage:
-    python3 simulate.py [--label=run1] [--max-active-jobs=8]
+    python3 simulate.py [--label=run1] [--max-active-jobs=8] [--topo-type=grid]
 
 Override the swept grid (each defaults to the hardcoded *_LIST constant
 below; comma/space-separated):
@@ -39,11 +39,14 @@ from cooja_simulation import ensure_template_built
 BASE_COOJA = "../rpl/contiki-ng/tools/cooja/"
 
 PLATFORM = "z1"
+TOPO_TYPE = "random"
+# topology types handled by topology_generator.generate_topology
+TOPO_TYPES = ["ring", "star", "grid", "tree", "line", "mesh", "sparse_grid", "random", "scatter"]
 NODE_LIST = [30, 60]
 # offered load per client in bit/s (send interval = PACKET_SIZE * 8 / bps)
 BPS_LIST = [512, 384, 256, 128]
 # OF_LIST = ["of0", "mhrof", "mlof_dtree", "mlof_lgbm"]
-OF_LIST = ["of0"]
+OF_LIST = ["of0", "mlof_dtree"]
 SEED_LIST = [12756, 826352, 927106, 538256, 389271]
 OVERLOADING_CLIENT_SEED_LIST = [999, 998]
 BUFFER_SIZE = 8
@@ -87,6 +90,7 @@ def start_job(
     seed: int,
     overloading_seed: int,
     duration: int,
+    topo_type: str,
 ):
     log_dir = run_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +110,7 @@ def start_job(
             f"--num_of_nodes={num_nodes}",
             f"--bps={bps}",
             f"--platform={PLATFORM}",
+            f"--topo_type={topo_type}",
             f"--seed={seed}",
             "--add_overloading_client=True",
             f"--overloading_client_seed={overloading_seed}",
@@ -162,6 +167,12 @@ def main() -> None:
         type=int,
         default=DURATION,
         help=f"Simulated seconds per run, forwarded to pipeline.py (default: {DURATION})",
+    )
+    parser.add_argument(
+        "--topo-type",
+        default=TOPO_TYPE,
+        choices=TOPO_TYPES,
+        help=f"Topology type for every job, forwarded to pipeline.py (default: {TOPO_TYPE})",
     )
     parser.add_argument(
         "--node-list",
@@ -221,6 +232,14 @@ def main() -> None:
     bps_list = parse_list(args.bps_list, BPS_LIST, int)
     of_list = parse_list(args.of_list, OF_LIST, str)
     seed_list = parse_list(args.seed_list, SEED_LIST, int)
+    if args.topo_type != "random" and len(seed_list) > 1:
+        # only the random topology sweeps seeds; every other type runs once
+        # per configuration, using the first seed (still Cooja's randomseed)
+        print(
+            f"=== topo_type={args.topo_type} is not random: using only seed "
+            f"{seed_list[0]} (ignoring {seed_list[1:]}) ==="
+        )
+        seed_list = seed_list[:1]
 
     overloading_seed_list = parse_list(
         args.overloading_client_seed_list, OVERLOADING_CLIENT_SEED_LIST, int
@@ -241,13 +260,14 @@ def main() -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = (
             Path("runs")
-            / f"sim_{PLATFORM}_n{max_nodes}_bps{min_rate}_buffer{BUFFER_SIZE}{label_part}_{ts}"
+            / f"sim_{PLATFORM}_{args.topo_type}_n{max_nodes}_bps{min_rate}_buffer{BUFFER_SIZE}{label_part}_{ts}"
         )
     run_dir.mkdir(parents=True, exist_ok=True)
 
     print(
         f"=== Writing runs to {run_dir} "
-        f"(shard {args.shard_index}/{args.num_shards}, {len(my_jobs)}/{total_global} jobs) ==="
+        f"(shard {args.shard_index}/{args.num_shards}, {len(my_jobs)}/{total_global} jobs, "
+        f"topo_type={args.topo_type}) ==="
     )
 
     if args.dry_run:
@@ -287,7 +307,8 @@ def main() -> None:
             )
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
             proc = start_job(
-                slot, run_dir, num_nodes, bps, rpl_of, seed, ol_seed, args.duration
+                slot, run_dir, num_nodes, bps, rpl_of, seed, ol_seed, args.duration,
+                args.topo_type,
             )
             active[slot] = (
                 proc,

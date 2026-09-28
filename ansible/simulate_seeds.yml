@@ -25,7 +25,8 @@
 # key=value extra-vars form -- it arrives as a literal string).
 #
 # Results land in scripts/runs/sim_z1_n<max node count>_<ddmmyyyy>_<hhmm> (controller's
-# local time at launch).
+# local time at launch), or scripts/runs/sim_z1_n<max node count>_<label> when
+# -e label=... is given.
 #
 # Optional extra vars:
 #   target_group     inventory group to run against (default: all)
@@ -42,6 +43,12 @@
 #                    to sweep (default: simulate.py's own BPS_LIST)
 #   of_list          comma/space-separated objective functions to sweep
 #                    (default: simulate.py's own OF_LIST)
+#   topo_type        topology type for every job, forwarded to simulate.py's
+#                    --topo-type: ring, star, grid, tree, line, mesh,
+#                    sparse_grid, random, scatter (default: simulate.py's own
+#                    TOPO_TYPE, random). Non-random types run only the first seed.
+#   label            name folded into the run dir in place of the timestamp
+#                    (default: none -- use the timestamp)
 
 - name: Run simulate.py sharded across managed nodes
   hosts: "{{ target_group | default('all') }}"
@@ -61,7 +68,9 @@
     # Platform is hardcoded in simulate.py (PLATFORM); keep in sync.
     # run_timestamp is fixed once by the "Fix the run timestamp" task below --
     # a lazy lookup here would re-evaluate per task/host and could drift.
-    run_name: "sim_z1_n{{ max_node }}_{{ run_timestamp }}"
+    # With -e label=..., the label replaces the timestamp (a stable, reusable
+    # run dir); without it, fall back to the launch timestamp.
+    run_name: "sim_z1_n{{ max_node }}_{{ label if (label | default('') | string).strip() else run_timestamp }}"
     shared_run_dir: "{{ scripts_dir }}/runs/{{ run_name }}"
     # One log per shard: every host writes into the same shared scripts_dir,
     # so a single fixed filename would have the shards clobber each other.
@@ -166,6 +175,7 @@
           --node-list="{{ node_list | default('') }}" \
           --bps-list="{{ bps_list | default('') }}" \
           --of-list="{{ of_list | default('') }}" \
+          {% if (topo_type | default('') | string).strip() %}--topo-type="{{ topo_type }}" {% endif %}\
           > {{ sim_log }} 2>&1
       args:
         chdir: "{{ scripts_dir }}"

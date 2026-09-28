@@ -30,7 +30,7 @@ duration = 3600
 with_dao_ack = 0
 packet_size = 64
 rpl_of = "mhrof"
-metric_log_interval = 10
+metric_log_interval = 30
 
 OTHER_LOG = "NONE"
 RPL_LOG = "NONE"

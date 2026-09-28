@@ -24,6 +24,9 @@ training_data_seeds = [0, 1, 2]
 # remainder of the network. 0.0 disables stratification (plain random sample).
 near_overloading_hops = 1
 near_overloading_fraction = 0.4
+# unseen-topology test: hold the highest topo_seed out of training, CV and
+# model selection; every refit model is scored on it at the end
+hold_out_last_topo_seed = True
 # final report lists every model whose MAEP is within this many percentage
 # points of the best model's; per model type, the smallest (flash) model
 # within this many points of that type's best is the one ported to C
@@ -70,6 +73,9 @@ min_dynamic_features = 2
 # feature analysis (permutation importance + SHAP, see feature_analysis.py)
 permutation_repeats = 10
 shap_sample_rows = 2000
+# raw rows drawn as points per feature in feature_vs_pdr.html (the mean-PDR
+# trend line always uses every row)
+feature_pdr_sample_rows = 5000
 # feature pairs at least this correlated are reported and clustered together
 corr_threshold = 0.7
 

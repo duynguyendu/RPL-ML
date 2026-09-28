@@ -1130,26 +1130,12 @@ def plot_topology(df_dir, metrics):
     return [fig]
 
 
-def save_metrics_csv(metrics, out_dir):
-    out_dir = os.path.join(out_dir, "aggregate_metrics")
-    os.makedirs(out_dir, exist_ok=True)
-    for key, value in metrics.items():
-        if isinstance(value, dict):
-            for subkey, df in value.items():
-                df.to_csv(os.path.join(out_dir, f"{subkey}.csv"), index=False)
-                print(f"  Saved {subkey}.csv")
-        elif isinstance(value, pd.DataFrame):
-            value.to_csv(os.path.join(out_dir, f"{key}.csv"), index=False)
-            print(f"  Saved {key}.csv")
-
-
 def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
     if runs_dir is None:
         runs_dir = os.path.dirname(os.path.abspath(output_dir)) or output_dir
     data = load_data(df_dir)
     metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
-    save_metrics_csv(metrics, output_dir)
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = [

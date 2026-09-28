@@ -290,6 +290,29 @@ def _stratified_samples(df: pd.DataFrame, train_config) -> dict:
     }
 
 
+def _hold_out_last_topo_seed(df: pd.DataFrame, train_config) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Split into (train+validation, test) rows, testing on the highest topo_seed.
+
+    Returns ``(df, None)`` when disabled or when there is only one topo seed.
+    """
+    if not train_config.hold_out_last_topo_seed:
+        return df, None
+    seeds = sorted(df["topo_seed"].unique().tolist())
+    if len(seeds) < 2:
+        print(f"Warning: only topo seed(s) {seeds} -- no unseen-topology test")
+        return df, None
+    is_test = df["topo_seed"] == seeds[-1]
+    print(
+        f"Unseen-topology split: training/validating on topo seeds {seeds[:-1]} "
+        f"({(~is_test).sum()} rows), testing on topo seed {seeds[-1]} ({is_test.sum()} rows)"
+    )
+    return df[~is_test], df[is_test]
+
+
+def _test_mae(model, test_df: pd.DataFrame, features: list[str]) -> float:
+    return float(np.abs(model.predict(test_df[features]) - test_df[LABEL_COLUMN].to_numpy()).mean())
+
+
 def grid_search() -> list[dict]:
     import train_config
 
@@ -299,6 +322,7 @@ def grid_search() -> list[dict]:
     test_size = 0.2
 
     df = _load_training_data(train_config)
+    df, test_df = _hold_out_last_topo_seed(df, train_config)
     if train_config.near_overloading_fraction > 0.0 and "overloading_hops" not in df:
         print(
             "Warning: train.csv has no overloading_hops column (re-run process_data) "
@@ -437,6 +461,13 @@ def grid_search() -> list[dict]:
     print(f"\nRefit, ported and compiled {len(results)} models in {time.monotonic() - start_time:.1f}s")
 
     results.sort(key=lambda result: result["avg_mae"])
+    if test_df is not None:
+        # scored only after CV-based selection, so the held-out topology never
+        # influences which model is picked
+        for result in results:
+            test_mae = _test_mae(result["_model"], test_df, result["features"])
+            result["test_mae"] = test_mae
+            result["test_maep"] = mae_to_maep(test_mae)
     plot_feature_importance(results, models_dir)
 
     _save_results(
@@ -444,7 +475,8 @@ def grid_search() -> list[dict]:
         output_path,
         [
             "model", "features", "data_seed", *hyperparam_names,
-            "avg_mae", "avg_maep", "text", "data", "bss", "flash", "feature_importance",
+            "avg_mae", "avg_maep", "test_mae", "test_maep",
+            "text", "data", "bss", "flash", "feature_importance",
         ],
     )
 
@@ -459,6 +491,7 @@ def grid_search() -> list[dict]:
                 "params": ", ".join(f"{name}={r[name]}" for name in hyperparam_names if name in r),
                 "MAE": round(r["avg_mae"], 1),
                 "MAEP (%)": round(r["avg_maep"], 3),
+                **({"test MAEP (%)": round(r["test_maep"], 3)} if "test_maep" in r else {}),
                 "flash (B)": r["flash"],
             }
             for r in near_best
