@@ -1,24 +1,83 @@
-\section{Feature Importance Analysis}
+\section{Feature Selection}
+
+Feature selection is ...
+There are three ways to do it: filter method, wrapper method and
+embedded method.
+Filter method asseses the feature based on their statistical
+properties with the target variable Correlation, mutual information, variance
+Ranking method
+- Pearson correlation coefficient: Measures the linear correlation
+between two continuous variables
+- Spearman: for continuous and non-linear relation
+- Mutual information
+
+Wrapper method: use the machine learning model output as the score.
+Compute the accuracy for a subset of features, this are quite
+computational expensive
+Sequential Backward Elimination (SBS)
+
+Embedded: some model include the feature importance as its output for
+example Decision Tree.
+
+Decision Tree and LGBMTreeRegressor, they have discrete variable.
 
 % TODO: what is feature importance analysis
 % TODO: rough ideas about what can be used to do this
 
-Machine learning techniques have ...
-
-In this, we used permutation importance and SHAP to evaluate the
-importrance of each feature
+In this, we use Spearman correlation and, permutation importance and
+SHAP to evaluate the importance of each feature.
 
 \subsection{Permutation Importance}
-
 \cite{altmannPermutationImportanceCorrected2010}
 
+model inspection technique that measures the contribution of each
+feature to a fitted model’s statistical performance on a given tabular dataset
+- Useful for non-linear model.
+
+The baseline score of the model $s$ on a certain dataset.
+For each feature in the dataset, the algorithm permuate the value of
+that feature with other rows to create a corrupted version of the
+dataset and run the model through that $K$ times.
+The feature importance is calculated as
+
+\begin{equation}
+    i_j = s - \frac{1}{K} \sum_{k=1}^{K} s_{k,j}
+\end{equation}
+
+% TODO: compare this with Mean decrease in impurity
+Mean decrease: bias high cardinality features over low cardinality
+features such as binary features, in this case is\_new
+
+One downside of this method is the importance is link with error of
+the model rather than how changing the feature would influence the
+performance of the model.
+
 \subsection{SHAP}
+SHapley Additive exPlanations (SHAP) is technique that measures the
+average magnitude of a feature's contribution to a model's
+predictions across a dataset based on cooperative game theory.
+Measure how each feature influence the outcome of the model.
+
+Explaining a generalized additive regression model
 % TODO: include a bit of math
 \cite{lundbergUnifiedApproachInterpreting2017}
 \cite{lundbergLocalExplanationsGlobal2020}
 
+We use Tree SHAP is a fast and exact method to estimate SHAP values
+for tree models and ensembles of trees
+
+\begin{equation}
+    \phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!\,(|F| -
+    |S| - 1)!}{|F|!} \left[ f_{S \cup \{i\}}\!\left(x_{S \cup
+    \{i\}}\right) - f_S\!\left(x_S\right) \right].
+\end{equation}
+The waterfall model shows the local Interpretability
+
+The Beeswarm works by aggregating local SHAP values from local mode
+to see the global trend.
+
 Figure ... shows the feature importance of the model trained on RF
-and LGBMTreeRegressor.
+and LGBMTreeRegressor.sd
 
 Afterward, we did train the models on reduce number of features from
 1 to 11. From that we choose the ... features, to reduce the size of
@@ -29,6 +88,16 @@ the tree significantly while trading the performance of the model minimally.
 \subsection{Feature Correlation}
 This is done before training the model to see which features are
 related to each other
+
+Pearson's correlation assesses linear relationships, Spearman's correlation assesses monotonic relationships (whether linear or not)
+
+ranking is the data transformation in which numerical or ordinal values are replaced by their rank when the data are sorted.
+The Spearman correlation coefficient is defined as the Pearson correlation coefficient between the rank variables.
+Instead of having numerical, we have rank
+
+% TODO: explain Pearson
+% TODO: justify why not using Pearson but Spearman
+% TODO: maybe include something
 
 Figure~\ref{fig:feature_dendrogram} and
 Figure~\ref{fig:feature_correlation} illustrates the ... respectively.
@@ -108,8 +177,11 @@ Which resulted in reducing ... \% in the performance.
     \end{tabular}
 \end{table}
 
-Afterward, we remove the lowest features subsequent and retrain the model to obtain new model performance on reduced training features until the MAEP is larger than 1\% of the best model.
+Afterward, we remove the lowest features subsequent and retrain the
+model to obtain new model performance on reduced training features
+until the MAEP is larger than 1\% of the best model.
 
 In the end, we removed ... features and keep ... features
 The performance of the new model is ..., resulting in ...
-This is a reasonable tradeoff between memory, computation and accuracy for constrained devices
+This is a reasonable tradeoff between memory, computation and
+accuracy for constrained devices
