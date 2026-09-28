@@ -97,7 +97,7 @@ def start_job(
             sys.executable,
             "pipeline.py",
             f"--duration={duration}",
-            "--is_simulate=False",
+            "--is_simulate=True",
             "--is_generate_topology=True",
             "--is_plot_metrics=True",
             f"--packet_size={PACKET_SIZE}",

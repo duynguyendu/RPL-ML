@@ -236,7 +236,7 @@ def random_positions(
     range_mul = 0.8
     for i in range(num_clients):
         # the first client only has the root to connect to; later ones need 2 neighbours
-        min_neighbours = min(3, len(positions))
+        min_neighbours = min(2, len(positions))
         for _ in range(max_attempts):
             x, y = (random.uniform(lower_x, upper_x), random.uniform(lower_y, upper_y))
             if all(
