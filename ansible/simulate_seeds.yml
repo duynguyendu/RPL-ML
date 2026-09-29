@@ -191,7 +191,7 @@
     - name: Report progress until simulate.py finishes
       ansible.builtin.shell: |
         log="{{ sim_log }}"
-        total=$(sed -n 's/.*(shard [0-9]*\/[0-9]*, \([0-9]*\)\/[0-9]* jobs).*/\1/p' "$log" 2>/dev/null | head -1)
+        total=$(sed -n 's/.*(shard [0-9]*\/[0-9]*, \([0-9]*\)\/[0-9]* jobs[,)].*/\1/p' "$log" 2>/dev/null | head -1)
         done_n=$(grep -c '\] DONE (' "$log" 2>/dev/null)
         failed=$(grep -c '\] FAILED (' "$log" 2>/dev/null)
         started=$(grep -c '\] START (' "$log" 2>/dev/null)

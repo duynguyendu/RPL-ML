@@ -11,7 +11,7 @@ is_train_model = False
 
 # topology config
 seed = 123456
-spacing = 40
+spacing = 25
 topo_type = "random"
 num_of_nodes = 60
 success_tx = 0.9
