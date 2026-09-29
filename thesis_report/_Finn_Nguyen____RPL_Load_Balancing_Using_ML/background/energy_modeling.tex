@@ -75,11 +75,12 @@ point, which can vary a lot in different situation.
 % ment is non-intrusive. We use the 32768 Hz clock divided
 % by 8, producing 4096 clock ticks per second
 
+% TODO: include energy per tick of RX is a lot bigger than CPU
 From the table, radio power is much more significant than MCU power.
 Since the removal of duty cycling layer in Contiki-NG in favor of
 TSCH, the energy consumption in CSMA mode is dominated by radio
-turning for the whole period.
+being on for the whole period.
 However, TSCH is a much more complicated and memory heavy algorithm
-for such old devices. Hence we opt for CSMA and use active CPU ticks
+for such old devices Sky and Z1. Hence we opt for CSMA and use active CPU ticks
 as intermediate value to measure the energy consumption relative to
 other nodes in the network.

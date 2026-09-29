@@ -41,10 +41,11 @@ radios until the next beacon to save energy.
 
 \section{\ieeemacE{} (TSCH)}
 The RFC 7554 ammended \ieeemacE{} with the addition of a new
-tightly synchronised media access control technique: Time-Slotted
+tightly synchronised MAC technique: Time-Slotted
 Channel Hopping (TSCH) \cite{rfc7554}. In a TSCH
 networks, time is cut into timeslots, which are combined as a
-slotframe, illustrated in Figure~\ref{fig:tsch}. % TODO: what is slot frame.
+slotframe. Additionally, TSCH utilises different channels for
+transmission at different time, illustrated in Figure~\ref{fig:tsch}.
 
 \begin{figure}
     \begin{center}
@@ -67,7 +68,12 @@ energy by not staying on during the whole slot.
 The specifation also include channel hopping, having a different
 frequency for each transmission. This means that successive
 transmission will go through different channel offsets, resulting in
-"channel hopping" % TODO: why channle hopping
+"channel hopping". The channel hopping is used to provide frequency diversity, reduce external interference and multipath fading
+Also ensure simutaneous communication of differnt channels
+
+Let chOf be the channel offset, assigned to a given link. The channel offset, chOf, is translated to a frequency f (i.e. a real channel) using:
+
+% TODO: include channel hopping math
 
 \ieeemacE{} does not define how to build or maintain the TSCH
 schedule, leaving the details up to the implementation and upper

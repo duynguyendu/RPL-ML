@@ -1,7 +1,5 @@
 \section{Routing Protocol for Low-Power and Lossy Networks (RPL)}
 
-% TODO: include image of the layers in RPL
-
 RPL is an distance-oriented vector routing protocol that builds a
 Destination-Oriented Directed Acyclic Graph (DODAG) over IEEE
 802.15.4 PHY/MAC layers and 6LoWPAN \cite{alexanderRPLIPv6Routing2012}.
@@ -18,30 +16,35 @@ degradation is detected.
 
 \subsection{Destination-Oriented Directed Acyclic Graph (DODAG)}
 RPL organises nodes under a DODAG, with the WSN's sink
-node often serving as the root of DODAG. In a multi-sink deployment,
+node often serving as the root of DODAG. A node forwards packets
+toward the root by relaying them to its
+parent, which in turn relays them further up the tree until they reach the root.
+In a multi-sink deployment,
 each sink node serves as the root of its own separate DODAG.
 Within a DODAG, each node maintains a rank value, which is an estimation of the
 distance between itself and the DODAG
 root. This value is used to determine a direct parent link, which
 must have a lower rank,
-creating a herarchy network toward the root, as illustrated in
-Figure~\ref{fig:dodag-example}. Within this
-hierachy, the root always has the lowest rank.
+creating a herarchy network toward the root as illustrated in
+Figure~\ref{fig:dodag-example}. This means that the rank are
+monotonic increasing and the root has the lowest rank in DODAG.
 
-% TODO: include how DODAG maintain loop free
-
-A node's rank is computed by an objective function (OF), which
-translates one or more metrics into rank. The RPL
-specification does not mandate a single OF for all applications,
-instead, RPL separates its core routing procedures --- packet
-forwarding and DODAG maintenance --- from route optimisation, leaving
-the choice of OF open to fit the diverse requirements of LLNs, such as
+A node's rank is computed by an objective function (OF). The OF
+converts one or more metrics into rank, and it also determines how a
+node selects its preferred parent. The RPL
+specification does not mandate a single OF for all applications.
+Instead, RPL separates its core routing operationg, such as DODAG
+construction and maintainance from from route optimisation, which is
+delegated to the OF. RPL also allows having multiple DODAGs in the
+samework, in which each
+DODAG would have a different OF for different purposes. This lets
+each deployment choose the OF that best fits its requirement, such as
 minimising energy consumption, reducing latency, or improving link
-quality. This separation is what gives RPL the flexibility to support
-such a wide range of applications, since a DODAG can be optimised for
-whichever metric best suits its deployment.
+quality.
+As a result, RPL can support a wide range of LLN applications without
+changing the protocol itself.
 
-\begin{fig}[H]
+\begin{fig}[ht]
     \begin{center}
         \includegraphics[width=0.6\textwidth]{assets/dodag.png}
         \caption{Example of a DODAG topology, showing nodes organised
@@ -51,51 +54,22 @@ whichever metric best suits its deployment.
 \end{fig}
 
 During DODAG construction, each node selects a parent from a pool of
-candidate parents: neighbouring nodes that have already joined the
-DODAG. The OF computes a candidate's resulting rank as
+candidate parents, which are neighbouring nodes that have already joined the
+DODAG. For each candidate parent $P$, the note $N$ computes the rank
+it would have if it chose $P$:
 \begin{equation}
     \mathit{Rank}(N) = \mathit{Rank}(P) + \mathit{Rank\_Increase}
 \end{equation}
-where $\mathit{Rank}(N)$ is the resulting rank of the node under consideration,
-$\mathit{Rank}(P)$ is the rank already advertised by the candidate parent $P$,
-and $\mathit{Rank\_Increase}$ is a positive value determined by the OF,
-representing the cost of using $P$ as a parent. Because
+where $\mathit{Rank}(N)$ is the resulting rank of the node $N$,
+$\mathit{Rank}(P)$ is the rank advertised by the candidate parent $P$,
+and $\mathit{Rank\_Increase}$ is a positive value computed by the OF
+that represents the cost of using $P$ as a parent. Because
 $\mathit{Rank\_Increase}$ is always positive, a node's rank strictly increases
-with each hop away from the root. The specific method used to compute
-$\mathit{Rank\_Increase}$ and how parent is selected depends on the OF in use,
+with each hop away from the root. How $\mathit{Rank\_Increase}$ is computed
+and how parent is selected depends on the OF in use,
 as discussed later in this chapter.
 
-% There are four identifiers to define and maintain a topology in RPL shown in
-% Table~\ref{tab:rpl-identifiers}.
-% with RPLInstanceID and DODAGID used
-% to identify a single DODAG in the network.
-% % TODO: talk a bit more about why we have that many identifiers
-%
-% % TODO: talk about local and global repair
-%
-% % TODO: how to include identifier smoothly
-% \begin{table}[h]
-%     \caption{RPL DODAG identifiers} \label{tab:rpl-identifiers}
-%     \begin{center}
-%         \begin{tabular}{@{}p{0.25\linewidth}p{0.65\linewidth}@{}}
-%             \hline
-%             \textbf{Identifier} & \textbf{Description} \\
-%             \hline
-%             RPLInstanceID & The identifier of an RPL Instance, which may
-%             span multiple DODAGs optimised for different applications. \\
-%             DODAGID & The identifier of a specific DODAG within an RPL
-%             Instance. \\
-%             DODAG\-Version\-Number & The version number of a DODAG,
-%             incremented by the root each time the DODAG is rebuilt to
-%             distinguish between versions. \\
-%             Rank & The estimated distance of a node from the DODAG
-%             root; a node closer to the root has a lower rank. \\
-%             \hline
-%         \end{tabular}
-%     \end{center}
-% \end{table}
-
-RPL introduces five types of control messages to form
+RPL introduces four types of control messages to form
 and control DODAG, as specified in ICMPv6 via RFC 6550
 \cite{alexanderRPLIPv6Routing2012}
 \begin{itemize}
@@ -117,11 +91,11 @@ To begin the DODAG forming process, the root node sends its DIO to
 its neighbouring nodes, carrying RPL indentifiers and any
 additional metrics required by the OF. Upon receiving DIO, a node
 compares its rank with the advertised rank and filters out ranks that
-are higher then its own to prevent loop formation, and then decides
+are higher then its own to prevent loop formation. Afterward, the node decides
 whether to join the advertised DODAG or not.
-In certain implementations, a node waits for several DIOs, building
+In certain implementations, nodes wait for several DIOs, building
 the pool of candidate parents before deciding.
-Afterward, the node computes the path cost of the
+After joining DODAG, the node computes the path cost of the
 corresponding link for each candidate and determines the preferred
 parent according the OF's policy.
 Once a parent has been selected, the node broadcasts its own DIO to
@@ -129,77 +103,113 @@ advertise itself to its neighbours. This process is repated
 outward through the network until every node has join the DODAG.
 % TODO: may include diagram of how DIO transmission work
 
-DIO is crucial in forming and maintaining DODAG, and DODAG requires
-periodic DIOs to repair and update the conditions of the DODAG.
-However, frequent DIO would be redudant in consistent network
-conditions, thus RPL employs Trickle timer to regulate the emission of DIO.
+DIOs are crucial in maintaining DODAG. Nodes send DIOs periodically to
+advertise their rank and routing metrics. Each time a node receives a
+DIO, it update the candidate parent set and
+recompute its rank through each candidate in the same way as when it
+first joined the DODAG. If the node switches its
+preferred parent or its rank changes, it sends a new DIO to spread
+the update down the DODAG. This lets the DODAG adapt as link
+conditions and traffic change.
+Despite that, frequent DIO would be redudant in consistent network
+conditions, thus RPL employs Trickle timer to regulate the emission
+of DIO based on network consistency.
 
-% TODO: talk more about DAO
-A node would send DAO message back to its parent or the root node to
-establish downward communication.
-In the DAO-ACK mode, a node wait
-for the root node to send back DAO-ACK
-before confirming that it is reachable and advertise DIO to surrounding nodes
+A node does not need to wait passively for a periodic DIO to join a DODAG.
+It can request DODAG information by broadcast a DIS message. The
+response depends on how the
+DIS is sent. If a neighbour receives a unicast DIS, it must reply with a
+unicast DIO and must not reset its Trickle timer. If a neighbour
+receives a multicast DIS, it resets its Trickle timer, so the node soon
+receives DIOs from all nearby DODAG members. When the node receives a
+DIO sent in response to its DIS, it processes the DIO in the same way
+as a periodic DIO.
 
-% TODO: talk more about DIS
-In addition for a node waiting to receive DIO to join DODAG, the node
-can send DIS message to request DODAG information. When surrounding
-nodes receive a DIS, it must unicast its DIO to that node, without
-effecting the Trickle Timer policy. After receiving the unicasted
-DIO, the node process the DIO as if it has receive a periodic DIO.
+When a node joins DODAG, it also sends a DAO to advertise that it can be
+reached downwardly. The DAO's destination depends on the Mode of
+Operation (MOP). In storing mode, the node sends the DAO to its
+preferred parent, and
+each parent stores the route and forwards the information further up
+the DODAG. In non-storing mode, the node sends the DAO directly to the
+root. The root then keeps the full set of downward routes and uses
+source routing to reach each node. A node can ask for an
+acknowledgement by setting a flag in its DAO. The receiver, which is
+the parent in storing mode or the root in non-storing mode, then
+replies with a DAO-ACK. If the node receives no DAO-ACK, it retransmits
+the DAO.
+
+% TODO: downward route?
+The downward are supported to P2MP and P2P route, in which the
+destination is not the root node. In this pattern, the node sends DAO
+to its preferred parent in a unicast manner
+
+% TODO: study the storing mode more
+In this pattern, the RPL specification defines two mode: storing mode
+and non-storing mode. In storing mode, the downward routing tables
+are included in each nodes
+However, in non-storing mode, the downward routing tables are stored
+only in the DODAG root. This means that P2P communication need to be
+forwarded to the root node, where the root would then formulate the
+routing path to the downward node.
+
+% TODO: clarify this
+The specification also opens option to specify DAO-ACK or not. A node
+would only consider reachable only after it has received the DAO-ACK.
+
+% TODO: include how DODAG maintain loop free
+\subsection{DODAG Maintainance}
+Local repair
+Poisonining
 
 % TODO: write more about trickle timer
 \subsection{Trickle Timer}
-Trickle Timer is a scheduling algorithm based on consistency model.
+Trickle timer is a scheduling algorithm based on consistency model.
 The algorithm is structured in a way that would promptly send out DIO
 during the formation process and would slow down when the DODAG has
 been stablised to reduce redundant DIO transmission \cite{rfc6206}.
 
 The Trickle timer does this by evaluating the consistency of the
-network message with its own state. However, the definition of
-inconsistencies is left
-for interpretation of the implementation. % TODO: give example of
-% inconsistencies in RPL
-In RPL specification, inconsistencies are defined as:
-These inconsistencies$I$ include join new DODAG
-version (e.g. new DODAGVersionNumber, new RPL instance, switching
-parent), when % TODO: does switching parent reset DIO
-nodes detect loop and additional inconsistencies according to the
-implementation.
-However, the specification leaves the implementation adds more
-inconsistencies type when needed
-
+network message with its own state.
 When the network information is consistent, it
 exponentially increases the transmission interval of DIO. However,
 upon detecting inconsistencies, trickle timer reset its send interval
 to boost DIO transmission to spread the latest information to the
 rest of the DODAG.
+However, the RPL standard does not fully define what counts as an
+inconsistency. It lists a minimum set of events that must restart the
+Trickle timer: joining a new DODAG version, receiving a multicast
+DIS; and detecting a routing loop or another inconsistency while
+forwarding a packet. The specification states that this list is not
+exhaustive and that implementations may treat other events as
+inconsistencies. Contiki-NG, for example, also resets Trickle timer
+when a node's rank change by more than a threshold.
 
+% TODO: I_max, specify that this is the doubling interval
 Trickle Timer employs three configuration
 parameters to determine the sending window of DIO: $I_{\mathrm{min}}$,
-$I_{\mathrm{max}}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params};
-and the maximum sending interval time
+$I_{\mathrm{max}}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params}.
+The maximum sending interval time
 $I_{\mathrm{max\_time}}$ is calculated as:
 \begin{equation}
     I_{\mathrm{max\_time}} = I_{\mathrm{min}} \times 2^{I_{\mathrm{max}}}
 \end{equation}
 
-% TODO: give an example
-
-Trickle timer set the initial sending interval $I$ in the range of
-$[I_{\mathrm{min}}, I_{\mathrm{max\_time}}]$, usually the initial interval is set to $I = I_{\mathrm{min}}$
-% TODO: read more about trickle timer
-The trickle timer will select a random time $t$ between $[I/2, I)$ as the
-sending interval. When Trickle detects a consistent message, it will
-increase the counter $c$,
-At the time $t$, if the value of $c$ is less than the
-redundancy constant $k$, the trickle transmits the message, otherwise
-it would suppress the transmission.
-After the interval $I$, Trickles double the time of the interval up
-to $I_{\mathrm{max\_time}}$ i.e. $I = \min(I \times 2, I_{\mathrm{max\_time}})$
-
-Upon detecting inconsistent messages, The interval $I$ is reset to
-$I_{\mathrm{min}}$ to increase the DIO sending rate.
+The Trickle algorithm controls the transmission interval $I$, which
+always stays within $[I_{\mathrm{min}}, I_{\mathrm{max}}]$. In RPL,
+the initial interval is usually $I = I_{\mathrm{min}}$.
+At the start of each interval, Trickle sets a counter $c$ to $0$. It
+then picks a
+transmission time $t$ uniformly at random from $[I/2, I)$. During the
+interval, $c$ increases by one each time the node hears a consistent
+message from a neighbour. At time $t$, the node transmits only if
+$c < k$, where $k$ is the redundancy constant. Otherwise, it suppresses
+the transmission. When the interval ends, Trickle doubles its length,
+up to the maximum:
+\begin{equation}
+    I = \min(2I,\ I_{\mathrm{max}})
+\end{equation}
+If the node detects an inconsistency while $I > I_{\mathrm{min}}$, it
+resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
 
 \begin{table}
     \caption{Trickle Timer Parameters}\label{tab:tricker_timer_params}
@@ -219,34 +229,6 @@ $I_{\mathrm{min}}$ to increase the DIO sending rate.
     \end{center}
 \end{table}
 
-\subsection{Communication Patterns}
-% TODO: probably combine this with DIO transmission and DAO transmission
-There are two types of communication patterns in RPL: upward route
-and downward route
-\subsubsection{Upward Route}
-A node forwards packets toward the sink by relaying them to its
-parent, which in turn relays them further up the tree until they reach the root.
-Since a parent's rank is always lower than its child's and the root
-rank is lowest, this process cannot get stuck in an endless cycle.
-
-\subsubsection{Downward Route}
-The downward are supported to P2MP and P2P route, in which the
-destination is not the root node. In this pattern, the node sends DAO
-to its preferred parent in a unicast manner
-
-% TODO: study the storing mode more
-In this pattern, the RPL specification defines two mode: storing mode
-and non-storing mode. In storing mode, the downward routing tables
-are included in each nodes
-However, in non-storing mode, the downward routing tables are stored
-only in the DODAG root. This means that P2P communication need to be
-forwarded to the root node, where the root would then formulate the
-routing path to the downward node.
-
-% TODO: clarify this
-The specification also opens option to specify DAO-ACK or not. A node
-would only consider reachable only after it has received the DAO-ACK.
-
 \subsection{OF0 and MRHOF}
 
 Up to now, the IETF ROLL working group has standardised only two
@@ -254,26 +236,27 @@ objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
 Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 
 % TODO: talk more about step of rank
-OF0 was developed to be a simple objective function that utilise step
+OF0 was developed to be a simple objective function that utilises step
 of rank, which is an intermediate computation based on link
-properties of a certain neighbour, which compute $\mathit{Rank\_Increase}$ as
+properties of a certain neighbour, and computes $\mathit{Rank\_Increase}$ as
 \begin{equation}
-    \mathit{Rank\_Increase} = (\mathit{Rf} \times \mathit{Sp} + \mathit{Sr}) \times \mathit{MinHopRankIncrease}
+    \mathit{Rank\_Increase} = (\mathit{Rf} \times \mathit{Sp} +
+    \mathit{Sr}) \times \mathit{MinHopRankIncrease}
 \end{equation}
 where $\mathit{Rf}$ (Rank Factor) is a small positive integer used to scale
 the step of rank; $\mathit{Sp}$ (Step of Rank) is an integer value
 representing hop count in
 abstract sense; and $\mathit{Sr}$ (Stretch of Rank) is used to inflate
 $\mathit{Rank\_Increase}$ for
-hysteresis preventing the OF from switching parents constantly.
-We can select
-OF0 parameters by
-selecting $\mathit{Rf} = 1$, $\mathit{Sp} = 1$ and $\mathit{Sr} = 0$, which reduces
-$\mathit{Rank\_Increase}$ to a simple fixed per-hop increment of 256. However,
-The specification of OF0 strongly recommend computing step of rank
+hysteresis, preventing the OF from switching parents constantly.
+We can select OF0 parameters by selecting $\mathit{Rf} = 1$,
+$\mathit{Sp} = 1$ and $\mathit{Sr} = 0$,
+which reduces $\mathit{Rank\_Increase}$ to a simple fixed per-hop
+increment of 256. However, the specification of OF0 strongly
+recommends computing step of rank
 from Expected Transmission Count (ETX) to avoid blind hop count
 measure, where it would select furthest
-node to reduce the number of hops, leading to noisy and lossy link
+node whose link might be noisy and lossy to reduce the number of hops.
 % TODO: Include Convert ETX to step of rank
 
 OF0 can be regarded as implicitly using hop count as
@@ -360,4 +343,3 @@ switch back and forth.
 % TODO: insert image for thundering herd
 
 % TODO: include other problems in load balancing as well
-
