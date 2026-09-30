@@ -140,7 +140,7 @@ def make_header(
         # ms and scaled to clock ticks in C (CLOCK_SECOND is platform-specific).
         # UL keeps the product from overflowing msp430's 16-bit int.
         send_interval_ms = round(config.packet_size * 8 * 1000 / bps)
-        return f"SEND_TICK={send_interval_ms}UL*CLOCK_SECOND/1000 DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
+        return f"SEND_TICK={send_interval_ms}UL*CLOCK_SECOND/1000 DAO_ACK={config.with_dao_ack} RAMP_UP_DURATION={config.ramp_up_duration} PACKET_SIZE={config.packet_size} RPL_OF={convert_rpl_of_to_int(config.rpl_of)} RPL_SUPPORTED_OF={rpl_of_symbol(config.rpl_of)} MLOF_CONF_MODEL={mlof_model_to_int(config.rpl_of)} MLOF_CONF_LOG_TRAINING_DATA={config.mlof_log_training_data} BUFFER_SIZE={config.buffer_size} METRIC_LOG_INTERVAL={config.metric_log_interval}"
 
     parameters = make_parameters(config.bps)
 

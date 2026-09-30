@@ -31,6 +31,8 @@ with_dao_ack = 0
 packet_size = 64
 rpl_of = "mhrof"
 metric_log_interval = 30
+# 1 = MLOF firmware logs training-data lines, 0 = compiled out
+mlof_log_training_data = 1
 
 OTHER_LOG = "NONE"
 RPL_LOG = "NONE"

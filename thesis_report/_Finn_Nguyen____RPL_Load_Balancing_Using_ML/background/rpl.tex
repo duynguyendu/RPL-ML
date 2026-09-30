@@ -103,6 +103,7 @@ advertise itself to its neighbours. This process is repated
 outward through the network until every node has join the DODAG.
 % TODO: may include diagram of how DIO transmission work
 
+% TODO: include the flexiblity of DIO, adding more metrics
 DIOs are crucial in maintaining DODAG. Nodes send DIOs periodically to
 advertise their rank and routing metrics. Each time a node receives a
 DIO, it update the candidate parent set and
@@ -229,13 +230,42 @@ resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
     \end{center}
 \end{table}
 
+\subsection{Routing Metric Specification}
+Node State and Attribute
+Node Energy
+Hop Count
+Link Throughput
+Link Latency
+Link Quality Level
+Link ETX
+Link Color 
+\subsubsection{Hop Count}
+\subsubsection{Expected Transmission Count (ETX)}
+ETX is calculated by:
+\begin{equation}
+    \mathit{ETX} = \frac{1}{D_t \times D_a}
+\end{equation}
+where $D_t$ is the probability that the receiving node receives the
+packet and $D_a$ is the probability that the transmitting node
+receives acknowledgement packet is successful. So ETX is the expected
+number of transmissions, including retransmissions, needed for a
+packet to be delivered and acknowledged.
+A perfect link has an ETX of $1$, and the ETX grows as the link becomes lossier.
+Most devices that run RPL do not support floating-point arithmeic, so
+ETX is represented as a fixed-point value.
+rfc6551 indicates that ETX of $1.0$ be $128$ and encoded using 16
+bits. For example, ETX $2.5$ would be represetned as
+Since ETX is a floating point number while devices RPL operates on do
+not generally support floating point arithmeic. The specifcation
+indicates that 128 would be 1.0 ETX, improving the performace with
+bitshift instead of expensive division.
+
 \subsection{OF0 and MRHOF}
 
 Up to now, the IETF ROLL working group has standardised only two
 objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
 Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 
-% TODO: talk more about step of rank
 OF0 was developed to be a simple objective function that utilises step
 of rank, which is an intermediate computation based on link
 properties of a certain neighbour, and computes $\mathit{Rank\_Increase}$ as
@@ -244,68 +274,39 @@ properties of a certain neighbour, and computes $\mathit{Rank\_Increase}$ as
     \mathit{Sr}) \times \mathit{MinHopRankIncrease}
 \end{equation}
 where $\mathit{Rf}$ (Rank Factor) is a small positive integer used to scale
-the step of rank; $\mathit{Sp}$ (Step of Rank) is an integer value
-representing hop count in
-abstract sense; and $\mathit{Sr}$ (Stretch of Rank) is used to inflate
-$\mathit{Rank\_Increase}$ for
-hysteresis, preventing the OF from switching parents constantly.
-We can select OF0 parameters by selecting $\mathit{Rf} = 1$,
-$\mathit{Sp} = 1$ and $\mathit{Sr} = 0$,
-which reduces $\mathit{Rank\_Increase}$ to a simple fixed per-hop
-increment of 256. However, the specification of OF0 strongly
-recommends computing step of rank
+the step of rank. $\mathit{Sp}$ (Step of Rank) is an integer value
+that represents the cost of the link to the parent, acting as an
+abstract hop count. $\mathit{Sr}$
+(Stretch of Rank) is an optional value that is used to inflate
+$\mathit{Rank\_Increase}$ so more neighbours qualify as feasible parents.
+With $\mathit{Rf} = 1$, $\mathit{Sp} = 1$ and $\mathit{Sr} = 0$,
+$\mathit{Rank\_Increase}$ becomes a fixed increment of $256$ per hop
+(the default $\mathit{MinHopRankIncrease}$) so OF0 behaves like a
+OF that uses pure hop-count metric. However, the OF0 specification strongly
+recommends deriving $\mathit{Sp}$
 from Expected Transmission Count (ETX) to avoid blind hop count
-measure, where it would select furthest
-node whose link might be noisy and lossy to reduce the number of hops.
-% TODO: Include Convert ETX to step of rank
+problem. With pure hop count, a node
+tends to choose the most distance reachable neighbour to minimise the
+number of hops, even when the link to that neighbour is noisy and lossy.
+The specification also limits $\mathit{Sp}$ to the range $[1, 9]$, so
+a candidate parent whose link is too costly cannot be selected.
 
-OF0 can be regarded as implicitly using hop count as
-routing metric. This mean that the traffic from OF0 follow the shortest path
-to root without considering any load balancing requirement.
-However, this also means that OF0 does not consider other link
-qualities such as latency, energy residual in its calculation as well
-as might choose worse off route but have the shortest hop count to root.
-This led to the introduction a more sophisticated MRHOF.
+% TODO: talke about the problem of OF0
 
-In contrast, MRHOF propose multiple thresholds call hysteresis for
-path cost and time
-. In path cost threshold, unless the
-potential node is better than the current parent by a threshold, it
-will stick with the current parent. However, after the time
-threshold, if that node is still better then the node will switch
-parent. This would allows a more stabilised DODAG. Additionally,
-MHROF allow choosing one from various metrics as the determing factor.
+In contrast, MRHOF uses multiple hysteresis to avoid unnecessary
+parent switches.
+A node only switches to a new candidate parent only if that
+candidate's path cost is lower than the current parent's by more than
+a threshold $\mathit{PARENT\_SWITCH\_THRESHOLD}$. Otherwise, it keeps
+its current parent.
+This prevents the node from switching back and forth when link
+metrics fluctuate slightly, and makes the DODAG more stable.
+It works with
+any additive metric, such as hop count, latency or ETX, and uses ETX by
+default. Other metrics such as energy or latency are transmissitted
+to other nodes in DIO.
 
-The default metric of MRHOF is Expected Transmission Count (ETX)
-metric. The main goal of ETX is to select routes with high end-to-end
-through put:
-\begin{equation}
-    \mathit{ETX} = \frac{1}{D_t \times D_a}
-\end{equation}
-where $D_t$ is the probability that the receiving node receives the
-packet and $D_a$ is the probability that the transmitting node
-receives acknowledgement packet is successful. So ETX is the average
-number of packets need to send and acknowledgement.
-Since ETX is a floating point number while devices RPL operates on do
-not generally support floating point arithmeic. The specifcation
-indicates that 128 would be 1.0 ETX, improving the performace with
-bitshift instead of expensive division.
-
-% TODO: what word to describe route need less packets TX
-In essense, using ETX as metrics focus on more transmission-efficient route.
-
-There are two thresholds in MRHOF, rank threshold and time threshold.
-The specification define $PARENT\_SWITCH\_THRESHOLD$ as the minimum
-path cost improvement before deciding to switch.
-There is time threshold, meaning that if a node consistently perform
-better but not more than the ETX threshold, it still switch.
-
-% TODO: include other metric container
-The specification also open the choices of the routing metrics to energy,...
-However, ETX is the more popular choice when it comes to MHROF.
-
-Thanks to the flexibility of DIO header option.
-% TODO: talk about the flexiblity of DIO
+% TODO: talk about problem of MRHOF
 
 \section{Load Balancing in RPL}
 Load balancing is an important issue in WSNs since devices are

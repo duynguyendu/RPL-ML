@@ -10,3 +10,7 @@ all:
         # cuda14: {}
         cuda13: {}
         cuda12: {}
+        cuda11: {}
+        cuda10: {}
+        cuda9: {}
+        cuda8: {}

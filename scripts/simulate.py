@@ -41,7 +41,7 @@ BASE_COOJA = "../rpl/contiki-ng/tools/cooja/"
 PLATFORM = "z1"
 TOPO_TYPE = "random"
 # topology types handled by topology_generator.generate_topology
-TOPO_TYPES = ["ring", "star", "grid", "tree", "line", "mesh", "sparse_grid", "random", "scatter"]
+TOPO_TYPES = ["grid", "random"]
 NODE_LIST = [30, 60]
 # offered load per client in bit/s (send interval = PACKET_SIZE * 8 / bps)
 BPS_LIST = [512, 384, 256, 128]
@@ -52,6 +52,8 @@ OVERLOADING_CLIENT_SEED_LIST = [999, 998]
 BUFFER_SIZE = 8
 DURATION = 1800
 PACKET_SIZE = 64
+# 1 = MLOF firmware logs training-data lines (MLOF_CONF_LOG_TRAINING_DATA)
+MLOF_LOG_TRAINING_DATA = 1
 
 
 def fmt_dur(seconds: float) -> str:
@@ -91,6 +93,7 @@ def start_job(
     overloading_seed: int,
     duration: int,
     topo_type: str,
+    mlof_log_training_data: int,
 ):
     log_dir = run_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +119,7 @@ def start_job(
             f"--overloading_client_seed={overloading_seed}",
             f"--base_output_dir={run_dir}",
             f"--build_dir_name={slot}",
+            f"--mlof_log_training_data={mlof_log_training_data}",
         ],
         stdout=log_f,
         stderr=subprocess.STDOUT,
@@ -173,6 +177,14 @@ def main() -> None:
         default=TOPO_TYPE,
         choices=TOPO_TYPES,
         help=f"Topology type for every job, forwarded to pipeline.py (default: {TOPO_TYPE})",
+    )
+    parser.add_argument(
+        "--mlof-log-training-data",
+        type=int,
+        default=MLOF_LOG_TRAINING_DATA,
+        choices=[0, 1],
+        help="Build firmware with MLOF_CONF_LOG_TRAINING_DATA=0/1, forwarded to "
+        f"pipeline.py (default: {MLOF_LOG_TRAINING_DATA})",
     )
     parser.add_argument(
         "--node-list",
@@ -267,7 +279,7 @@ def main() -> None:
     print(
         f"=== Writing runs to {run_dir} "
         f"(shard {args.shard_index}/{args.num_shards}, {len(my_jobs)}/{total_global} jobs, "
-        f"topo_type={args.topo_type}) ==="
+        f"topo_type={args.topo_type}, mlof_log_training_data={args.mlof_log_training_data}) ==="
     )
 
     if args.dry_run:
@@ -308,7 +320,7 @@ def main() -> None:
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
             proc = start_job(
                 slot, run_dir, num_nodes, bps, rpl_of, seed, ol_seed, args.duration,
-                args.topo_type,
+                args.topo_type, args.mlof_log_training_data,
             )
             active[slot] = (
                 proc,

@@ -71,9 +71,7 @@ def is_connected_to_server(
     return len(disconnected) == 0, disconnected
 
 
-def assert_connected(
-    motes: List[dict], tx_range: float, sparse_max_attempts: int = 20
-) -> None:
+def assert_connected(motes: List[dict], tx_range: float) -> None:
     """Assert that all motes are connected to the server under tx_range.
 
     Raises ValueError with the list of disconnected ids when not connected.
@@ -81,5 +79,5 @@ def assert_connected(
     ok, missing = is_connected_to_server(motes, tx_range)
     if not ok:
         raise ValueError(
-            f"Disconnected motes (by id): {missing} (max attempts: {sparse_max_attempts})"
+            f"Disconnected motes (by id): {missing}"
         )
