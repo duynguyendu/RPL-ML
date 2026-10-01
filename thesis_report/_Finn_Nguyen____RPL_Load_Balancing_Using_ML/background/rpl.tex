@@ -126,6 +126,7 @@ receives DIOs from all nearby DODAG members. When the node receives a
 DIO sent in response to its DIS, it processes the DIO in the same way
 as a periodic DIO.
 
+% TODO: include that each node mus do that to register downward route
 When a node joins DODAG, it also sends a DAO to advertise that it can be
 reached downwardly. The DAO's destination depends on the Mode of
 Operation (MOP). In storing mode, the node sends the DAO to its
@@ -230,36 +231,6 @@ resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
     \end{center}
 \end{table}
 
-\subsection{Routing Metric Specification}
-Node State and Attribute
-Node Energy
-Hop Count
-Link Throughput
-Link Latency
-Link Quality Level
-Link ETX
-Link Color 
-\subsubsection{Hop Count}
-\subsubsection{Expected Transmission Count (ETX)}
-ETX is calculated by:
-\begin{equation}
-    \mathit{ETX} = \frac{1}{D_t \times D_a}
-\end{equation}
-where $D_t$ is the probability that the receiving node receives the
-packet and $D_a$ is the probability that the transmitting node
-receives acknowledgement packet is successful. So ETX is the expected
-number of transmissions, including retransmissions, needed for a
-packet to be delivered and acknowledged.
-A perfect link has an ETX of $1$, and the ETX grows as the link becomes lossier.
-Most devices that run RPL do not support floating-point arithmeic, so
-ETX is represented as a fixed-point value.
-rfc6551 indicates that ETX of $1.0$ be $128$ and encoded using 16
-bits. For example, ETX $2.5$ would be represetned as
-Since ETX is a floating point number while devices RPL operates on do
-not generally support floating point arithmeic. The specifcation
-indicates that 128 would be 1.0 ETX, improving the performace with
-bitshift instead of expensive division.
-
 \subsection{OF0 and MRHOF}
 
 Up to now, the IETF ROLL working group has standardised only two
@@ -309,38 +280,71 @@ to other nodes in DIO.
 % TODO: talk about problem of MRHOF
 
 \section{Load Balancing in RPL}
-Load balancing is an important issue in WSNs since devices are
-expected to operate on battery for a long period of time. Some nodes
-are used more frequently than others, especially the nodes near the
-root, and exhaust their energy rapidly. These also includes when
-there is an imbalance the traffic rate between node, where certain
-nodes have higher data traffic than others e.g. videos or images,
-thus selecting one parent would exhaust the possible routes to the parent node.
+Load balancing is a core technique in distributed system. It spreads
+the work across several resources of the same type so that they are
+used efficiently and none of them is overloaded. In RPL, load
+balancing means spreading the forwarding load (the traffic that nodes
+relay toward the root) evenly across the nodes of the DODAG, so that
+no single node carries most of it \cite{pancarogluLoadBalancingRPLbased2021}.
 
-In this sense, load balancing is about distributing load from the
-leaf to root node so that the node within the same hop share the
-loads more evenly
+There are two problems that most often discussed in the context of
+load balancing in RPL: the hot-spot problem and thundering herd problem.
 
-These have to account for bursty traffic
+In hot-spot problem, some nodes are chosen as parents more often
+than others,
+especially those near the
+root. This happens because RPL uses a single preferred parent for all
+upward traffic and the standardised OFs tend to pick up the same "best" routes.
+Nodes on those routes carry a large share of the network's traffic
+and drain their batteries far faster than their neighbours. This
+problem also occurs when nodes generate different amounts of traffic. In
+some applications, a few nodes produce much higher traffic than the
+rest, for example nodes sending images or video. Thus selecting the
+same parent as those high-traffic nodes would exhaust the parent even faster.
+Beyond saving energy, balancing the load reduces congestion and queue
+overflow at hot spots, which lowers latency and raises the packet
+delivery ratio.
+% TODO: should I include example for hot-spot
+% TODO: this is a big claim,
 
-% TODO: define what is load balancing
-Despite that, RPL does not consider load balancing since it is
-oriented to handling
-low data traffic. Therefore, the network suffers in terms of latency,
-delivery ratio and energy consumption under imbalance load senerios.
+In the thundering herd problem, many nodes
+switch to the same newly attractive parent at the same moment and then
+switch back once it becomes overloaded, so their parent choices swing
+back and forth instead of settling. It usually starts
+when a new node joins the DODAG and announces itself in a DIO message. The
+new node carries no traffic yet, so it looks like an ideal parent, and many
+neighbouring nodes may switch to it at the same moment. This suddenly
+overloads the new node and leaves their previous parent almost idle. When
+the previous parent next sends a DIO, it advertises a low load and becomes
+the most attractive option again, so the nodes switch back as a group.
+Because every node reacts to the same information at the same time, this
+cycle can repeat indefinitely as illustrated by
+Figure~\ref{fig:thundering_herd}.
+The thundering herd problem reduces route stability, which generally
+leads to higher control overhead and wasted energy. This happens
+because every parent change is a topology change: it resets the Trickle
+timer and triggers additional DIO, DAO and DIS messages. Stability can
+therefore be measured by the number of control messages transmitted in the
+network, where a stable network sends fewer control messages, while an unstable
+one sends more.
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=0.9\textwidth]{assets/thundering_herd.png}
+        \caption{Example of thundering herd problem.}
+        \label{fig:thundering_herd}
+    \end{center}
+\end{fig}
 
-This is where OF0 and MRHOF fall short as they only consider one
+These two problems pose a trade-off that a solution must consider. A
+load-balancing mechanism that reacts too quickly to changes
+in load causes oscillation like the thundering herd effect, while one that
+reacts too slowly leaves hot spots in place. An effective design must therefore
+balance responsiveness against stability: it should spread traffic
+evenly while suppressing unnecessary parent switchs so that the DODAG
+remains stable.
+
+% TODO: write more about this
+OF0 and MRHOF fall short as they only consider one
 metric: hop count and ETX. This does not capture the different
 load of each node. Generally, ETX value does not change much when a
 node experience heavy load \cite{kimQURPLQueueUtilization2015}
-
-Another problem in load balancing is Thundering Herd problem, when a
-new node join the DODAG and advertise its existence. Since this node
-does not have any load, the neighbouring nodes would then choose this
-as their prefered parents, potentially overloading this node. While
-leaving their current parent free of load. When the current parent
-advertise itself, all the node would then switch, thus creating
-switch back and forth.
-% TODO: insert image for thundering herd
-
-% TODO: include other problems in load balancing as well

@@ -40,50 +40,78 @@ slot boundary. During the inactive period, nodes can turn off their
 radios until the next beacon to save energy.
 
 \section{\ieeemacE{} (TSCH)}
-The RFC 7554 ammended \ieeemacE{} with the addition of a new
-tightly synchronised MAC technique: Time-Slotted
-Channel Hopping (TSCH) \cite{rfc7554}. In a TSCH
-networks, time is cut into timeslots, which are combined as a
-slotframe. Additionally, TSCH utilises different channels for
-transmission at different time, illustrated in Figure~\ref{fig:tsch}.
+The IEEE 802.15.4e amendment introduced Time-Slotted Channel Hopping
+(TSCH), a tightly synchronised MAC mode for \ieeemacE{} networks, and
+RFC~7554 describes how TSCH is used in the context of IPv6-based
+low-power networks \cite{rfc7554}. In a TSCH network, time is divided
+into timeslots, and a group of consecutive timeslots forms a
+\emph{slotframe}, which repeats over time. In addition, TSCH
+transmits on different channels at different times, as illustrated in
+Figure~\ref{fig:tsch}.
 
 \begin{figure}
     \begin{center}
         \includegraphics[width=0.9\textwidth]{assets/TSCH.png}
     \end{center}
-    % TODO: rename this
     \caption{TSCH time slot visualisation.}\label{fig:tsch}
 \end{figure}
 
-A slot is long enough (typically 10ms) for a node to transmit data and
-for receiving node sending acknowledgement back, and sending and
-receiving must be done stricly within one slot.
-There are three actions that a node can do during a slot: transmit,
-receive or sleep. When a node have something to send, it waits until
-the start of a slot before sending. Nodes would sense the channel for
-incoming packets. If a node has not received anything for a period of
-time (smaller than the time slot), it goes to sleep to conserve
-energy by not staying on during the whole slot.
+A timeslot, typically 10\,ms long, is long enough for a node to
+transmit a frame and for the receiver to send back an
+acknowledgement, and both must finish within that slot. In each
+timeslot, a node either transmits, receives or sleeps. A node with a
+frame to send waits for a timeslot in which it is scheduled to
+transmit, and then starts sending at a fixed offset from the start of
+the slot. A node scheduled to receive turns on its radio shortly
+before the expected start of the frame. If no frame begins within
+this short guard time, it turns its radio off again for the rest of
+the slot to save energy.
 
-The specifation also include channel hopping, having a different
-frequency for each transmission. This means that successive
-transmission will go through different channel offsets, resulting in
-"channel hopping". The channel hopping is used to provide frequency diversity, reduce external interference and multipath fading
-Also ensure simutaneous communication of differnt channels
+% TODO: what is external interference and multipath fading in this case
+TSCH also uses channel hopping: successive transmissions over the
+same link use different frequencies. Hopping provides frequency
+diversity, which reduces the impact of external interference and
+multipath fading. Because each link is assigned a channel offset,
+several pairs of nodes can also communicate at the same time on
+different channels. Each timeslot is identified by the Absolute Slot
+Number (ASN), the total number of timeslots that have elapsed since
+the network started. Let $\mathit{chOf}$ be the channel offset
+assigned to a link. The frequency $f$ used for a transmission in that
+link is then
+\begin{equation}
+    f = F\left[(\mathit{ASN} + \mathit{chOf}) \bmod
+    n_{\mathit{freq}}\right],
+\end{equation}
+where $n_{\mathit{freq}}$ is the number of available channels (16 in
+the 2.4\,GHz band) and $F$ is a lookup table that maps an index to a
+physical channel. Since the ASN increases with every timeslot, the
+same link uses a different frequency each time it is scheduled, while
+the two nodes on the link always agree on which frequency to use.
 
-Let chOf be the channel offset, assigned to a given link. The channel offset, chOf, is translated to a frequency f (i.e. a real channel) using:
+TSCH avoids collisions through its schedule. Each transmission
+opportunity is a \emph{cell}, identified by a slot offset within the
+slotframe and a channel offset. In a \emph{dedicated} cell, only one
+transmitter is scheduled, so the transmission is free of contention.
+In a \emph{shared} cell, several nodes may transmit, and collisions
+are handled by a CSMA/CA-like backoff. As long as neighbouring links
+are assigned different cells, their transmissions do not interfere.
 
-% TODO: include channel hopping math
+% TODO: maybe talk a bit about 6TiSCH
+\ieeemacE{} specifies how a TSCH schedule is executed, but not how it
+is built or maintained. These tasks are left to higher layers. The
+6TiSCH working group of the IETF defines protocols for this purpose,
+such as the 6TiSCH Operation Sublayer (6top) and the Minimal
+Scheduling Function \cite{rfc9033}, and autonomous schedulers such as
+Orchestra \cite{duquennoy2015orchestra} derive the schedule locally
+from the routing topology.
 
-\ieeemacE{} does not define how to build or maintain the TSCH
-schedule, leaving the details up to the implementation and upper
-layer such as 6LoWPAN.
-
-Compare to CSMA/CA, TSCH is a much more complicated and orchestrated
-technique. It saves more energy general with the tradeoff of higher
-latency as nodes have to wait for time slot.
-
-% TODO: explain how TSCH avoid collision
+% TODO: probs talk more about this
+Compared with CSMA/CA, TSCH is more complex and requires network-wide
+time synchronisation. In return, it offers higher reliability and
+lower energy consumption, since nodes keep their radios on only in
+the timeslots in which they are scheduled. The cost is higher
+latency, because a node must wait for its next scheduled cell before
+it can transmit, so delay depends on the length of the slotframe.
 
 \section{IPv6 over Low-Power Wireless Personal Area Networks (6LoWPAN)}
 Before this, people used proprietary protocols and link-only solution

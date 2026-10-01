@@ -1,146 +1,374 @@
 \section{Review of RPL Objective Functions Load Balancing}
+\subsection{Routing Metric Specification}
+% TODO: review this subsection
+RFC~6551~\cite{rfc6551} standardises a set of routing metrics and
+constraints that RPL can use to compute paths. Each metric can be
+used either as a \emph{metric}, which the objective function
+optimises (for example, choosing the path with the lowest cost), or
+as a \emph{constraint}, which rules out nodes or links that do not
+meet a condition. The metrics fall into two groups: node metrics,
+which describe the state of a node, and link metrics, which describe
+the quality of a link between two nodes.
+
+\subsubsection{Node State and Attribute}
+The Node State and Attribute (NSA) object carries information about a
+node's state and capabilities. The standard defines two flags; the
+remaining bits are reserved, and optional fields can carry
+application-specific information. The \emph{A} (aggregation) flag
+shows that the node can act as a traffic aggregator. Routing traffic
+through such nodes lets data be combined before it is forwarded,
+which reduces the amount of traffic in the network and extends
+battery lifetime. The \emph{O} (overloaded) flag shows that the node
+is currently overloaded, so other nodes should avoid selecting it as
+a parent. RFC~6551 does not define what counts as overloaded so
+implementations may base it on various node metrics, for example, CPU
+usage, available
+memory, or queue occupancy.
+
+\subsubsection{Node Energy}
+The Node Energy (NE) object reports a node's power source
+(mains-powered, battery-powered, or energy-scavenging) and an
+estimate of its remaining energy, expressed as a percentage. It can
+be used as a constraint to prevent nodes with little energy left from
+being selected as parents, or as a metric that favours paths through
+nodes with more remaining energy, spreading energy use more evenly
+across the network.
+
+\subsubsection{Hop Count}
+The Hop Count object records the number of hops along the path from a node to
+the root. It is simple to compute and adds almost no overhead. However, it
+says nothing about link quality, so on its own it tends to favour long,
+unreliable links.
+
+\subsubsection{Throughput}
+The Throughput object reports the throughput of the links along a path, in
+bytes per second. It can be used to choose paths with enough capacity for
+the
+traffic they will carry.
+
+\subsubsection{Latency}
+The Latency object reports the delay along a path. It can be used as
+an additive metric (the total latency of the path) or as a
+constraint, for example to exclude paths whose latency exceeds a
+delay bound required by the application.
+
+\subsubsection{Link Quality Level}
+The Link Quality Level (LQL) is a coarse measure of link reliability,
+encoded as an integer from 0 to 7. A value of 0 means the quality is
+unknown, 1 is the highest-quality link, and 7 the lowest. How the
+level is computed is left to the implementation; it may be derived
+from, for example, the packet error rate or the received signal strength.
+
+\subsubsection{Expected Transmission Count (ETX)}
+The Expected Transmission Count (ETX)
+number of transmissions, including retransmissions, needed to deliver a
+packet
+over a link and receive its acknowledgement. It is calculated as
+\begin{equation}
+    \mathit{ETX} = \frac{1}{D_f \times D_r},
+\end{equation}
+where $D_f$ is the forward delivery ratio, the probability that a packet is
+received by the neighbour, and $D_r$ is the reverse delivery ratio, the
+probability that the acknowledgement is received by the sender. A perfect
+link
+has an ETX of $1$, and the ETX grows as the link becomes lossier.
+
+The constrained devices that run RPL usually lack hardware support
+for floating-point arithmetic, so RFC~6551 encodes ETX as a 16-bit
+fixed-point value scaled by 128. An ETX of $1.0$ is therefore
+represented as $128$, and an ETX of $2.5$ as $320$. Because 128 is a
+power of two, converting between the encoded and real values only
+requires a 7-bit shift, not a costly division.
+
+\subsubsection{Link Colour}
+The Link Colour object is a 10-bit field that an administrator can
+use to mark links with particular properties. Traffic of a given type
+can then be steered towards, or away from, links of a certain colour,
+for example to keep critical traffic on encrypted links.
+
+% TODO: make this more standout and not a part of link colour
+Of these metrics, latency and link colour are rarely used in
+practice. Latency is hard to measure accurately on constrained
+devices, because it requires timestamping or clock synchronisation,
+and it changes with traffic load. Link colour has no meaning unless
+an administrator configures it, which conflicts with the
+self-organising nature of most RPL deployments. In contrast, hop
+count and ETX are widely used, as they form the basis of RPL's two
+standard objective functions, OF0 and MRHOF.
+
+\subsection{Load Balancing Objective Function}
 Various objective functions have been proposed, which can be
 categorised into 4 groups: single metric, composite and context aware.
 
 OF0 and MRHOF fit into single metric category.
 
 % TODO: maybe include more OF0 and MRHOF evaluation
-\cite{pradeskaPerformanceAnalysisObjective2016} evaluate  the
+\cite{pradeskaPerformanceAnalysisObjective2016} evaluate the
 performance of OF0 and MRHOF in COOJA Contiki
 Additionally, ... evaluates the performance of the standardised OFs
 and find performance of OF0 degrade upon increasing load
 
-In \cite{kimQURPLQueueUtilization2015}, the authors argues that most
-of the packet losses are due to queue loss. Thus they proposed QU-RPL
---- an objective function that uses queue utilisation metric
---- to avoid queue overflow from parents with little free queue.
-In addition to  a new routing metric, they also
-modified the trickle timer to reset when a node experiences
-consecutive queue losses for timely repair when links degrade. With
-the changes, they achive lower queue
-loss ratio and a more balance tree.
-% TODO: wording
-However, only queue metrics are
-taken into consideration without taking hop count or ETX into
-account, thus choosing parents that are free but lead to losses in
-delivery ratio.
+Kim et al.~\cite{kimQURPLQueueUtilization2015} observe that most
+packet losses in heavy traffic networks are caused by queue overflow
+rather than by link failures. Based on this observation, they propose
+QU-RPL, a queue-utilisation-based extension of RPL. In QU-RPL, nodes
+advertise their queue utilisation factor, which is defined as
+\begin{equation}
+    Q(k) = \frac{\text{Number of packets in queue}}{\text{Total queue size}}
+\end{equation}
+where $Q(k)$ is the queue utilisation factor of node k. The $Q(k)$ is
+smoothed using
+EWMA filter for statiscal calculation. A node uses
+this queue utilisation information from DIO messages together with
+hop count to move away from parents whose queues are nearly full
+while guiding nodes to select parent that is closer to root.
+QU-RPL also changes the Trickle timer so that a node resets its timer
+after several consecutive queue losses. This allows a node to
+advertise its congestion quickly, and its neighbours can adapt their
+parent choices without waiting for the next scheduled DIO. With these
+changes, QU-RPL achieves a lower queue loss ratio and a more balanced
+routing tree than standard RPL. However, the parent decision depends
+mainly on queue utilisation and gives little weight to link quality.
+A node may therefore move to a parent with a free queue but a poor
+link, which avoids queue loss at the cost of more link-layer losses
+and a lower packet delivery ratio.
+% TODO: reconsider the limitations
 
-A new objective function OF-FL is presented in
-\cite{gaddourOFFLQoSawareFuzzy2014}, which employs fuzzy logic with
-four metrics with the aim of supporting various application requirements.
-The authors used four metrics hop count, end to end delay, battery
-level and ETX to categorise link quality. Each metric follows fuzzy
-logic and indicate link quality from awful to excellent. The
-simulation results show that OF-FL achieve higher PDR while
-conserving more energy. Despite that, the process of encoding each metrics
-into quality label is done manually and subject to the biases of the
-doers. % TODO: more about limitation in this
+% TODO: check the wording below
+Gaddour et al.~\cite{gaddourOFFLQoSawareFuzzy2014} propose OF-FL, an
+objective function that uses fuzzy logic to combine several routing
+metrics, so that RPL can support applications with different
+requirements. OF-FL considers four metrics: hop count, end-to-end
+delay, ETX and remaining battery level. Each metric is mapped onto
+linguistic labels through membership functions, and a set of fuzzy
+rules combines these labels into an overall quality for each
+candidate parent, ranging from awful to excellent. Simulation results
+show that OF-FL achieves a higher packet delivery ratio and lower
+energy consumption than the standard objective functions. However,
+OF-FL has several limitations. Its membership functions and rule base
+are designed by hand, so they may reflect the designers' biases. They
+are also fixed when the system is deployed and cannot adapt when
+network conditions or traffic patterns change, so values tuned for
+one scenario may perform poorly in another. In addition, the rule
+base grows quickly with each new metric or label, which makes it hard
+to add further metrics.
 
-The authors presents Energy-Aware Objective Function (EAOF) for
-healthcare monitor application in
-\cite{abreuEnergyawareRoutingBiomedical2014}. Biomedical sensor nodes
-are small and operate on battery-powered. Traditional routing methods
-tend to choose most reliable route, meaning that a small number of
-routes are selected, thus deplete enegy faster. In this paper, they
-avoid such problem and achieve a more balance energy usage through
-utilising ETX and remaining energy, indicating how much battery power
-each potential forwarding node has left. EAOF trades a small
-reduction in packet reception for better energy balance and longer
-network lifetime.
-% TODO: what is the limitation
+Abreu et al.~\cite{abreuEnergyawareRoutingBiomedical2014} propose the
+Energy-Aware Objective Function (EAOF) for healthcare monitoring
+applications, where energy efficiency is a primary concern. Conventional
+objective functions favour the most reliable routes, which lead to
+hot spots and drain batteries of those nodes quickly. EAOF addresses this by
+combining ETX
+with the remaining energy of each candidate parent, so that paths
+through nodes with more battery left are preferred. EAOF accepts a
+small reduction in packet reception in exchange for more balanced
+energy consumption and a longer network lifetime. Its main limitation
+is that remaining energy is a lagging indicator of load. A node's
+battery level falls slowly and reflects the traffic it has already
+forwarded, not the traffic it is forwarding now. EAOF therefore
+reacts only after an imbalance has already used up energy, and it
+cannot detect short-term congestion such as queue overflow at a
+heavily loaded parent. Early in the network's life, when all nodes
+have similar energy levels, EAOF behaves much like an ETX-based
+objective function, so hot spots can still form.
 
-% TODO: finish the below
-The authors in \cite{taghizadehCLRPLContextAwareLoad2018} proposed
-Context-Aware and Load Balancing RPL (CLRPL). They introduced a new
-metric called Context-Aware Routing Metric (CARM), which considers
-queue utilisation and the percentage remaining power of a entire
-parents' chain from root the the node instead of the immediate
-parent. CARM would cnosider low-power parent but high-power overall
-route instead of rejecting it like energy of a single parent.
-% TODO: include limitation of this
+Taghizadeh et al.~\cite{taghizadehCLRPLContextAwareLoad2018} propose
+Context-Aware and Load Balancing RPL (CLRPL). Its objective function
+uses an energy index that covers the entire chain of parents up to
+the root, not only the immediate parent. The index is computed
+recursively, and a decay factor reduces the influence of each node
+farther up the chain, so a depleted node affects
+the nodes below it only weakly. The rank is then computed by this
+energy index with the ETX to the parent. Finally, CLRPL combines the
+rank with the Context-Aware Routing Metric (CARF) --- a queue
+utilisation metric along the parent chain in the same recursive,
+decaying calculation as energy index ---
+to select the best parent. The authors explicitly separate queue
+utilisation from the rank computation as a node's rank is set when it
+switches parent while queue occupancy changes from second to second.
+To avoid the thundering herd problem, a node does not advertise its
+real rank immediately. It first advertises the highest rank among the
+DIOs it has received and then lowers the advertised value step by
+step, once per DIO interval, until it reaches its real rank. As a
+result, neighbouring nodes do not all switch to a node that suddenly
+advertises a low rank.
+Simulations shows that CLRPL produces a more balanced DODAG with
+smaller subtrees' size, which reduce congestion, packet loss and
+number of parent changes.
+However, CLRPL is evaluated with MAC duty cycling disabled, so every
+node's radio stays on for the whole simulation. Because the radio
+accounts for most of a node's energy consumption, and idle listening
+uses about as much power as receiving, every node spends energy at
+nearly the same rate however much traffic it forwards. As a result,
+the energy index is likely to vary little between nodes. The
+energy-aware part of the rank then has little effect on parent
+selection, and the reported improvements probably come mainly from
+ETX and queue utilisation.
 
-\cite{liuLoadBalancedRouting2013} introduces LB-RPL. While still
-considering communication quality, LB-RPL add two mechanisms:
-A node would keep the table of top k parents and have proability of
-forwading a packet i to node j through the equation.
-And node with higher buffer utilisation delay their DIO message,
-avoiding neighouring nodes select it as the parent. In the
-simulations, they achieve better PDR, reduce latency and
-substaintially reduce the workload of nodes near the root. Despite
-that, forwading a packet to two parents duplicate the traffic while
-only achieve same throughput.
-calculate the load differences between parents to make parent switch
-decision. % TODO: more on this
+\cite{liuLoadBalancedRouting2013} propose LB-RPL, which adds two
+load-balancing mechanisms to RPL while still taking link quality into
+account. First, each node keeps a table of its top $k$ candidate
+parents and spreads its traffic across them, not sending everything
+through a single preferred parent. Each packet is forwarded to parent
+$j$ with probability
+\begin{equation}
+    f_{j} = \frac{(1 - p_{j}^{c})}{\sum_{j=1}^{k} (1 - p_{j}^{c})}.
+\end{equation}
+where $p_j$ is % TODO: what is this
 
-\cite{homaeiLoadBalancingIoT2025} uses learning automaton (LA) inear
-Reward-Penalty (L\_R-P) updating scheme. Utilising traffic index, hop
-count to root and remaining energy level. Reward the parent for
-successful transmission. Also update the Trickle Timer to increase
-DIO transmission when traffic is low.
-% TODO: talk about this
+Second, a node signals its workload by delaying its DIO messages in
+proportion to its buffer utilisation. Heavily loaded nodes therefore
+advertise themselves later than lightly loaded ones and are less
+likely to be selected as parents by their neighbours. Because this
+signal is carried by the timing of existing messages, it adds no
+extra control overhead. In simulation, LB-RPL achieves a higher
+packet delivery ratio and lower latency than standard RPL, and it
+substantially reduces the workload of nodes near the root. However,
+Delaying DIOs as a signal of load can slow down the propagation of
+routing information and delay route repair in the congested parts of
+the network.
 
-Weighted Random Forward RPL (WRF-RPL) was propsoed in
-\cite{acevedoWRFRPLWeightedRandom2021}, which would select parents
-randomly based on weighted score % TODO: more about this
-They would set $Rank\_Increase$ to fixed 1 thus making the rank hop
-count to root. They use node's remaining energy for the parent's
-weight calculation. Nodes with higher weights are more likely to be
-selected to forward packets, however, nodes with low weights can
-still be selected, albeit with lower chance. This spreads traffic,
-reduce congestion and avoids repeatedly using a single relay node.
-The author note that the performance of the OF depends on the
-topology, network with more imtermediate nodes are able to spread the
-load more evenly compared to leaf-dominant network.
+Homaei et al.~\cite{homaeiLoadBalancingIoT2025} propose LALARPL,
+which uses learning automata to spread traffic across several
+parents. Each parent advertises a Traffic Index (TI), which measures
+how much of its capacity is being used, along with its hop count and
+remaining energy, in extended DIO messages. Using this information,
+each node builds a small set of candidate parents, and nodes that are
+nearly out of energy are excluded. For each packet, a learning
+automaton chooses a parent from this set based on the parent's
+traffic index and the parent's hop count relatively the all nodes in the set:
+$$
+P_i = \alpha \frac{1/\mathrm{numhop}i}{\sum{j=1}^{N}
+1/\mathrm{numhop}j} + (1-\alpha)\frac{T_i}{\sum{j=1}^{N} T_j}
+$$
+
+Parents periodically reply with an acknowledgement carrying their
+current TI. A parent is
+rewarded if its TI is low compared with the other parents in the set
+and penalised if it is high, so over time nodes learn to prefer
+lightly loaded parents. LALARPL also lengthens the Trickle interval
+when traffic is heavy, which reduces control overhead during
+congestion. In simulation, LALARPL improves packet delivery ratio,
+throughput and delay compared with several other load-balancing
+protocols. However, it has several limitations. The reward depends
+only on how heavily each parent is loaded, not on link quality ,
+while lost packets give no feedback at all. In addition,
+the design relies on many hand-tuned thresholds and weights, and the
+paper does not examine how sensitive the results are to these
+choices. Finally, uses traffic rates much higher than those of
+typical WSN deployments.
+The papers does not evaluate the network overhead of adding new
+fields to DIO and the cost of ACK from parents
+
+Acevedo et al.~\cite{acevedoWRFRPLWeightedRandom2021} propose
+Weighted Random Forward RPL (WRF-RPL), an objective function that
+spreads traffic by choosing the next hop at random according to a
+weighted score, not always using the single best parent. WRF-RPL sets
+the $\mathit{Rank_Increase}$ to a fixed value of 1, so a node's rank
+equals its hop count to the root. Every neighbour with a lower rank
+is therefore a candidate parent that moves the packet one hop closer
+to the root. Each candidate is given a weight based on its remaining
+energy, and the next hop is drawn at random in proportion to these
+weights
+Weights are calculated as P\_remaining energy * parent count
+. Nodes with more remaining energy are therefore more likely
+to be chosen. Nodes with less energy can still be selected, but less
+often, so no single relay is used all the time. This spreads traffic
+across the available parents, reduces congestion and prevents any one
+relay from being used repeatedly. The authors note that how well
+WRF-RPL performs depends on the topology. Networks with many
+intermediate nodes offer more candidate parents and can therefore
+spread the load more evenly, whereas in networks made up mostly of
+leaf nodes there are few alternatives to choose from. WRF-RPL also
+has other limitations. Because rank is based only on hop count, the
+protocol ignores link quality and may forward traffic over lossy
+links, which increases retransmissions. Like EAOF, it relies on
+remaining energy, which changes slowly, so it cannot react to
+short-term congestion such as queue overflow at a parent. Finally,
+because the next hop is chosen at random, packets from the same
+source can take different routes and arrive with variable delay.
 
 In recent, there has been many attempts to employ machine learning
 into OFs. Despite that, most of the new application of ML in RPL
 focues on reinforcement learning
 with little focus on supervised learning
 
-In \cite{duenassantosQRPLQLearningBasedRouting2024}, the authorse
-puts Q-Learning to OF, award the model when a packet is trasmitted
-successfully and penalise when choosing a link that lead to packet
-loss. The model learns from real packet outcomes rather than from a
-pre-trained model. The reward scheme is based on the number of
-transmission to the next hop. Nodes start by selecting parent at
-random and then gradually shifts to best-known parent. Additionally,
-each node also advertises its Q-value in DIO to neighouring nodes.
-In addition to that, the authors also use ETX and RSSI to break ties
-between parents and filter unsuitable nodes.
-The model performance settles after roughtly 2-3 hours.
-Yet, the paper did not include memory or model overhead analysis or
-the cost of exploration when the model first starts learning.
+Dueñas Santos et al.~\cite{duenassantosQRPLQLearningBasedRouting2024}
+propose Q-RPL, which brings Q-learning into the objective function.
+In Q-RPL, each node learns a value for each of its candidate parents
+from the actual outcome of the packets it sends, not from a model
+trained in advance. When a transmission succeeds, the agent receives
+a reward based on the number of transmissions needed to reach the
+next hop. When choosing a parent leads to packet loss, the agent is
+penalised. Nodes begin by selecting parents at random to explore
+their options, and then gradually shift towards the parent with the
+highest learned value. Each node also includes its Q-value in its DIO
+messages, so neighbouring nodes can take it into account when
+selecting their own parents. In addition, ETX and RSSI are used to
+filter out unsuitable candidates and to break ties between parents
+with similar values. The authors report that the learned behaviour
+settles after roughly two to three hours of operation. However, this
+long convergence period is itself a limitation. While the agent is
+exploring, nodes may select poor parents, which leads to packet loss
+and wasted energy. The paper does not measure this cost, and it does
+not report the memory or computational overhead of running Q-learning
+on constrained devices. Moreover, because the reward depends only on
+the number of transmissions to the next hop, it mainly reflects the
+quality of each link. It does not directly capture congestion or load
+at the parent, so Q-RPL is not designed specifically for load balancing.
 
-\cite{faragCongestionAwareRoutingDynamic2021} buils upon
-\cite{kimQURPLQueueUtilization2015} by incorperating reinforcement learning
-, similar to ... argues that most of the losses are from queue loss.
-Using reinforcement learning to select parent with less full queue
-Additionaly, the author employs softmax parent selection strategy,
-which choose parents based on weights to avoid Thundering Herd Problem.
-The evaluation is done in Monte Carlo simulations in MATLAB instead
-of standard network simulator.
-Not really Q-learning, the update does not have discount factor. And
-tested on very heavy traffic 30-120 packets per minute per node.
+Farag and Stefanović~\cite{faragCongestionAwareRoutingDynamic2021}
+build on QU-RPL~\cite{kimQURPLQueueUtilization2015} by adding
+reinforcement learning. Like Kim et al., they argue that most packet
+losses in RPL networks under heavy traffic are caused by queue
+overflow. Each node therefore learns to prefer parents whose queues
+are less full. To avoid the thundering herd problem, the authors use
+a softmax strategy to select parents. Instead of always choosing the
+parent with the highest learned value, a node selects each candidate
+with a probability that increases with its value. This stops many
+nodes from switching to the same parent at the same time. The
+approach has several limitations. Although it is described as
+reinforcement learning, the update rule has no discount factor, so
+each value reflects only the immediate outcome of choosing that
+parent and not future rewards. This makes the method closer to a
+multi-armed bandit than to full Q-learning. The evaluation also uses
+Monte Carlo simulations in MATLAB and not a standard network
+simulator such as Cooja or ns-3. It therefore leaves out realistic
+models of the radio, MAC layer and Trickle timer, and of RPL's
+control traffic. Finally, the method is tested only under very heavy
+traffic, from 30 to 120 packets per minute per node, so its behaviour
+under the light-to-moderate loads typical of many WSN deployments is unknown.
 
-\cite{sangeethaFederatedLearningBasedParent2025} employs federated
-learning to train the weights on fly and update the optimal weight
-through DIO messages.
-The model predicts the energy cost of routing through each candidate
-parent and picks the lowest.
-They use deep learning MLP as the model.
-The model takes in four inputs ETX, hop count, residual energy and delay)
-Report they have better energy consumption and network lifetime than
-OF0 and MHROF.
-Each node learn from the data and send the weights to the root node.
-The root node then compile and put all of them together before
-forwading it to each nodes in the network.
-The energy is measured by measureing the Python running time and map
-it to Sky mote energy usage.
-However, the objective function wasted using Cooja mote in Cooja
-simulator, which is compile and run on host machine without
-constrained on device computational power or memory. They claim of
-using ContikiMAC duty cycling with Contiki-NG without mentioning they
-port the mode, which contradict our finding about Contiki-NG.
+Sangeetha et al.~\cite{sangeethaFederatedLearningBasedParent2025} use
+federated learning to train a parent-selection model while the
+network is running. The model is a multilayer perceptron (MLP) that
+takes four inputs (ETX, hop count, residual energy and delay) and
+predicts the energy cost of routing through each candidate parent,
+and the node selects the parent with the lowest predicted cost. Each
+node trains the model on its own local data and sends the updated
+weights to the root. The root combines the weights from all nodes
+into a global model and sends it back to the network in DIO messages.
+The authors report lower energy consumption and a longer network
+lifetime than OF0 and MRHOF. However, several aspects of the
+evaluation raise doubts about whether the method would work on real
+devices. First, the experiments use the Cooja mote type, which
+compiles the firmware for the host machine and runs it natively. Code
+running on Cooja motes is therefore not limited by the processing
+power or memory of real sensor hardware, so the results do not show
+that the MLP can be trained or run on a constrained device. Second,
+the energy cost of the learning is not measured on the device. It is
+estimated by timing the Python implementation and mapping that time
+to the energy profile of a Tmote Sky. This mapping does not account
+for the very different speed of the two platforms or for the lack of
+floating-point hardware on the mote. Third, the authors state that
+they use ContikiMAC duty cycling with Contiki-NG. ContikiMAC is not
+part of Contiki-NG, which provides only CSMA and TSCH at the MAC
+layer, and the paper does not say whether ContikiMAC was ported. This
+makes the reported energy results difficult to interpret and to
+reproduce. Finally, sending model weights in DIO messages increases
+the size of control messages and the overhead of each model update.
+This is significant on IEEE 802.15.4 links, where frames are limited
+to 127 bytes.
 
 However, we found out that there are little researches on applying
 supervised machine learning model in RPL. To our best knowledge,
@@ -149,33 +377,70 @@ We found a research group
 that proposed using machine learning techniques to predict the chance
 of packet forwarding successfully on each hop.
 
-In RPL+, the authors
-used Decision Tree to perform feature importance evaluation with
-six metrics ETX, channel utilisation, density, through put, queue
-utilisation and MAC losses on data gathered hop by hop from
-simulation \cite{duenassantosRPLImprovedParent2022}. They set
-the $\mathit{Rank\_Increase}$ fixed to 1, which can be regarded as hop count,
-and use the feature
-importance as coefficients in linear equation and select parent with
-the lowest score. Even though they improve the performance of PDR and
-delay, the random forest model is only for feature importance
-analysis and the training data only consider the success chance of
-forwarded by one hop instead of the whole path. Additionally, having
-fixed $\mathit{Rank\_Increase}$ means that the OF would select
-parents with the shortest hop count.
+Dueñas Santos et al.~\cite{duenassantosRPLImprovedParent2022} propose
+RPL+, which uses machine learning to choose the metrics that drive
+parent selection. The authors collect per-hop data from simulations
+and use a decision tree to rank the importance of six candidate
+metrics: ETX, channel utilisation, node density, throughput, queue
+utilisation and MAC-layer losses. The resulting importance scores
+become the coefficients of a linear equation that combines these
+metrics into a single score for each candidate parent, and the node
+selects the parent with the lowest score. The
+$\mathit{Rank\_Increase}$ is fixed at 1, so a node's rank equals its
+hop count to the root. RPL+ improves the packet delivery ratio and
+end-to-end delay compared with standard RPL. However, it has several
+limitations. The machine-learning model is used only offline, to
+estimate how important each metric is. It plays no part in the
+decisions nodes make while the network is running. The resulting
+weights are fixed after deployment and cannot adapt to new
+conditions, and a linear combination cannot capture interactions
+between metrics. In addition, the training data record only whether a
+packet was delivered over a single hop, not whether it reached the
+root. The model therefore learns what makes a good next hop, but not
+what makes a good path. Finally, because rank is reduced to hop
+count, it no longer carries any information about link quality or
+load. This information cannot propagate down the DODAG, so a node's
+choice of parent ignores the state of the path beyond that parent. It
+also restricts each node to candidates exactly one hop closer to the
+root, so the protocol favours the shortest routes even when a
+slightly longer one would be less loaded.
 
-In \cite{mezherGNBRPLGaussianNaive2023}, the research group train a
-Naive Bayes classifier to predict the probability of a packet is sent
-successfully or not on the same training feature as RPL+. This assume
-that the distribution of the features fall into Gaussian distribution
-In this paper, they train on more data and integrate the model into
-the OF. However the evaluation lacks consideration for OF0.
+Building on RPL+, Mezher et al.~\cite{mezherGNBRPLGaussianNaive2023}
+propose GNB-RPL, which uses a Gaussian Naive Bayes classifier to
+predict the probability that a packet will be delivered successfully
+to a candidate parent. The classifier uses the same features as RPL+.
+Unlike RPL+, which used machine learning only offline to weight the
+metrics, GNB-RPL is trained on a larger dataset and runs the
+classifier inside the objective function itself, so that parent
+selection is based directly on the predicted probability of delivery.
+However, the model rests on two strong assumptions. The Gaussian form
+assumes that each feature follows a normal distribution, but metrics
+such as ETX and queue utilisation are bounded and often skewed. The
+naive Bayes form assumes that the features are independent of one
+another, although several of them are clearly related, such as ETX
+and MAC-layer losses, or channel utilisation and node density. When
+these assumptions do not hold, the predicted probabilities may be
+poorly calibrated. GNB-RPL also inherits RPL+'s focus on single-hop
+delivery, so it predicts whether a packet will reach the next hop,
+not whether it will reach the root. Finally, the evaluation does not
+include OF0, so it is unclear how GNB-RPL compares with the simplest
+standard objective function.
 
-Subsequently, the group proposed ML-RPL, using CatBoost model to
-learn from eight metrics namely hop count, ETX, MAC losses, density,
-channel utilisation, throughput, queu utilisation and RSSI
-\cite{santosMLRPLMachineLearningBased2023}. Similar to previous
-researches, this model predicts the predict the probability of
-successfull one hop transmission. The evaluation of the results lack
-energy or cpu util evaluation, and lack evaluation of the model size
-given the context of constrained devices.
+The same group later proposed
+ML-RPL~\cite{santosMLRPLMachineLearningBased2023}, which replaces the
+Naive Bayes classifier with a CatBoost model, a gradient-boosted
+decision tree ensemble. The model learns from eight metrics: hop
+count, ETX, MAC-layer losses, node density, channel utilisation,
+throughput, queue utilisation and RSSI. Unlike GNB-RPL,
+gradient-boosted trees assume neither normally distributed features
+nor independence between them, so the model can capture non-linear
+relationships and interactions between the metrics. Like the group's
+earlier work, however, ML-RPL predicts the probability of successful
+delivery over a single hop, not over the whole path to the root. In
+addition, the evaluation does not examine the costs of running the
+model on constrained devices. It reports neither energy consumption
+nor CPU utilisation, and it does not discuss the size of the model.
+This is a significant omission for gradient-boosted ensembles, which
+usually contain hundreds of trees and may exceed the few kilobytes of
+RAM and limited flash available on typical sensor nodes. It therefore
+remains unclear whether ML-RPL could run on real hardware.
