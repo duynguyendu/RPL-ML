@@ -28,7 +28,7 @@ Because transmissions are not synchronised, packets can arrive at any
 time. As a result, nodes that may receive data have to keep their
 radio on at all time.
 This is especially costly in multihop topologies where nodes must
-also relay messages for other nodes.
+relay messages for other nodes.
 
 In beacon-enabled mode, the coordinator cuts time into superframes,
 which consists of 16 equally sized slots. Each
@@ -41,10 +41,10 @@ radios until the next beacon to save energy.
 
 \section{\ieeemacE{} (TSCH)}
 The IEEE 802.15.4e amendment introduced Time-Slotted Channel Hopping
-(TSCH), a tightly synchronised MAC mode for \ieeemacE{} networks, and
-RFC~7554 describes how TSCH is used in the context of IPv6-based
-low-power networks \cite{rfc7554}. In a TSCH network, time is divided
-into timeslots, and a group of consecutive timeslots forms a
+(TSCH), a tightly synchronised access control
+% TODO: cite
+. In a TSCH network,
+time is divided into timeslots, and a group of consecutive timeslots forms a
 \emph{slotframe}, which repeats over time. In addition, TSCH
 transmits on different channels at different times, as illustrated in
 Figure~\ref{fig:tsch}.
@@ -68,10 +68,14 @@ this short guard time, it turns its radio off again for the rest of
 the slot to save energy.
 
 % TODO: what is external interference and multipath fading in this case
+% TODO: wording
 TSCH also uses channel hopping: successive transmissions over the
 same link use different frequencies. Hopping provides frequency
 diversity, which reduces the impact of external interference and
-multipath fading. Because each link is assigned a channel offset,
+multipath fading.
+Multipath fading is when the receivers receive a lot of data
+% TODO: what is fading
+. Because each link is assigned a channel offset,
 several pairs of nodes can also communicate at the same time on
 different channels. Each timeslot is identified by the Absolute Slot
 Number (ASN), the total number of timeslots that have elapsed since
@@ -117,6 +121,7 @@ it can transmit, so delay depends on the length of the slotframe.
 Before this, people used proprietary protocols and link-only solution
 such as ZigBee, given that the IP was too computational and memory
 heavy for these low-power devices.
+\cite{culler20096lowpan}
 
 6LoWPAN is a protocol applying IPv6 to low-power devices operating on
 top of low power wireless networks, specifically \ieeemac{} PHY and MAC layers.
@@ -126,12 +131,11 @@ layers to establish efficient transmission of IPv6 datagrams over
 overhead, fragmentation to support minimum MTU requirement and
 layer-two forwarding
 
-- Header compression
+% TODO: talk a bit more about header compression and fragmentation
+- Header compression: compress to 10 bytes using IP header compression
 - Fragmentation: Normally, the IPv6 payload does not fit the payload
-of \ieeemac{}, 6LoWPAN is crucial by providing scheme to assemble
-fragmented packets over multiple hops.
-- Layer-two forwarding: the adaptation layer can carry link-level
-addresses for the ends of an IP hop
+of \ieeemac{}, provide fragmentation of IPv6 datagrams (up to 1280
+bytes) on \ieeemac{} 127 bytes and reassembly mechanisms
 
 The original intention is to use the widely supported Interet
 Protocol, simplifying the connection between different networks and

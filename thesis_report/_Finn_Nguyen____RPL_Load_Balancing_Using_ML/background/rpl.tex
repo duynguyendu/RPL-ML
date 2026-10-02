@@ -6,7 +6,7 @@ Destination-Oriented Directed Acyclic Graph (DODAG) over IEEE
 It is primarily designed for Wireless
 Sensor Networks (WSNs),
 where multipoint-to-point traffic toward one or more roots is the
-predominant communication pattern.
+dominant communication pattern.
 Routes in RPL are optimised for traffic to or from one or more
 roots in the topology, while maintaining reliable and energy
 efficient data collection. To maintain reliable and energy-efficient
@@ -23,12 +23,15 @@ In a multi-sink deployment,
 each sink node serves as the root of its own separate DODAG.
 Within a DODAG, each node maintains a rank value, which is an estimation of the
 distance between itself and the DODAG
-root. This value is used to determine a direct parent link, which
+root. 
+% TODO: wording
+This value is used to determine a direct parent link, which
 must have a lower rank,
 creating a herarchy network toward the root as illustrated in
 Figure~\ref{fig:dodag-example}. This means that the rank are
 monotonic increasing and the root has the lowest rank in DODAG.
 
+% TODO: wording
 A node's rank is computed by an objective function (OF). The OF
 converts one or more metrics into rank, and it also determines how a
 node selects its preferred parent. The RPL
@@ -36,7 +39,7 @@ specification does not mandate a single OF for all applications.
 Instead, RPL separates its core routing operationg, such as DODAG
 construction and maintainance from from route optimisation, which is
 delegated to the OF. RPL also allows having multiple DODAGs in the
-samework, in which each
+same network, in which each
 DODAG would have a different OF for different purposes. This lets
 each deployment choose the OF that best fits its requirement, such as
 minimising energy consumption, reducing latency, or improving link
@@ -98,6 +101,7 @@ the pool of candidate parents before deciding.
 After joining DODAG, the node computes the path cost of the
 corresponding link for each candidate and determines the preferred
 parent according the OF's policy.
+% TODO: I mention parent selection of OF a bit to much
 Once a parent has been selected, the node broadcasts its own DIO to
 advertise itself to its neighbours. This process is repated
 outward through the network until every node has join the DODAG.
@@ -116,6 +120,7 @@ Despite that, frequent DIO would be redudant in consistent network
 conditions, thus RPL employs Trickle timer to regulate the emission
 of DIO based on network consistency.
 
+% TODO: connection wording
 A node does not need to wait passively for a periodic DIO to join a DODAG.
 It can request DODAG information by broadcast a DIS message. The
 response depends on how the
@@ -159,11 +164,22 @@ The specification also opens option to specify DAO-ACK or not. A node
 would only consider reachable only after it has received the DAO-ACK.
 
 % TODO: include how DODAG maintain loop free
-\subsection{DODAG Maintainance}
-Local repair
-Poisonining
+%\subsection{DODAG Maintainance}
+%RPL supports two types of repair: local and global
+%Local repair is triggered when a node detects its preferred parent
+% or a local link has failed and their is no suitable valid upward
+% route to the root
+%The node poisons the sub-DODAG by sending a DIO message with its
+% rank at the highest value to indicate that it is no longer a valid
+% parent, while multicasting DIS to joins the DODAG.
+%% TODO: talk about the sub tree nodes
+%
+%Global repair is triggered by root node to completely reconstruct
+% the tree when inconsistencies are widespread.
+%The root increase the DODAG version and send out its DIO. This
+% trigger the whole DODAG construction again, reset Trickle timer.
+% Nodes discard their parents and perform the parent selection process again.
 
-% TODO: write more about trickle timer
 \subsection{Trickle Timer}
 Trickle timer is a scheduling algorithm based on consistency model.
 The algorithm is structured in a way that would promptly send out DIO
@@ -178,7 +194,9 @@ upon detecting inconsistencies, trickle timer reset its send interval
 to boost DIO transmission to spread the latest information to the
 rest of the DODAG.
 However, the RPL standard does not fully define what counts as an
-inconsistency. It lists a minimum set of events that must restart the
+inconsistency. 
+% TODO: wording
+It lists a minimum set of events that must restart the
 Trickle timer: joining a new DODAG version, receiving a multicast
 DIS; and detecting a routing loop or another inconsistency while
 forwarding a packet. The specification states that this list is not
@@ -196,6 +214,7 @@ $I_{\mathrm{max\_time}}$ is calculated as:
     I_{\mathrm{max\_time}} = I_{\mathrm{min}} \times 2^{I_{\mathrm{max}}}
 \end{equation}
 
+% TODO: wording
 The Trickle algorithm controls the transmission interval $I$, which
 always stays within $[I_{\mathrm{min}}, I_{\mathrm{max}}]$. In RPL,
 the initial interval is usually $I = I_{\mathrm{min}}$.
@@ -264,6 +283,7 @@ a candidate parent whose link is too costly cannot be selected.
 
 % TODO: talke about the problem of OF0
 
+% TODO: a bit more of mrhof
 In contrast, MRHOF uses multiple hysteresis to avoid unnecessary
 parent switches.
 A node only switches to a new candidate parent only if that
@@ -280,6 +300,7 @@ to other nodes in DIO.
 % TODO: talk about problem of MRHOF
 
 \section{Load Balancing in RPL}
+% TODO: combine the first 2 sentences together
 Load balancing is a core technique in distributed system. It spreads
 the work across several resources of the same type so that they are
 used efficiently and none of them is overloaded. In RPL, load
@@ -307,6 +328,7 @@ delivery ratio.
 % TODO: should I include example for hot-spot
 % TODO: this is a big claim,
 
+% TODO: can I combine the definition with example
 In the thundering herd problem, many nodes
 switch to the same newly attractive parent at the same moment and then
 switch back once it becomes overloaded, so their parent choices swing

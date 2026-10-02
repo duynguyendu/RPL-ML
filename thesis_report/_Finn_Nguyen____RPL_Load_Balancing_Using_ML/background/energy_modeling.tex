@@ -1,6 +1,6 @@
 \section{Energy modeling}
 Contiki-NG estimates energy consumption using a
-software-based online mechanism proposed by
+software-based online mechanism proposed in
 \cite{dunkelsSoftwarebasedOnlineEnergy2007}. It uses a linear
 model in which each hardware component such as the CPU, the radio transmitter
 and the radio receiver, draws a roughly constant current while it is active.
@@ -58,7 +58,7 @@ point, which can vary a lot in different situation.
         \textbf{Component} & \textbf{State} & \textbf{Z1} &
         \textbf{Tmote Sky} \\
         \hline
-        MCU   & Active (CPU)                 & 10\,mA       & 1.8\,mA \\
+        MCU   & Active (CPU)                 & 4.5\,mA       & 1.8\,mA \\
         & Low-power mode (LPM)         & 23\,$\mu$A   & 54\,$\mu$A   \\
         & Deep low-power mode (DLPM)   & 0\,$\mu$A    & 0\,$\mu$A    \\
         \hline
@@ -67,6 +67,8 @@ point, which can vary a lot in different situation.
         \hline
     \end{tabular}
 \end{table}
+
+% TODO: specify that Cooja sim at 8Mhz, combine with the MSP430F2617 datasheet
 
 % TODO: should I include this
 % Time measurement is implemented using the on-chip timers
@@ -80,6 +82,7 @@ From the table, radio power is much more significant than MCU power.
 Since the removal of duty cycling layer in Contiki-NG in favor of
 TSCH, the energy consumption in CSMA mode is dominated by radio
 being on for the whole period.
+% TODO: compile with CSMA and TSCH to show how much memory it takes
 However, TSCH is a much more complicated and memory heavy algorithm
 for such old devices Sky and Z1. Hence we opt for CSMA and use active CPU ticks
 as intermediate value to measure the energy consumption relative to

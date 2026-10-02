@@ -160,7 +160,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   #pickMissing{color:#b00;}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px;}
   .chart{height:460px;border:1px solid #ececec;}
-  @media (max-width:900px){.grid{grid-template-columns:1fr;}}
+  @media (max-width:1300px){.grid{grid-template-columns:1fr;}}
   .empty{padding:40px 16px;font-size:14px;color:#b00;}
   #dashboardArea{padding:8px;height:85vh;}
   #dashboardFrame{width:100%;height:100%;border:1px solid #ececec;}
@@ -211,9 +211,9 @@ __FIXED_CONFIG_HTML__
 const RUNS = __RUNS_JSON__;
 const METRICS = [
   {key:'pdr',           label:'PDR',           scale:100, unit:'%',  axis:'PDR (%)'},
+  {key:'parent_switch', label:'Parent switch', scale:1,   unit:'',   axis:'Parent switches (per node)'},
   {key:'latency',       label:'Latency',       scale:1,   unit:' s', axis:'Latency (s)'},
   {key:'cpu_util',      label:'CPU util',      scale:1,   unit:'%',  axis:'CPU util (%)'},
-  {key:'parent_switch', label:'Parent switch', scale:1,   unit:'',   axis:'Parent switches (per node)'},
   {key:'dio_per_min',   label:'DIO sent',      scale:1,   unit:'/min', axis:'DIO sent per minute (per node)'},
 ];
 // Cycled by index rather than keyed by name, so any number of distinct

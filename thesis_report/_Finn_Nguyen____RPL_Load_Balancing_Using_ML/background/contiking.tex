@@ -19,15 +19,16 @@ linear code execution for event-driven systems while keeping the
 memory footprint small \cite{dunkels2006protothreads}. Compare to
 multi-thread systems, event-driven systems do not need to allocate
 memory for each thread stack.
-protothread provides conditional blocking wait operation the reduce
+Protothread provides conditional blocking wait operation the reduce
 the explicit state machines to save the memory even more.
 % TODO: why does it need to be linear
 
+% TODO: wording
 Contiki also ships with a full network stack for WSNs, including IPv4 and IPv6
 support through 6LoWPAN and RPL routing protocol.
 To save energy, Contiki adds radio duty cycling (RDC) layer between
 PHY and MAC layer, and provides several low-power RDC protocols,
-including X-MAC, LPP and ContikiMAC, allowing nodes to turn radio off.
+such as X-MAC, LPP and ContikiMAC, allowing nodes to turn radio off.
 Of these, ContikiMAC became the default RDC layer.
 
 In November 2017, Contiki-NG (Contiki Next Generation) was released
@@ -90,9 +91,9 @@ hardware emulation.
             \textbf{Specification} & \textbf{Zolertia Z1} &
             \textbf{TMote Sky} \\
             \hline
-            Microcontroller        & MSP430F2617 (2nd gen)     & Texas
-            Instruments MSP430 \\
-            CPU                    & 16-bit RISC @ 16\,MHz     & 8\,MHz \\
+            Microcontroller        & MSP430F2617      & MSP430F1611 \\
+            CPU                    & 16-bit RISC @ 16\,MHz     &
+            16-bit RISC @ 8\,MHz \\
             RAM                    & 8\,KB                     & 10\,KB \\
             Flash memory           & 92\,KB                    & 48\,KB \\
             Transceiver            & CC2420, IEEE 802.15.4     & CC2420,

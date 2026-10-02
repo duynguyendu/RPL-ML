@@ -264,15 +264,13 @@ Acevedo et al.~\cite{acevedoWRFRPLWeightedRandom2021} propose
 Weighted Random Forward RPL (WRF-RPL), an objective function that
 spreads traffic by choosing the next hop at random according to a
 weighted score, not always using the single best parent. WRF-RPL sets
-the $\mathit{Rank_Increase}$ to a fixed value of 1, so a node's rank
-equals its hop count to the root. Every neighbour with a lower rank
-is therefore a candidate parent that moves the packet one hop closer
-to the root. Each candidate is given a weight based on its remaining
-energy, and the next hop is drawn at random in proportion to these
-weights
-Weights are calculated as P\_remaining energy * parent count
-. Nodes with more remaining energy are therefore more likely
-to be chosen. Nodes with less energy can still be selected, but less
+the $\mathit{Rank\_Increase}$ to a fixed value of 1, so a node's rank
+equals its hop count to the root. Each candidate is given a weight
+based on its remaining energy % TODO: remaining energy is the weight
+, and the next hop is drawn at random in
+proportion to these weights. Nodes with more remaining energy are
+therefore more likely to be chosen. Nodes with less energy can still
+be selected, but less
 often, so no single relay is used all the time. This spreads traffic
 across the available parents, reduces congestion and prevents any one
 relay from being used repeatedly. The authors note that how well
@@ -284,9 +282,7 @@ has other limitations. Because rank is based only on hop count, the
 protocol ignores link quality and may forward traffic over lossy
 links, which increases retransmissions. Like EAOF, it relies on
 remaining energy, which changes slowly, so it cannot react to
-short-term congestion such as queue overflow at a parent. Finally,
-because the next hop is chosen at random, packets from the same
-source can take different routes and arrive with variable delay.
+short-term congestion such as queue overflow at a parent.
 
 In recent, there has been many attempts to employ machine learning
 into OFs. Despite that, most of the new application of ML in RPL
@@ -370,7 +366,7 @@ the size of control messages and the overhead of each model update.
 This is significant on IEEE 802.15.4 links, where frames are limited
 to 127 bytes.
 
-However, we found out that there are little researches on applying
+We found out that there are little researches on applying
 supervised machine learning model in RPL. To our best knowledge,
 there are three papers about
 We found a research group
@@ -444,3 +440,7 @@ This is a significant omission for gradient-boosted ensembles, which
 usually contain hundreds of trees and may exceed the few kilobytes of
 RAM and limited flash available on typical sensor nodes. It therefore
 remains unclear whether ML-RPL could run on real hardware.
+
+Overall, the current approach focus on immediate parent selection
+rather than the whole route, and the machine learning approach focus
+on a single packet instead of the whole route
