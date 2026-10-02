@@ -22,30 +22,26 @@ parent, which in turn relays them further up the tree until they reach the root.
 In a multi-sink deployment,
 each sink node serves as the root of its own separate DODAG.
 Within a DODAG, each node maintains a rank value, which is an estimation of the
-distance between itself and the DODAG
-root. 
-% TODO: wording
-This value is used to determine a direct parent link, which
-must have a lower rank,
-creating a herarchy network toward the root as illustrated in
-Figure~\ref{fig:dodag-example}. This means that the rank are
-monotonic increasing and the root has the lowest rank in DODAG.
+distance between itself and the DODAG root.
+A node may only choose a neighbour with a lower rank than its own as
+its parent. As a result, rank strictly increases along every path away
+from the root, the root has the lowest rank in the DODAG, and the
+parent relationships form a hierarchy directed towards the root, as
+illustrated in Figure~\ref{fig:dodag-example}.
 
-% TODO: wording
-A node's rank is computed by an objective function (OF). The OF
-converts one or more metrics into rank, and it also determines how a
-node selects its preferred parent. The RPL
+A node's rank is computed by an objective function (OF), which
+translates one or more routing metrics into a rank value and defines
+how a node selects its preferred parent. The RPL
 specification does not mandate a single OF for all applications.
-Instead, RPL separates its core routing operationg, such as DODAG
-construction and maintainance from from route optimisation, which is
-delegated to the OF. RPL also allows having multiple DODAGs in the
-same network, in which each
-DODAG would have a different OF for different purposes. This lets
-each deployment choose the OF that best fits its requirement, such as
-minimising energy consumption, reducing latency, or improving link
-quality.
-As a result, RPL can support a wide range of LLN applications without
-changing the protocol itself.
+Instead, it separates its core routing operation, such as DODAG
+construction and maintenance from from route optimisation, which is
+delegated to the OF. Each deployment can therefore choose the OF that
+best fits its requirements, such as minimising energy consumption,
+reducing latency, or favouring high-quality links. RPL also allows having
+several DODAGs within the same network, each with its
+own OF, so that different types of traffic can be routed according to
+different objectives. This flexibility allows RPL to support a wide range of LLN
+applications without changing the protocol itself.
 
 \begin{fig}[ht]
     \begin{center}
@@ -72,26 +68,26 @@ with each hop away from the root. How $\mathit{Rank\_Increase}$ is computed
 and how parent is selected depends on the OF in use,
 as discussed later in this chapter.
 
-RPL introduces four types of control messages to form
+RPL introduces four main types of control messages to form
 and control DODAG, as specified in ICMPv6 via RFC 6550
 \cite{alexanderRPLIPv6Routing2012}
 \begin{itemize}
-    \item DODAG Information Object (DIO): a DODAG advertisement message,
-        carrying information that
+    \item DODAG Information Object (DIO): advertises the DODAG,
+        and carries information that
         allow nodes to discover a RPL instance, select parents and
         maintain the DODAG.
-    \item DODAG Information Solicitation (DIS): a request message
-        when a node wants to join a DODAG.
-    \item Destination Advertisement Object (DAO): a node
-        advertisement message, indicating that it has joined DODAG
-        and is reachable for downward route.
+    \item DODAG Information Solicitation (DIS): solicits a DIO from
+        neighboring nodes e.g. when when a node wants to discover or
+        join a DODAG.
+    \item Destination Advertisement Object (DAO): propagates
+        information upward to root or parent to establish downward route.
     \item Destination Advertisement Object Acknowledgement (DAO-ACK):
-        the acknowledgement of the root, confirming the downward path
-        to the node.
+        an optional message from root or parent to acknowledgement
+        the received DAO.
 \end{itemize}
 
 To begin the DODAG forming process, the root node sends its DIO to
-its neighbouring nodes, carrying RPL indentifiers and any
+its neighbouring nodes, carrying RPL identifiers and any
 additional metrics required by the OF. Upon receiving DIO, a node
 compares its rank with the advertised rank and filters out ranks that
 are higher then its own to prevent loop formation. Afterward, the node decides
@@ -100,12 +96,10 @@ In certain implementations, nodes wait for several DIOs, building
 the pool of candidate parents before deciding.
 After joining DODAG, the node computes the path cost of the
 corresponding link for each candidate and determines the preferred
-parent according the OF's policy.
-% TODO: I mention parent selection of OF a bit to much
-Once a parent has been selected, the node broadcasts its own DIO to
-advertise itself to its neighbours. This process is repated
+parent according the OF's policy. Once a parent has been selected,
+the node broadcasts its own DIO to
+advertise itself to its neighbours. This process is repeated
 outward through the network until every node has join the DODAG.
-% TODO: may include diagram of how DIO transmission work
 
 % TODO: include the flexiblity of DIO, adding more metrics
 DIOs are crucial in maintaining DODAG. Nodes send DIOs periodically to
@@ -116,14 +110,13 @@ first joined the DODAG. If the node switches its
 preferred parent or its rank changes, it sends a new DIO to spread
 the update down the DODAG. This lets the DODAG adapt as link
 conditions and traffic change.
-Despite that, frequent DIO would be redudant in consistent network
+Despite that, frequent DIO would be redundant in consistent network
 conditions, thus RPL employs Trickle timer to regulate the emission
 of DIO based on network consistency.
 
-% TODO: connection wording
-A node does not need to wait passively for a periodic DIO to join a DODAG.
-It can request DODAG information by broadcast a DIS message. The
-response depends on how the
+% TODO: wording of the whole para
+A node can send out DIS message to request DODAG information instead
+of waiting passively for a periodic DIO. The response depends on how the
 DIS is sent. If a neighbour receives a unicast DIS, it must reply with a
 unicast DIO and must not reset its Trickle timer. If a neighbour
 receives a multicast DIS, it resets its Trickle timer, so the node soon
@@ -131,60 +124,29 @@ receives DIOs from all nearby DODAG members. When the node receives a
 DIO sent in response to its DIS, it processes the DIO in the same way
 as a periodic DIO.
 
-% TODO: include that each node mus do that to register downward route
-When a node joins DODAG, it also sends a DAO to advertise that it can be
-reached downwardly. The DAO's destination depends on the Mode of
-Operation (MOP). In storing mode, the node sends the DAO to its
-preferred parent, and
-each parent stores the route and forwards the information further up
-the DODAG. In non-storing mode, the node sends the DAO directly to the
-root. The root then keeps the full set of downward routes and uses
-source routing to reach each node. A node can ask for an
-acknowledgement by setting a flag in its DAO. The receiver, which is
-the parent in storing mode or the root in non-storing mode, then
-replies with a DAO-ACK. If the node receives no DAO-ACK, it retransmits
-the DAO.
-
-% TODO: downward route?
-The downward are supported to P2MP and P2P route, in which the
-destination is not the root node. In this pattern, the node sends DAO
-to its preferred parent in a unicast manner
-
-% TODO: study the storing mode more
-In this pattern, the RPL specification defines two mode: storing mode
-and non-storing mode. In storing mode, the downward routing tables
-are included in each nodes
-However, in non-storing mode, the downward routing tables are stored
-only in the DODAG root. This means that P2P communication need to be
-forwarded to the root node, where the root would then formulate the
-routing path to the downward node.
-
-% TODO: clarify this
-The specification also opens option to specify DAO-ACK or not. A node
-would only consider reachable only after it has received the DAO-ACK.
-
-% TODO: include how DODAG maintain loop free
-%\subsection{DODAG Maintainance}
-%RPL supports two types of repair: local and global
-%Local repair is triggered when a node detects its preferred parent
-% or a local link has failed and their is no suitable valid upward
-% route to the root
-%The node poisons the sub-DODAG by sending a DIO message with its
-% rank at the highest value to indicate that it is no longer a valid
-% parent, while multicasting DIS to joins the DODAG.
-%% TODO: talk about the sub tree nodes
-%
-%Global repair is triggered by root node to completely reconstruct
-% the tree when inconsistencies are widespread.
-%The root increase the DODAG version and send out its DIO. This
-% trigger the whole DODAG construction again, reset Trickle timer.
-% Nodes discard their parents and perform the parent selection process again.
+Once a node has joined a DODAG, it sends a DAO to advertise that
+it can be reached in the downward direction. The recipient of DAO
+depends on the DODAG's Mode of Operation (MOP). In
+\emph{storing mode}, the node unicasts its DAO to its preferred
+parent. Each parent stores a route to the node and forwards the
+information further up the DODAG. As a result, point-to-point (P2P)
+traffic only needs
+to travel up to the first common ancestor of the source and the
+destination before it is routed down. In \emph{non-storing mode},
+nodes do not keep downward routes. Each node instead sends its DAO
+directly to the root, which maintains the full set of downward routes
+and uses source routing to reach each node. All P2P traffic must
+therefore pass through the root, which increases path length and the
+load on the root. A node can request an acknowledgement by setting a
+flag in its DAO. The receiver, which is the parent in storing mode or
+the root in non-storing mode, then replies with a DAO-ACK, and if no
+DAO-ACK arrives, the node retransmits the DAO.
 
 \subsection{Trickle Timer}
 Trickle timer is a scheduling algorithm based on consistency model.
 The algorithm is structured in a way that would promptly send out DIO
 during the formation process and would slow down when the DODAG has
-been stablised to reduce redundant DIO transmission \cite{rfc6206}.
+been stabilised to reduce redundant DIO transmission \cite{rfc6206}.
 
 The Trickle timer does this by evaluating the consistency of the
 network message with its own state.
@@ -194,43 +156,22 @@ upon detecting inconsistencies, trickle timer reset its send interval
 to boost DIO transmission to spread the latest information to the
 rest of the DODAG.
 However, the RPL standard does not fully define what counts as an
-inconsistency. 
-% TODO: wording
+inconsistency.
 It lists a minimum set of events that must restart the
 Trickle timer: joining a new DODAG version, receiving a multicast
-DIS; and detecting a routing loop or another inconsistency while
-forwarding a packet. The specification states that this list is not
-exhaustive and that implementations may treat other events as
-inconsistencies. Contiki-NG, for example, also resets Trickle timer
-when a node's rank change by more than a threshold.
+DIS, and detecting a routing loop; and lets the implementations add
+their own definitions of inconsistency. Contiki-NG, for example,
+resets Trickle timer when a node's rank change by more than a threshold.
 
-% TODO: I_max, specify that this is the doubling interval
 Trickle Timer employs three configuration
 parameters to determine the sending window of DIO: $I_{\mathrm{min}}$,
-$I_{\mathrm{max}}$ and $k$ as shown in Table~\ref{tab:tricker_timer_params}.
+$d$ (the specification use $I_{\mathrm{max}}$ to denotes this) and
+$k$ as shown in Table~\ref{tab:tricker_timer_params}.
 The maximum sending interval time
 $I_{\mathrm{max\_time}}$ is calculated as:
 \begin{equation}
-    I_{\mathrm{max\_time}} = I_{\mathrm{min}} \times 2^{I_{\mathrm{max}}}
+    I_{\mathrm{max\_time}} = I_{\mathrm{min}} \times 2^{d}
 \end{equation}
-
-% TODO: wording
-The Trickle algorithm controls the transmission interval $I$, which
-always stays within $[I_{\mathrm{min}}, I_{\mathrm{max}}]$. In RPL,
-the initial interval is usually $I = I_{\mathrm{min}}$.
-At the start of each interval, Trickle sets a counter $c$ to $0$. It
-then picks a
-transmission time $t$ uniformly at random from $[I/2, I)$. During the
-interval, $c$ increases by one each time the node hears a consistent
-message from a neighbour. At time $t$, the node transmits only if
-$c < k$, where $k$ is the redundancy constant. Otherwise, it suppresses
-the transmission. When the interval ends, Trickle doubles its length,
-up to the maximum:
-\begin{equation}
-    I = \min(2I,\ I_{\mathrm{max}})
-\end{equation}
-If the node detects an inconsistency while $I > I_{\mathrm{min}}$, it
-resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
 
 \begin{table}
     \caption{Trickle Timer Parameters}\label{tab:tricker_timer_params}
@@ -239,34 +180,52 @@ resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
             \hline
             \textbf{Parameter} & \textbf{Symbol} & \textbf{Description} \\
             \hline
-            Min interval length & $I_{\mathrm{min}}$ & The minimum sending
-            interval between two messages \\ % TODO: problably fix this
-            Max interval length & $I_{\mathrm{max}}$  & The maximum number of
-            times that the sending interval can double \\
+            Min interval length & $I_{\mathrm{min}}$ & The minimum
+            length of the Trickle interval \\
+            Max doubling interval & $d$  & The maximum number of
+            times that the interval can double \\
             DIO redundancy constant & $k$ & The number of consistent
-            DIOs before suppresses its own DIO transmission \\
+            DIOs a node must hear in within the current interval
+            before suppressing its own DIO transmission \\
             \hline
         \end{tabular}
     \end{center}
 \end{table}
 
-\subsection{OF0 and MRHOF}
+The Trickle algorithm controls the transmission interval $I$, which
+always stays within $[I_{\mathrm{min}}, I_{\mathrm{max\_time}}]$. In RPL,
+the initial interval is usually $I = I_{\mathrm{min}}$.
+At the start of each interval, Trickle sets a consistency counter $c$
+to $0$ and picks a
+transmission time $t$ uniformly at random from $[I/2, I)$. During the
+interval, the node increments $c$ each time it hears a consistent
+message from the neighbours. At time $t$, the node sends its DIO only if
+$c < k$; otherwise, it suppresses its own transmission. When the interval
+ends, Trickle doubles its interval length, up to the maximum:
+\begin{equation}
+    I = \min(2 \times I,\ I_{\mathrm{max\_time}})
+\end{equation}
+If the node detects an inconsistency while $I > I_{\mathrm{min}}$, it
+resets $I$ to $I_{\mathrm{min}}$ and starts a new interval.
+In this way, DIOs are sent frequently while the network is changing and
+increasingly rarely once it has stabilised.
 
+\subsection{OF0 and MRHOF}
 Up to now, the IETF ROLL working group has standardised only two
 objective functions: Objective Function Zero (OF0) \cite{rfc6552} and
 Minimum Rank with Hysteresis Objective Function (MRHOF) \cite{rfc6719}.
 
 OF0 was developed to be a simple objective function that utilises step
 of rank, which is an intermediate computation based on link
-properties of a certain neighbour, and computes $\mathit{Rank\_Increase}$ as
+properties of a certain neighbour. It computes $\mathit{Rank\_Increase}$ as
 \begin{equation}
     \mathit{Rank\_Increase} = (\mathit{Rf} \times \mathit{Sp} +
     \mathit{Sr}) \times \mathit{MinHopRankIncrease}
 \end{equation}
 where $\mathit{Rf}$ (Rank Factor) is a small positive integer used to scale
-the step of rank. $\mathit{Sp}$ (Step of Rank) is an integer value
+the step of rank, $\mathit{Sp}$ (Step of Rank) is an integer value
 that represents the cost of the link to the parent, acting as an
-abstract hop count. $\mathit{Sr}$
+abstract hop count, and $\mathit{Sr}$
 (Stretch of Rank) is an optional value that is used to inflate
 $\mathit{Rank\_Increase}$ so more neighbours qualify as feasible parents.
 With $\mathit{Rf} = 1$, $\mathit{Sp} = 1$ and $\mathit{Sr} = 0$,
@@ -281,29 +240,36 @@ number of hops, even when the link to that neighbour is noisy and lossy.
 The specification also limits $\mathit{Sp}$ to the range $[1, 9]$, so
 a candidate parent whose link is too costly cannot be selected.
 
-% TODO: talke about the problem of OF0
+% TODO: double check the para of MRHOF
+In contrast, MRHOF selects parents based on the cost of the whole
+path to the root. MRHOF works with any additive metric, such as hop
+count, latency or ETX, and uses ETX when no metric is specified.
+Metrics are advertised in the DAG Metric Container option of the DIO
+\cite{rfc6551}. For each candidate parent, a node computes the path
+cost as the cost of the link to that candidate plus the path cost the
+candidate advertises. It then selects the candidate with the lowest
+path cost as its preferred parent and derives its own rank from that
+path cost. Candidates whose link cost exceeds
+$\mathit{MAX\_LINK\_METRIC}$ (by default an ETX of 4) are excluded.
 
-% TODO: a bit more of mrhof
-In contrast, MRHOF uses multiple hysteresis to avoid unnecessary
-parent switches.
-A node only switches to a new candidate parent only if that
-candidate's path cost is lower than the current parent's by more than
-a threshold $\mathit{PARENT\_SWITCH\_THRESHOLD}$. Otherwise, it keeps
-its current parent.
-This prevents the node from switching back and forth when link
-metrics fluctuate slightly, and makes the DODAG more stable.
-It works with
-any additive metric, such as hop count, latency or ETX, and uses ETX by
-default. Other metrics such as energy or latency are transmissitted
-to other nodes in DIO.
+To avoid unnecessary parent switches, MRHOF applies hysteresis. A
+node switches to a new candidate only if that candidate's path cost
+is lower than the current parent's by more than
+$\mathit{PARENT\_SWITCH\_THRESHOLD}$, which corresponds to an ETX of
+1.5 by default \cite{rfc6719}. Otherwise, the node keeps its current
+parent. This prevents the node from switching back and forth when
+link metrics fluctuate slightly, and so keeps the DODAG stable.
+Contiki-NG adds a time-based hysteresis on top of this: if a
+candidate has been consistently better than the current parent for at
+least ten minutes, the node switches to it even if the difference is
+below the threshold.
 
-% TODO: talk about problem of MRHOF
+% TODO: include problem of OF0 and MRHOF
 
 \section{Load Balancing in RPL}
-% TODO: combine the first 2 sentences together
-Load balancing is a core technique in distributed system. It spreads
-the work across several resources of the same type so that they are
-used efficiently and none of them is overloaded. In RPL, load
+Load balancing is a core technique in distributed systems that spreads
+work across multiple equivalent resources, so that the resources are
+used efficiently and none of them becomes overloaded. In RPL, load
 balancing means spreading the forwarding load (the traffic that nodes
 relay toward the root) evenly across the nodes of the DODAG, so that
 no single node carries most of it \cite{pancarogluLoadBalancingRPLbased2021}.
@@ -312,9 +278,8 @@ There are two problems that most often discussed in the context of
 load balancing in RPL: the hot-spot problem and thundering herd problem.
 
 In hot-spot problem, some nodes are chosen as parents more often
-than others,
-especially those near the
-root. This happens because RPL uses a single preferred parent for all
+than others, especially those near the root. This happens because RPL
+uses a single preferred parent for all
 upward traffic and the standardised OFs tend to pick up the same "best" routes.
 Nodes on those routes carry a large share of the network's traffic
 and drain their batteries far faster than their neighbours. This
@@ -325,16 +290,15 @@ same parent as those high-traffic nodes would exhaust the parent even faster.
 Beyond saving energy, balancing the load reduces congestion and queue
 overflow at hot spots, which lowers latency and raises the packet
 delivery ratio.
-% TODO: should I include example for hot-spot
 % TODO: this is a big claim,
+% TODO: should I include example for hot-spot
 
-% TODO: can I combine the definition with example
-In the thundering herd problem, many nodes
-switch to the same newly attractive parent at the same moment and then
-switch back once it becomes overloaded, so their parent choices swing
-back and forth instead of settling. It usually starts
-when a new node joins the DODAG and announces itself in a DIO message. The
-new node carries no traffic yet, so it looks like an ideal parent, and many
+The thundering herd problem occurs when many nodes react to the same
+routing information at the same time and switch to the same parent,
+causing their parent choices to oscillate instead of settling. A
+typical trigger is a new node joining the DODAG and announcing itself
+in a DIO. The new node carries no traffic yet, so it looks like an
+ideal parent, and many
 neighbouring nodes may switch to it at the same moment. This suddenly
 overloads the new node and leaves their previous parent almost idle. When
 the previous parent next sends a DIO, it advertises a low load and becomes

@@ -6,9 +6,9 @@ targetting devices bounded by low computing
 power, memory and energy \cite{salmanOverviewIEEE8021542010}. It is
 designed to operate in Personal
 Operating Space (POS) of 10 meters or less and supports
-three types of topology: star, peer-to-peer and mesh (a network
-    that connects a large number of
-nodes through relaying messages). The standard offers three free bands
+three types of topology: star, peer-to-peer and mesh (a network that
+connects a large number of nodes through relaying messages). The
+standard offers three free bands
 throughout the world with the throughput of 250\,kbps in the 2.4\,GHz
 band 40\,kbps at 915\,MHz and 20\,kbps at 868\,MHz.
 
@@ -41,13 +41,16 @@ radios until the next beacon to save energy.
 
 \section{\ieeemacE{} (TSCH)}
 The IEEE 802.15.4e amendment introduced Time-Slotted Channel Hopping
-(TSCH), a tightly synchronised access control
-% TODO: cite
-. In a TSCH network,
-time is divided into timeslots, and a group of consecutive timeslots forms a
-\emph{slotframe}, which repeats over time. In addition, TSCH
-transmits on different channels at different times, as illustrated in
-Figure~\ref{fig:tsch}.
+(TSCH), a MAC behavior that provides high reliability and time
+critical assurances \cite{tsch}. TSCH achieves this by
+combining time-division multiple access with frequency hopping.
+Time is divided into fixed-length timeslots, and a group of
+consecutive timeslots forms a \emph{slotframe}, which repeats
+periodically. Nodes also switch channels from one timeslot to the
+next according to a hopping sequence, as illustrated in
+Figure~\ref{fig:tsch}. Spreading transmissions across channels in
+this way reduces the effect of interference and multipath fading on
+any single channel.
 
 \begin{figure}
     \begin{center}
@@ -67,80 +70,96 @@ before the expected start of the frame. If no frame begins within
 this short guard time, it turns its radio off again for the rest of
 the slot to save energy.
 
-% TODO: what is external interference and multipath fading in this case
-% TODO: wording
-TSCH also uses channel hopping: successive transmissions over the
-same link use different frequencies. Hopping provides frequency
-diversity, which reduces the impact of external interference and
-multipath fading.
-Multipath fading is when the receivers receive a lot of data
-% TODO: what is fading
-. Because each link is assigned a channel offset,
-several pairs of nodes can also communicate at the same time on
-different channels. Each timeslot is identified by the Absolute Slot
-Number (ASN), the total number of timeslots that have elapsed since
-the network started. Let $\mathit{chOf}$ be the channel offset
-assigned to a link. The frequency $f$ used for a transmission in that
+TSCH also uses channel hopping, sosuccessive transmissions over the
+same link use different frequencies. Each link is assigned a
+channel offset, which lets several pairs of nodes can also
+communicate at the same time on
+different channels. Timeslot is identified by the Absolute Slot
+Number (ASN), which is the total number of timeslots that have elapsed since
+the network started. The frequency $f$ used for a transmission in that
 link is then
 \begin{equation}
-    f = F\left[(\mathit{ASN} + \mathit{chOf}) \bmod
-    n_{\mathit{freq}}\right],
+    f = F\left[(\mathit{ASN} + \mathit{channel\ Offset}) \bmod
+    n_{\mathit{channel}}\right],
 \end{equation}
-where $n_{\mathit{freq}}$ is the number of available channels (16 in
+where $n_{\mathit{channle}}$ is the number of available channels (16 in
 the 2.4\,GHz band) and $F$ is a lookup table that maps an index to a
-physical channel. Since the ASN increases with every timeslot, the
-same link uses a different frequency each time it is scheduled, while
-the two nodes on the link always agree on which frequency to use.
+physical channel.
 
 TSCH avoids collisions through its schedule. Each transmission
 opportunity is a \emph{cell}, identified by a slot offset within the
 slotframe and a channel offset. In a \emph{dedicated} cell, only one
 transmitter is scheduled, so the transmission is free of contention.
 In a \emph{shared} cell, several nodes may transmit, and collisions
-are handled by a CSMA/CA-like backoff. As long as neighbouring links
-are assigned different cells, their transmissions do not interfere.
+are handled by a CSMA/CA-like backoff. Despite that, \ieeemacE{} does
+not specify how the schedule is built or maintained, and leaves this
+task to higher layers. One example is the approach of the IETF 6TiSCH
+working group, which defines the 6TiSCH Operation Sublayer (6top)
+\cite{rfc8480}, which lets neighboring nodes add and remove cells,
+and the Minimal Scheduling Function (MSF) \cite{rfc9033}, which
+decides when to do so.
 
-% TODO: maybe talk a bit about 6TiSCH
-\ieeemacE{} specifies how a TSCH schedule is executed, but not how it
-is built or maintained. These tasks are left to higher layers. The
-6TiSCH working group of the IETF defines protocols for this purpose,
-such as the 6TiSCH Operation Sublayer (6top) and the Minimal
-Scheduling Function \cite{rfc9033}, and autonomous schedulers such as
-Orchestra \cite{duquennoy2015orchestra} derive the schedule locally
-from the routing topology.
+% TODO: wording of the last 2 para
+Compared with CSMA/CA, TSCH offers higher reliability and lower
+energy consumption. Reliability comes from two mechanisms: channel
+hopping reduces the impact of interference and multipath fading on
+any single channel, and dedicated cells allow nodes to transmit
+without contending for the medium, avoiding collisions. Energy is
+saved because nodes turn on their radios only in the timeslots in
+which they are scheduled, and keep them off for the rest of the slotframe.
 
-% TODO: probs talk more about this
-Compared with CSMA/CA, TSCH is more complex and requires network-wide
-time synchronisation. In return, it offers higher reliability and
-lower energy consumption, since nodes keep their radios on only in
-the timeslots in which they are scheduled. The cost is higher
-latency, because a node must wait for its next scheduled cell before
-it can transmit, so delay depends on the length of the slotframe.
+These benefits come at a cost. TSCH is more complex than CSMA/CA: it
+requires network-wide time synchronisation, which nodes must maintain
+by periodically exchanging packets with their time source, and it
+requires a schedule to be built and maintained. TSCH also introduces
+latency, because a node with a packet to send must wait for its next
+scheduled cell. The length of the slotframe therefore sets a
+trade-off: a short slotframe gives nodes more frequent transmission
+opportunities and lower delay, but forces them to wake up more often
+and consume more energy
 
 \section{IPv6 over Low-Power Wireless Personal Area Networks (6LoWPAN)}
-Before this, people used proprietary protocols and link-only solution
-such as ZigBee, given that the IP was too computational and memory
-heavy for these low-power devices.
-\cite{culler20096lowpan}
+Before 6LoWPAN, low-power wireless networks relied on proprietary or
+non-IP protocol stacks such as ZigBee, since IP was considered too
+demanding in computation and memory for constrained devices
+\cite{culler20096lowpan}. Connecting these networks to the Internet
+required gateways that translated between their protocols and IP,
+which added complexity and limited interoperability.
 
-6LoWPAN is a protocol applying IPv6 to low-power devices operating on
-top of low power wireless networks, specifically \ieeemac{} PHY and MAC layers.
-6LoWPAN introduces an adapatation layer between IPv6 and network
-layers to establish efficient transmission of IPv6 datagrams over
-802.15.4 links by compressing the header to reduce transmission
-overhead, fragmentation to support minimum MTU requirement and
-layer-two forwarding
+6LoWPAN (IPv6 over Low-Power Wireless Personal Area Networks) brings
+IPv6 to these devices, specifically to networks built on the
+\ieeemac{} PHY and MAC layers \cite{rfc4944}. Using IPv6 end to end
+simplifies interconnection with other networks and removes the need
+for protocol-translating gateways. It also allows existing,
+well-developed IP tools to be used for commissioning, configuring,
+managing and debugging these networks.
 
-% TODO: talk a bit more about header compression and fragmentation
-- Header compression: compress to 10 bytes using IP header compression
-- Fragmentation: Normally, the IPv6 payload does not fit the payload
-of \ieeemac{}, provide fragmentation of IPv6 datagrams (up to 1280
-bytes) on \ieeemac{} 127 bytes and reassembly mechanisms
+Running IPv6 directly over \ieeemac{} is impractical because the two
+were designed under very different assumptions. IPv6 targets
+high-bandwidth links with large frames, requiring a minimum Maximum
+Transmission Unit (MTU) of
+1280 bytes, whereas \ieeemac{} targets low-power devices, with frames
+of at most 127 bytes and data rates of up to 250\,kbit/s. To bridge
+this gap, 6LoWPAN introduces an adaptation layer between the IPv6
+network layer and the \ieeemac{} MAC layer, which provides three main
+functions:
 
-The original intention is to use the widely supported Interet
-Protocol, simplifying the connection between different networks and
-reduce the complexity of the gateways that were needed to translate
-between proprietary protocl and standard Internet Protocol.
-Additionally, by using IP, users can utilise well-developed tools for
-commissioning, configuring, managing and debugging these networks.
-The protocol removes some of the fields in IP header to save something
+\begin{itemize}
+    \item \textbf{Header compression.} An uncompressed IPv6 header
+        occupies 40 bytes, a large share of a 127-byte \ieeemac{} frame.
+        Many of its fields are either constant or can be derived from
+        other layers; for example, the source and destination addresses
+        can often be reconstructed from the link-layer addresses. 6LoWPAN
+        omits or shortens these fields to reduce header size.
+    \item \textbf{Fragmentation and reassembly.} IPv6 requires every
+        link to support a minimum MTU of 1280 bytes, whereas an
+        \ieeemac{} frame carries at most 127 bytes, of which only part is
+        available for payload. 6LoWPAN splits IPv6 datagrams that do not
+        fit into a single frame into fragments and reassembles them at the
+        receiver.
+    \item \textbf{Link-layer forwarding.} 6LoWPAN optionally supports
+        forwarding packets across multiple hops at the link layer
+        (\emph{mesh-under}). Alternatively, routing can be performed at
+        the IP layer (\emph{route-over}), which is the approach taken by
+        RPL.
+\end{itemize}

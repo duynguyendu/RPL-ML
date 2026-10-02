@@ -197,7 +197,8 @@ def build_topology(
 
     # Randomly turn some clients into overloading clients that send at a higher
     # rate (config.overloading_client_bps). Uses its own RNG so node positions
-    # for a given seed are unchanged by this option.
+    # for a given seed are unchanged by this option. Overloading clients are
+    # kept at least 2 * tx_range apart so their neighbourhoods don't overlap.
     if add_overloading_client:
         rng = random.Random(overloading_client_seed)
         clients = motes[1:]
@@ -207,14 +208,14 @@ def build_topology(
             if len(picked) == num_overloading:
                 break
             if all(
-                math.hypot(m["x"] - p["x"], m["y"] - p["y"]) > radio.tx_range
+                math.hypot(m["x"] - p["x"], m["y"] - p["y"]) >= 2 * radio.tx_range
                 for p in picked
             ):
                 picked.append(m)
         if len(picked) < num_overloading:
             print(
                 f"Warning: only placed {len(picked)}/{num_overloading} overloading "
-                "clients out of each other's tx_range"
+                "clients at least 2 * tx_range apart"
             )
         for m in picked:
             m["role"] = "overloading_client"
