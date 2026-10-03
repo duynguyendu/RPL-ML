@@ -1,24 +1,24 @@
 \section{Proposed Objective Function MLOF}
 
-Most of the OFs have been using one metrics, in which the objective
-function in a sense is greedy, selecting nearby neighbours with the
-best link quality without regarding the overall performance of the whole route.
+Most existing OFs rely on a single routing metric. As a result, they
+behave greedily: a node selects the neighbour with the best link
+quality without considering the performance of the route as a whole.
+To address this, we use machine learning to analyse which routing
+metrics most strongly affect the quality of a parent's chain from
+current node to root. The resulting feature importance then guides
+the design of a more effective OF.
 
-In this sense, I propose using a ML technique to analyse the feature
-importance of quality of a link. Once we know the most important
-routing metrics that effect the quality of a link, we can design an
-efficient objective function based on that result
+Among the ML-based OFs reviewed in Section~\ref{sec:related-work},
+most are based on reinforcement learning. The one supervised approach
+predicts only the probability that a single packet is transmitted
+successfully, which does not capture the longer-term behaviour of the
+link.
 
-The proposed ML-based OFs in the related work section are
-reinforcement learning by design. The one using supervised learning
-however only predict the success transmission probability of one
-packet, missing the whole picture.
-
-In this OF, we proposed using machine learning model to predict the
-packet delivery ratio (PDR), avoiding loaded path and the use the
-predicted PDR to
-calculate the rank as follow
-
+% TODO: wording
+The proposed OF instead uses an ML model to predict the packet
+delivery ratio (PDR) of a link, so that nodes avoid heavily loaded
+paths. The predicted PDR is combined with ETX to compute the rank
+increase:
 \begin{equation}
     \mathit{Rank\_Increase} = \alpha \times \mathit{Predicted\_PDR} +
     (1 - \alpha) \times \mathit{ETX}
@@ -28,17 +28,9 @@ We include ETX as a measure to control the prediciton of the model
 incase of wild prediction, which could lead to unstable DODAG and
 reduce the network performance.
 
-Addition to this, we also measured the overhead of introducing
-machine learning model to the OFs
+% TODO: include to take into whole path context: EWMA for PPM and
+% Drop rate are include
 
-% TODO: why include ETX in this equation
-% TODO: include to take into whole path context: EWMA for PPM and Drop rate are include
-% TODO: to account for difference in current parent and new parent, is_new is included
-
-Metrics of interest
-- End-to-End latency:
-- Hop Count:
-- Parent switch:
 - CPU util: in this metrics, we want to see the the CPU util to be
 more even depends on the hop count. Due to the energy usage are
 similar to each other in CSMA MAC, we opted for CPU util instead.
@@ -47,3 +39,32 @@ and there are more to process, this combine with packet per minute
 and drop rate to accounts for the load of the node.
 
 All the parent metrics are sent from parent to children through DIO
+
+In the end, we collected seven routing metrics
+\begin{itemize}
+    \item ETX: Expected Transmission Count so a packet would be sent
+        and receive acknowledgement
+    \item Hop count: the number of hop to get to the parent node
+    \item RSSI: The receiving signal strength of the parent
+    \item Packet per minute (PPM): the number of packets going
+        through the current node, included all of its children %
+        % TODO: specify this is MAc packets
+    \item Drop rate: the number of transmission per drop of the current node
+    \item Path weighted PPM: the weighted number of packets going
+        through the parent nodej for the whole path
+    \item Path weighted drop rate: the weighted drop rate of the
+        parent node for the whole path
+\end{itemize}
+and two node metrics:
+\begin{itemize}
+    \item CPU Util: the percentage of time in CPU util
+    \item Path weighted CPU util: the weighted percentage of time in
+        CPU util for the whole path
+\end{itemize}
+and one feature to indicate whether the parent is new or not:
+\begin{itemize}
+    \item Is new: differentiate the DIO update from old parent or new parent
+\end{itemize}
+
+Apply EWMA for current node
+and decay for the whole chain

@@ -1,54 +1,94 @@
 \section{Regression Machine Learning Model Selection}
-The advance of machine learning has led the wide applications in IoT devices.
-% TODO: include how machine learning has been apply in IoT applications
+Running a machine learning model on constrained devices, with limited
+computation
+power, memory and energy, imposes strict requirements. The model must
+be lightweight and fast at inference. Most microcontrollers used in
+low-power networks have no floating-point unit, so floating-point
+operations are emulated in software. That emulation is slow,
+energy-hungry and adds to the code size. A common
+solution is \emph{quantisation}, which represents the model's
+parameters and inputs as fixed-point integers \cite{TODO-quantisation}.
+However, quantisation can lower accuracy, and some models are much more
+sensitive to it than others. The chosen model must therefore either
+need no floating-point arithmetic at all, or keep its accuracy after
+quantisation.
 
-Given the condition of running the models on constrained devices with
-low computation power, memory and energy. The models must be
-lightweight and fast during inference process, while also robust when
-using interger instead
-of floating point % TODO: talke about quanitisation
-To be specific, the model must be compile in C with less than 10KB
-and must not use floating point in its operation.
-We have considered ... models namely: K-nearest neightbour
-regression, linear regression, support vector regression, Gaussian
-Process Regressor, Decision Tree, Random Forest and Multilayer perceptron model.
+In this work, every input feature is kept in its native integer type,
+as reported by the RPL stack (for example, ETX as a 16-bit
+fixed-point value and hop count as an 8-bit integer). The predicted
+PDR is scaled to an unsigned 16-bit integer in the range
+$[0, 65535]$. Specifically, the model must:
+% TODO: include reason for 10KB
+\begin{itemize}
+    \item Compile to C code of less than 10\,KB, and
+    \item Use no floating-point operations during inference.
+\end{itemize}
+
+With these requirements in mind, we considered eight regression
+models: K-nearest neighbour regression, linear regression, support
+vector regression, Gaussian process regression, decision tree, random
+forest, gradient-boosted trees (LightGBM) and the multilayer
+perceptron. Each is described below, along with whether it meets
+the requirement of size constrained. In model evaluation, we analyse weather the model fit in the floating-point requirement.
 
 \subsubsection{K-Nearest Neighbor Regression (KNNR)}
-% TODO: what is nonparametric
 KNNR is a common nonparametric supervised learning model
-\cite{KNNRSONG201726}. It works by
-mapping the unseen point with the k-nearest neightbours to predict
-the value that the new point should that, usually the average of the
-k-neighbours
-. The principle behind this
-model is that points that are similar to each other would have the
-similar property.
-The prediction can include inverse weight based on the distance from
-the neighbours
-Generally, the closeness between points is measured by the Euclidean
-or Mahalanobis distance between them,
-% TODO: list some other distance as well
-% TODO: insert equation for Euclid distance
-The choice of k depends on the application and is usually the subject
-of hyperparameter searching.
-Since KNNR relies on the distance between features, normalisation and
-scaling can often improve the accuracy of the model.
+\cite{KNNRSONG201726}. A model is \emph{nonparametric} when it does
+not assume a fixed functional form for the relationship between the
+inputs and the output, and so has no fixed set of parameters to
+learn. Instead, the training data itself forms the model, and its
+complexity grows with the size of the data.
 
-KNNR has the advantage of not needing to train at all, instead the
-model remembers the training data, which would be used for the
-interference. This also means that appending new training data to the
-model is very simple as the new observations can be appended.
-However, this is also one of the weakness of KNNR, it cannot work
-effciently with large datasets and in high dimensional space, it also
-quite sensitive to noise, outliers and missing values.
+KNNR rests on the idea that points close to each other in feature
+space have similar output values. To predict the value of an unseen
+point $\mathbf{x}$, it finds the $k$ training points nearest to
+$\mathbf{x}$, written $\mathcal{N}_k(\mathbf{x})$, and averages their
+outputs:
+% TODO: probs simplify the equation
+\begin{equation}
+    \hat{y}(\mathbf{x}) = \frac{1}{k}
+    \sum_{i \in \mathcal{N}_k(\mathbf{x})} y_i
+\end{equation}
+Alternatively, each neighbour can be weighted by the inverse of its
+distance to $\mathbf{x}$, so that closer neighbours contribute more
+to the prediction:
+\begin{equation}
+    \hat{y}(\mathbf{x}) =
+    \frac{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i \, y_i}
+    {\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i},
+    \qquad w_i = \frac{1}{d(\mathbf{x}, \mathbf{x}_i)}
+\end{equation}
 
-Despite KNNR is relatively simple, KNNR does not meet our requirement
-of being lightweight and is quite computational heavy interference as
-it has to perform O(n) calculation, evaluating each point in the
-training dataset.
+The distance between two points with $m$ features is most commonly
+measured by the Euclidean distance:
+\begin{equation}
+    d(\mathbf{x}, \mathbf{x}_i) =
+    \sqrt{\sum_{j=1}^{m} \left( x_j - x_{i,j} \right)^2}
+\end{equation}
+% TODO: probs no need to include this many distances
+Other common choices include the Manhattan distance, the Minkowski
+distance (which generalises the Euclidean and Manhattan distances),
+the Chebyshev distance and the Mahalanobis distance, which accounts
+for correlations between features. The value of $k$ depends on the
+application and is usually chosen by a hyperparameter search. Because
+KNNR relies on distances between points, features with large ranges
+can dominate those with small ranges, so normalising or scaling the
+features often improves its accuracy.
+
+KNNR needs no training: the model simply stores the training data
+and uses it at inference. This also makes it easy to update, as new
+observations can just be added to the stored data. However, this is
+also one of its main weaknesses. KNNR does not scale well to large
+datasets or high-dimensional feature spaces, and it is sensitive to
+noise, outliers and missing values.
+
+Although KNNR is simple, it does not meet our requirements. The whole
+training dataset must be stored on the device, which far exceeds the
+10\,KB limit. Each prediction must also compute the distance to every
+one of the $n$ training points, at a cost of $O(nm)$, which is too
+expensive for a constrained device.
 
 \subsubsection{Linear Regression}
-
 Linear regression: works by fitting the data on a line, forming a
 linear equation % TODO: insert latex equation for this
 . This model satisfies the simplicity, requiring less computational
@@ -74,8 +114,11 @@ Use multivariate Gaussian distribution
     \mu)^2}{2\sigma^2} \right).
 \end{equation}
 
-The Gaussian Process is the process that fits each feature in the training dataset to a Gaussian Distribution and then join them together to create a probabilistic prediction functions.
-In regression model, the output is mean and variance with the ... is the predicted value.
+The Gaussian Process is the process that fits each feature in the
+training dataset to a Gaussian Distribution and then join them
+together to create a probabilistic prediction functions.
+In regression model, the output is mean and variance with the ... is
+the predicted value.
 
 The kernel, or covariance function, plays a pivotal role in this
 smoothing process, encapsulating our prior knowledge about the

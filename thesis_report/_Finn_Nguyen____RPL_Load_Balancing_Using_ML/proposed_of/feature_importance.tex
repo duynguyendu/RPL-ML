@@ -1,31 +1,80 @@
 \section{Feature Selection}
+% TODO: review this section
+Feature selection is the process of choosing a subset of the available
+input features that are most relevant to the prediction target, and
+discarding those that are redundant or uninformative. Using fewer
+features reduces the risk of overfitting, makes the model easier to
+interpret and, most importantly for this work, reduces the size of the
+model and the cost of inference on a constrained device. It also
+reduces the number of metrics each node must measure and share with
+its neighbours.
 
-Feature selection is ...
-There are three ways to do it: filter method, wrapper method and
-embedded method.
-Filter method asseses the feature based on their statistical
-properties with the target variable Correlation, mutual information, variance
-Ranking method
-- Pearson correlation coefficient: Measures the linear correlation
-between two continuous variables
-- Spearman: for continuous and non-linear relation
-- Mutual information
+Closely related is \emph{feature importance analysis}, which
+quantifies how much each feature contributes to a model's
+predictions. Feature importance scores are often used to rank the
+features, and the ranking then guides which features to keep. Feature
+selection methods are commonly grouped into three families: filter,
+wrapper and embedded methods.
 
-Wrapper method: use the machine learning model output as the score.
-Compute the accuracy for a subset of features, this are quite
-computational expensive
-Sequential Backward Elimination (SBS)
+\paragraph{Filter methods} assess each feature by its statistical
+relationship with the target variable, independently of any machine
+learning model. The features are ranked by a score and the
+lowest-ranked ones are removed. Filter methods are fast and
+model-agnostic, but they evaluate each feature in isolation and so can
+miss interactions between features. Common scores include:
+\begin{itemize}
+    \item \textbf{Pearson correlation coefficient}, which measures the
+        strength of the linear relationship between two continuous
+        variables;
+    \item \textbf{Spearman rank correlation coefficient}, which
+        measures the strength of a monotonic relationship, whether linear
+        or not, and also applies to ordinal variables;
+    \item \textbf{Mutual information}, which measures how much knowing
+        one variable reduces uncertainty about the other, and so captures
+        any kind of dependency, including non-monotonic ones;
+    \item \textbf{Variance threshold}, which removes features whose
+        values barely change and therefore carry little information.
+\end{itemize}
 
-Embedded: some model include the feature importance as its output for
-example Decision Tree.
+\paragraph{Wrapper methods} use the performance of a machine learning
+model as the score for a subset of features. The model is trained and
+evaluated on different subsets, and the subset with the best
+performance is kept. A common example is \emph{sequential backward
+selection} (SBS), which starts with all features and repeatedly
+removes the feature whose removal hurts the performance least, until
+the performance drops below an acceptable level. Wrapper methods
+account for interactions between features and for the behaviour of
+the model in use, but they are computationally expensive, because the
+model must be retrained for every subset evaluated.
 
-Decision Tree and LGBMTreeRegressor, they have discrete variable.
+\paragraph{Embedded methods} perform feature selection as part of
+training the model. For example, decision trees and gradient-boosted
+trees such as LightGBM choose, at each split, the feature that most
+reduces the prediction error. Features that are never chosen have no
+effect on the model. These models also report a built-in importance,
+such as the mean decrease in impurity (MDI) or the number of splits
+on each feature. However, these built-in scores are calculated on the
+training data. They also tend to favour features with many distinct
+values over low-cardinality features, such as the binary
+\texttt{is\_new}, and they are not comparable across model types.
 
-% TODO: what is feature importance analysis
-% TODO: rough ideas about what can be used to do this
+In addition to these three families, \emph{model-agnostic}
+interpretation methods can measure feature importance for any fitted
+model. Two widely used examples are permutation importance
+\cite{altmannPermutationImportanceCorrected2010} and SHapley Additive
+exPlanations (SHAP) \cite{lundbergUnifiedApproachInterpreting2017},
+both described below. Unlike built-in importances, they can be
+calculated on held-out data, and their scores can be compared directly
+across the decision tree and LightGBM models.
 
-In this, we use Spearman correlation and, permutation importance and
-SHAP to evaluate the importance of each feature.
+In this work, we combine these approaches. Before training, Spearman
+and Pearson correlations are used as a filter method to identify
+redundant features and to measure each feature's relationship with
+the PDR. After training, permutation importance and SHAP are used to
+rank the features for each model. Finally, in a wrapper-style step,
+the lowest-ranked features are removed one at a time and the model is
+retrained, until its error exceeds the best model's error by more than
+1\%.
 
 \subsection{Permutation Importance}
 \cite{altmannPermutationImportanceCorrected2010}
@@ -89,10 +138,13 @@ the tree significantly while trading the performance of the model minimally.
 This is done before training the model to see which features are
 related to each other
 
-Pearson's correlation assesses linear relationships, Spearman's correlation assesses monotonic relationships (whether linear or not)
+Pearson's correlation assesses linear relationships, Spearman's
+correlation assesses monotonic relationships (whether linear or not)
 
-ranking is the data transformation in which numerical or ordinal values are replaced by their rank when the data are sorted.
-The Spearman correlation coefficient is defined as the Pearson correlation coefficient between the rank variables.
+ranking is the data transformation in which numerical or ordinal
+values are replaced by their rank when the data are sorted.
+The Spearman correlation coefficient is defined as the Pearson
+correlation coefficient between the rank variables.
 Instead of having numerical, we have rank
 
 % TODO: explain Pearson

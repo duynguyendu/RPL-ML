@@ -6,8 +6,6 @@ consist of various random topologoies, running under MRHOF with the
 parameters listed in Table~\ref{tab:data-gathering-sim-parameters}.
 In total, we ran (...) simulations for data gathering process.
 
-% TODO: talk more about topology and load setting
-
 \begin{table}[ht]
     \caption{Simulation parameters for data gathering.}
     \label{tab:data-gathering-sim-parameters}
@@ -18,11 +16,11 @@ In total, we ran (...) simulations for data gathering process.
             \hline
             Simulator                      & COOJA \\
             Mote type                      & Zolertia Z1 \\
-            Simulation Time                & 1800\,s \\
-            Number of Nodes                & 40, 60, 80 \\
+            Simulation Time                & 600\,s \\
+            Number of Nodes                & 60, 80, 100 \\
             Transmission rate              & 90\% \\
             Receiving rate                 & 90\% \\
-            Topology                       & Random with seeds from 1-10 \\
+            Topology                       & Random with seeds from 1-5 \\
             MAC Layer Protocol             & CSMA \\
             Radio Range                    & 50\,m \\
             Interference Range             & 60\,m \\
@@ -46,31 +44,6 @@ training data feature in addition to routing metrics to differentiate
 between current parent or new parent as current parent metric already include
 the load of the current node.
 
-In the end, we collected seven routing metrics
-\begin{itemize}
-    \item ETX: Expected Transmission Count so a packet would be sent
-        and receive acknowledgement
-    \item Hop count: the number of hop to get to the parent node
-    \item RSSI: The receiving signal strength of the parent
-    \item Packet per minute (PPM): the number of packets going
-        through the current node, included all of its children % TODO: specify this is MAc packets
-    \item Drop rate: the number of transmission per drop of the current node
-    \item Path weighted PPM: the weighted number of packets going
-        through the parent nodej for the whole path
-    \item Path weighted drop rate: the weighted drop rate of the
-        parent node for the whole path
-\end{itemize}
-and two node metrics:
-\begin{itemize}
-    \item CPU Util: the percentage of time in CPU util
-    \item Path weighted CPU util: the weighted percentage of time in
-        CPU util for the whole path
-\end{itemize}
-and one feature to indicate whether the parent is new or not:
-\begin{itemize}
-    \item Is new: differentiate the DIO update from old parent or new parent
-\end{itemize}
-
 In our evaluation, the nodes closer to root node would have higher
 CPU util since they have to process more packets from children node,
 thus also higher PPM and potentially higher Drop rate.
@@ -78,9 +51,6 @@ thus also higher PPM and potentially higher Drop rate.
 More over, we also include parent PPM, parent CPU util and parent
 neighbour counts in the DIO to advertise to the child. Possibly to
 link the load increase of the current node onto the selected parent
-
-And finally choose 6 most importance metrics to train the model for
-PDR prediction
 
 Afterward, the training label PDR is calculated within a scope of a
 node by calculating TX / RX between the current row and next data input time
@@ -90,3 +60,5 @@ potential PDR is.
 
 Additionally, we filter the chunk having less than 30 seconds to
 reduce the noise in the training dataset.
+
+% TODO: should include the data value analysis
