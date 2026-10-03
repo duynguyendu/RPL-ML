@@ -24,7 +24,9 @@ deep low power mode (DLPM). The other two describe the radio:
 transmitting (TX) and receiving (RX). So the energy estimate in
 Contiki-NG is calculated as follow. The time $t_x$ spent in each state is
 obtained by dividing its tick count by the number of ticks per second
-$t_x = \mathit{ticks}_x / \mathit{ENERGEST\_SECOND}$
+\begin{equation}
+    t_x = \mathit{ticks}_x / \mathit{ENERGEST\_SECOND}
+\end{equation}
 And the energy consumed by a node is estimated as
 \begin{equation}
     E = V \left( I_{\mathrm{CPU}}\, t_{\mathrm{CPU}}
@@ -44,10 +46,11 @@ The value of current drawn of each state is gathered from the
 datasheet of the MCU and transceiver. Table~\ref{tab:current-draw}
 shows the current drawn
 of two platforms Z1 \cite{zolertia_z1} and Tmote Sky
-\cite{moteiv_tmotesky} with transceiver CC2420 \cite{ti_cc2420}. The
-current draw from datasheet should only be taken as a reference
-point, which can vary a lot in different situation.
+\cite{moteiv_tmotesky} with transceiver CC2420 \cite{ti_cc2420}. However, the
+current draw from datasheet is only taken as a reference
+point as it can vary a lot in different situation.
 
+% TODO: what should I do with Z1 CPU active at 8mhz
 \begin{table}[ht]
     \centering
     \caption{Average current draw per Energest state for the Zolertia
@@ -68,6 +71,7 @@ point, which can vary a lot in different situation.
     \end{tabular}
 \end{table}
 
+% TODO: wording
 In CSMA mode, the radio is turn on at all time, thus the difference
 in energy usage between nodes using this energy model is mainly
 difference in CPU utilisation and pretty negligible as CPU energy
@@ -77,6 +81,7 @@ packet intended for them, the energy consumption would be much bigger
 for nodes that have high traffic.
 
 \section{Hardware Selection}
+% TODO: do this
 However, TSCH is a much more complicated and memory heavy algorithm
 for such old devices Sky and Z1. Hence we opt for CSMA and use active CPU ticks
 as intermediate value to measure the energy consumption relative to
