@@ -58,7 +58,7 @@ point, which can vary a lot in different situation.
         \textbf{Component} & \textbf{State} & \textbf{Z1} &
         \textbf{Tmote Sky} \\
         \hline
-        MCU   & Active (CPU)                 & 4.5\,mA       & 1.8\,mA \\
+        MCU   & Active (CPU)                 & 10\,mA       & 1.8\,mA \\
         & Low-power mode (LPM)         & 23\,$\mu$A   & 54\,$\mu$A   \\
         & Deep low-power mode (DLPM)   & 0\,$\mu$A    & 0\,$\mu$A    \\
         \hline
@@ -68,22 +68,55 @@ point, which can vary a lot in different situation.
     \end{tabular}
 \end{table}
 
-% TODO: specify that Cooja sim at 8Mhz, combine with the MSP430F2617 datasheet
+In CSMA mode, the radio is turn on at all time, thus the difference
+in energy usage between nodes using this energy model is mainly
+difference in CPU utilisation and pretty negligible as CPU energy
+consumption is much smaller than that of radio. In contrast, TSCH and
+radio cycling allow nodes to turn off their radio if their is no
+packet intended for them, the energy consumption would be much bigger
+for nodes that have high traffic.
 
-% TODO: should I include this
-% Time measurement is implemented using the on-chip timers
-% of the MSP430. Since the on-chip timers work even when
-% the microcontroller is in low-power mode, the time measure-
-% ment is non-intrusive. We use the 32768 Hz clock divided
-% by 8, producing 4096 clock ticks per second
-
-% TODO: include energy per tick of RX is a lot bigger than CPU
-From the table, radio power is much more significant than MCU power.
-Since the removal of duty cycling layer in Contiki-NG in favor of
-TSCH, the energy consumption in CSMA mode is dominated by radio
-being on for the whole period.
-% TODO: compile with CSMA and TSCH to show how much memory it takes
+\section{Hardware Selection}
 However, TSCH is a much more complicated and memory heavy algorithm
 for such old devices Sky and Z1. Hence we opt for CSMA and use active CPU ticks
 as intermediate value to measure the energy consumption relative to
 other nodes in the network.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Memory footprint of the Contiki-NG \texttt{rpl-udp}
+        example with \texttt{QUEUEBUF\_CONF\_NUM}=8 and
+        \texttt{NBR\_TABLE\_CONF\_MAX\_NEIGHBORS}=10.
+        Z1: 92\,KB flash, 8\,KB RAM; Tmote Sky: 48\,KB flash, 10\,KB RAM.
+    All values in bytes.}
+    \label{tab:footprint-nbr10}
+    \begin{tabular}{lllrrrrr}
+        \hline
+        Platform & MAC & Node & \texttt{.text} & \texttt{.data}
+        & \texttt{.bss} & Flash & RAM \\
+        \hline
+        Z1  & CSMA & udp-client & 43\,788 & 350 & 6\,002 & 44\,138 & 6\,352 \\
+        &      & udp-server & 43\,412 & 350 & 5\,946 & 43\,762 & 6\,296 \\
+        \cline{2-8}
+        & TSCH & udp-client & 56\,092 & 398 & 7\,962 & 56\,490
+        & 8\,360$^{\dagger}$ \\
+        &      & udp-server & 55\,716 & 398 & 7\,906 & 56\,114
+        & 8\,304$^{\dagger}$ \\
+        \hline
+        Sky & CSMA & udp-client & 44\,861 & 362 & 6\,752 & 45\,223 & 7\,114 \\
+        &      & udp-server & 44\,481 & 362 & 6\,696 & 44\,843 & 7\,058 \\
+        \cline{2-8}
+        & TSCH & udp-client & 57\,739 & 402 & 9\,098
+        & 58\,141$^{\ddagger}$ & 9\,500 \\
+        &      & udp-server & 57\,359 & 402 & 9\,042
+        & 57\,761$^{\ddagger}$ & 9\,444 \\
+        \hline
+    \end{tabular}
+
+    \smallskip
+    \footnotesize{Flash = \texttt{.text} + \texttt{.data}; RAM =
+        \texttt{.data} + \texttt{.bss}.\\
+        $^{\dagger}$Exceeds the 8\,192\,B RAM of the Z1.
+        $^{\ddagger}$Exceeds the 49\,149\,B usable flash of the Sky. The
+    image fails to link.}
+\end{table}

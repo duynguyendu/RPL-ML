@@ -101,7 +101,6 @@ the node broadcasts its own DIO to
 advertise itself to its neighbours. This process is repeated
 outward through the network until every node has join the DODAG.
 
-% TODO: include the flexiblity of DIO, adding more metrics
 DIOs are crucial in maintaining DODAG. Nodes send DIOs periodically to
 advertise their rank and routing metrics. Each time a node receives a
 DIO, it update the candidate parent set and
@@ -114,15 +113,16 @@ Despite that, frequent DIO would be redundant in consistent network
 conditions, thus RPL employs Trickle timer to regulate the emission
 of DIO based on network consistency.
 
-% TODO: wording of the whole para
-A node can send out DIS message to request DODAG information instead
-of waiting passively for a periodic DIO. The response depends on how the
-DIS is sent. If a neighbour receives a unicast DIS, it must reply with a
-unicast DIO and must not reset its Trickle timer. If a neighbour
-receives a multicast DIS, it resets its Trickle timer, so the node soon
-receives DIOs from all nearby DODAG members. When the node receives a
-DIO sent in response to its DIS, it processes the DIO in the same way
-as a periodic DIO.
+A node can also send a DIS message to request DODAG information instead
+of waiting passively for a periodic DIO. To refresh information from a
+known neighbour, such as its preferred parent, the node sends a unicast
+DIS. The neighbour must then reply with a unicast DIO and must not reset
+its Trickle timer, so the rest of the network is not disturbed. To
+discover the DODAG and its neighbours, for example when joining, the
+node instead sends a multicast DIS. Every neighbour that receives it
+resets its Trickle timer, so the node soon receives DIOs from all
+nearby DODAG members. In both cases, the node processes these DIOs in
+the same way as periodic DIOs.
 
 Once a node has joined a DODAG, it sends a DAO to advertise that
 it can be reached in the downward direction. The recipient of DAO
@@ -240,31 +240,22 @@ number of hops, even when the link to that neighbour is noisy and lossy.
 The specification also limits $\mathit{Sp}$ to the range $[1, 9]$, so
 a candidate parent whose link is too costly cannot be selected.
 
-% TODO: double check the para of MRHOF
-In contrast, MRHOF selects parents based on the cost of the whole
-path to the root. MRHOF works with any additive metric, such as hop
-count, latency or ETX, and uses ETX when no metric is specified.
+On the other hand, MRHOF works with any additive metric, such as hop
+count, latency or ETX, and uses ETX as default.
 Metrics are advertised in the DAG Metric Container option of the DIO
 \cite{rfc6551}. For each candidate parent, a node computes the path
 cost as the cost of the link to that candidate plus the path cost the
 candidate advertises. It then selects the candidate with the lowest
 path cost as its preferred parent and derives its own rank from that
-path cost. Candidates whose link cost exceeds
-$\mathit{MAX\_LINK\_METRIC}$ (by default an ETX of 4) are excluded.
-
-To avoid unnecessary parent switches, MRHOF applies hysteresis. A
-node switches to a new candidate only if that candidate's path cost
-is lower than the current parent's by more than
-$\mathit{PARENT\_SWITCH\_THRESHOLD}$, which corresponds to an ETX of
-1.5 by default \cite{rfc6719}. Otherwise, the node keeps its current
-parent. This prevents the node from switching back and forth when
-link metrics fluctuate slightly, and so keeps the DODAG stable.
-Contiki-NG adds a time-based hysteresis on top of this: if a
-candidate has been consistently better than the current parent for at
-least ten minutes, the node switches to it even if the difference is
-below the threshold.
-
-% TODO: include problem of OF0 and MRHOF
+path cost, while exclude path cost that exceeds
+$\mathit{MAX\_LINK\_METRIC}$ (by default an ETX of 4). MRHOF
+introduces hysteresis to avoid to avoid
+unnecessary parent switches. A node switches to a new candidate only
+if that candidate's path cost is lower than the current parent's by
+more than $\mathit{PARENT\_SWITCH\_THRESHOLD}$, which corresponds to
+an ETX of 1.5 by default \cite{rfc6719}. Otherwise, the node keeps
+its current parent. This prevents the node from switching back and
+forth when link metrics fluctuate slightly.
 
 \section{Load Balancing in RPL}
 Load balancing is a core technique in distributed systems that spreads
@@ -278,9 +269,10 @@ There are two problems that most often discussed in the context of
 load balancing in RPL: the hot-spot problem and thundering herd problem.
 
 In hot-spot problem, some nodes are chosen as parents more often
-than others, especially those near the root. This happens because RPL
-uses a single preferred parent for all
-upward traffic and the standardised OFs tend to pick up the same "best" routes.
+than others, especially those near the root as shown in
+Figure~\ref{fig:hotspot}. This happens because RPL
+uses a single preferred parent for all upward traffic and the
+standardised OFs tend to pick up the same "best" routes.
 Nodes on those routes carry a large share of the network's traffic
 and drain their batteries far faster than their neighbours. This
 problem also occurs when nodes generate different amounts of traffic. In
@@ -290,8 +282,13 @@ same parent as those high-traffic nodes would exhaust the parent even faster.
 Beyond saving energy, balancing the load reduces congestion and queue
 overflow at hot spots, which lowers latency and raises the packet
 delivery ratio.
-% TODO: this is a big claim,
-% TODO: should I include example for hot-spot
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=0.5\textwidth]{assets/hotspot.png}
+        \caption{Example of the hot-spot problem.}
+        \label{fig:hotspot}
+    \end{center}
+\end{fig}
 
 The thundering herd problem occurs when many nodes react to the same
 routing information at the same time and switch to the same parent,
@@ -326,9 +323,10 @@ load-balancing mechanism that reacts too quickly to changes
 in load causes oscillation like the thundering herd effect, while one that
 reacts too slowly leaves hot spots in place. An effective design must therefore
 balance responsiveness against stability: it should spread traffic
-evenly while suppressing unnecessary parent switchs so that the DODAG
+evenly while suppressing unnecessary parent switches so that the DODAG
 remains stable.
 
+% TODO: include problem of MRHOF and OF0
 % TODO: write more about this
 OF0 and MRHOF fall short as they only consider one
 metric: hop count and ETX. This does not capture the different

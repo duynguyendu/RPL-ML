@@ -13,23 +13,27 @@ because of its very low power consumption, and it is the basis of several
 popular sensor motes that the Cooja simulator can emulate at the instruction
 level.
 
-At its core, Contiki uses an event-driven kernel combined with
-\emph{protothread} --- lightweight stackless threads --- to achieve
-linear code execution for event-driven systems while keeping the
-memory footprint small \cite{dunkels2006protothreads}. Compare to
-multi-thread systems, event-driven systems do not need to allocate
-memory for each thread stack.
-Protothread provides conditional blocking wait operation the reduce
-the explicit state machines to save the memory even more.
-% TODO: why does it need to be linear
+At its core, Contiki uses an event-driven kernel, where all processes
+run on a single shared stack, to save memory compared to
+multi-threaded systems where each thread has its own stack. The drawback is that
+event-driven code is hard to write: any task that waits for an event,
+such as a timer or an incoming packet, has to be split across several
+callbacks and coordinated through an explicit state machine. Contiki
+addresses this with \emph{protothreads}, lightweight stackless threads
+that provide a conditional blocking wait \cite{dunkels2006protothreads}.
+A protothread can wait for an event in the middle of a function and
+resume from the same point when the event occurs, so the code can be
+written as a linear sequence of steps, removing most
+explicit state machines while adding only about two bytes of memory
+per thread. % TODO: need to understand this
 
-% TODO: wording
-Contiki also ships with a full network stack for WSNs, including IPv4 and IPv6
-support through 6LoWPAN and RPL routing protocol.
-To save energy, Contiki adds radio duty cycling (RDC) layer between
-PHY and MAC layer, and provides several low-power RDC protocols,
-such as X-MAC, LPP and ContikiMAC, allowing nodes to turn radio off.
-Of these, ContikiMAC became the default RDC layer.
+Contiki also ships with a full network stack for WSNs. Its uIP stack
+supports both IPv4 and IPv6, and IPv6 runs over \ieeemac{} through the
+6LoWPAN adaptation layer, with RPL as the routing protocol. Contiki
+further adds a radio duty cycling (RDC) layer between the MAC layer
+and the radio driver, and provides several low-power RDC protocols,
+such as X-MAC, LPP and ContikiMAC, which were developed before TSCH
+became standardised. Of these, ContikiMAC became the default.
 
 In November 2017, Contiki-NG (Contiki Next Generation) was released
 as version 4.0, a fork of the original Contiki under the 3-clause BSD
@@ -46,17 +50,18 @@ Although the main support of Contiki-NG is 32 bits MCUs, several older 16-bit
 MSP430 platforms such as Tmote Sky and Zolertia Z1 are still
 maintained, and can be emulated in Cooja simulator.
 
-% TODO: may include additioanl changes of Contiki in RPL - Time hysteriss
-Contiki-NG also rewrote the RPL implementation and
-called the new version RPL-lite.
+Contiki-NG also rewrote the RPL implementation called RPL-lite and
+make the new version default RPL implementation in the system.
 The original Contiki implementation is still kept and is called RPL-classic.
 Draws from years of experience, RPL-lite drops several RPL features
 that are rarely needed in practice.
 It only supports a single RPL instance with only one DODAG at a time, and
 only the non-storing mode of operation, in which the root node holds
 all the downward routes.
-RPL-lite is the default option in Contiki-NG and is the
-implementation used in this work.
+For MRHOF, RPL-Lite adds a time-based hysteresis on top of the
+standard rank hysteresis, so that a node eventually switches to a
+parent that has been consistently better for a long period, even if
+the difference stays below the switching threshold.
 
 \subsection{Cooja Simulator}
 Cooja is a network simulator tool distributed with Contiki-NG. It is
@@ -67,18 +72,16 @@ Out of the box, Cooja provides two hardware mote types: Tmote Sky
 (TelosB) and Zolertia Z1 with the platform specifications shown in
 Table~\ref{tab:mote-specs}, and a software-based mote type called Cooja.
 
-For hardward emulation, Cooja uses MSPSim, a Java-based
+For hardware emulation, Cooja uses \texttt{MSPSim}, a Java-based
 instruction-level emulator, to emulate the MSP430 family MCUs with
 cycle accurate, including timing, memory limits and peripherals.
-The Cooja mote, in constrast, is compiled directly into native code
-of the host machine, and Cooja loads this code through the Java
-Naive Interface (JNI). Cooja skips the internal working of this mote
-type.
-% TODO: these 3 lines are a bit wierd
-Because of this, Cooja motes are not bounded
-by the limitation of computation power or memory of real hardware.
-This makes the simulation much faster but less time-accurate. For this
-reason, Cooja mote is typically used to test the protocols and
+The Cooja mote, in contrast, is not time-accurate and is compiled to
+run directly on the host
+machine and bypass the limitations of computation power or memory on
+real hardware. This makes the simulation using Cooja motes much
+faster but less accurate in terms of time, energy and computational
+resource usage. For this reason, Cooja mote is typically used to test
+the protocols and
 application logic quickly before running the slower but more accurate
 hardware emulation.
 
@@ -104,6 +107,3 @@ hardware emulation.
         \end{tabular}
     \end{center}
 \end{table}
-
-Thus to maximise the computing power for machine learning model, Z1
-is the most suitable mote for our need.
