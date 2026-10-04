@@ -1,14 +1,14 @@
 \chapter{Introduction}\label{C:intro}
 Recent developments in the Internet of Things (IoT) have driven a
-rapid increase in the number of devices connected to the Internet,
-with growth continuing to accelerate across many domains such as
+rapid increase in the number of devices connected to the Internet.
+The growth is expected to accelerate across many domains such as
 healthcare, industrial automation, and building automation.
 % TODO: maybe cite the growth of IoT
 These devices typically communicate wirelessly with limited range and
-generally requires multi-hop solution, and
-are bounded by low computational power, memory, and energy (battery).
-Furthermore, their communication links are susceptible to loss and
-frequent packet drops. Such networks are categorised as Low-power and
+generally requires multi-hop solution. Furthermore, they are bounded
+by low computational power, memory, and energy (battery), and their
+communication links are susceptible to loss and frequent packet
+drops. Such networks are categorised as Low-power and
 Lossy Networks (LLNs).
 
 These limitations led the Internet Engineering Task Force (IETF),
@@ -23,17 +23,16 @@ From there, the ROLL working group had investigated the existing routing
 protocols Open Shortest Path First (OSPF), Intermediate System to
 Intermediate System (IS-IS), Ad hoc On-Demand Distance Vector (AODV),
 and Optimized Link State Routing Protocol (OLSR), to which they found out that
-they do not satisfy all of
-the routing requirements.
+they do not satisfy all of the routing requirements in LLNs.
 This led to ROLL introducing a new routing protocol
 designed specifically for LLNs called IPv6 based routing protocol for
 low power and lossy networks (RPL), standardised in RFC 6550
 \cite{alexanderRPLIPv6Routing2012}.
 
 At its core, RPL constructs a Destination-Oriented Directed Acyclic
-Graph (DODAG) to route packets from nodes toward a root, using an
-objective function (OF) to compute path cost and select parents
-during DODAG construction. Since the OF governs parent selection, it
+Graph (DODAG) to route packets from nodes toward a root by using an
+objective function (OF) to compute path cost and select parents.
+Since the OF governs parent selection, it
 directly determines how traffic is distributed across the DODAG,
 which in turn affects the link quality and power consumption
 experienced by individual nodes.
@@ -42,6 +41,7 @@ The protocol falls short when it comes to performing under high traffic as
 load balancing was not considered in the design. The OFs
 that the ROLL working group proposes only consider one metric, which does not
 capture the load of the network.
+% TODO: rewrite this sentence
 Moreover, most of the OFs are reactive in nature, meaning that would
 react after a route has degraded in quality and reliability.
 

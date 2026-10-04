@@ -77,29 +77,53 @@ retrained, until its error exceeds the best model's error by more than
 1\%.
 
 \subsection{Permutation Importance}
-\cite{altmannPermutationImportanceCorrected2010}
+Permutation importance \cite{altmannPermutationImportanceCorrected2010}
+is a model inspection technique that measures how much each feature
+contributes to a fitted model's performance on a tabular dataset. It
+treats the model as a black box: it only needs the model's
+predictions, not its internal structure. This makes it suitable for
+non-linear models such as decision trees and LightGBM, and its scores
+can be compared directly across model types.
 
-model inspection technique that measures the contribution of each
-feature to a fitted model’s statistical performance on a given tabular dataset
-- Useful for non-linear model.
-
-The baseline score of the model $s$ on a certain dataset.
-For each feature in the dataset, the algorithm permuate the value of
-that feature with other rows to create a corrupted version of the
-dataset and run the model through that $K$ times.
-The feature importance is calculated as
-
+The idea is that if a feature is important, breaking its link with
+the output should make the model's predictions worse. The method
+first measures the model's baseline score $s$ on a dataset. Then, for
+each feature $j$, it randomly shuffles that feature's values across
+the rows, which keeps the feature's distribution but removes its
+relationship with the PDR. The model is scored on this corrupted
+dataset, and the shuffle is repeated $K$ times to reduce the effect
+of randomness. The importance of feature $j$ is the average drop in
+score:
 \begin{equation}
-    i_j = s - \frac{1}{K} \sum_{k=1}^{K} s_{k,j}
+    i_j = s - \frac{1}{K} \sum_{k=1}^{K} s_{k,j},
 \end{equation}
+where $s_{k,j}$ is the score after the $k$-th shuffle of feature $j$.
+In this work, the score is the negative mean absolute error, so
+$i_j$ is the average increase in prediction error when feature $j$
+is shuffled. We use $K = 10$, and compute the importance on a
+held-out test set of 20\% of the data, so that it reflects how the
+model generalises rather than what it memorised during training.
 
-% TODO: compare this with Mean decrease in impurity
-Mean decrease: bias high cardinality features over low cardinality
-features such as binary features, in this case is\_new
+Permutation importance avoids the main weaknesses of the mean
+decrease in impurity (MDI) described above. MDI is calculated from
+the training data and favours features with many distinct values,
+such as ETX, over low-cardinality features such as the binary
+\texttt{is\_new}. Permutation importance does not depend on how the
+model splits the data, so it has no such bias, and it can be computed
+on unseen data.
 
-One downside of this method is the importance is link with error of
-the model rather than how changing the feature would influence the
-performance of the model.
+However, permutation importance has two limitations. First, it
+measures how much the model's \emph{error} depends on a feature, not
+how the feature changes the model's \emph{prediction}. Its scores are
+only meaningful if the model is accurate, and they do not show
+whether a feature pushes the predicted PDR up or down. Second, when
+two features are strongly correlated, such as ETX and hop count,
+shuffling one of them has little effect because the model can still
+rely on the other. Both features may then appear less important than
+they really are. Shuffling can also create unrealistic inputs, such
+as a node with a high hop count but a very low ETX. SHAP, described
+next, addresses the first limitation by measuring each feature's
+contribution to every individual prediction.
 
 \subsection{SHAP}
 SHapley Additive exPlanations (SHAP) is technique that measures the

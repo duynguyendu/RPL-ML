@@ -9,6 +9,8 @@ meet a condition. The metrics fall into two groups: node metrics,
 which describe the state of a node, and link metrics, which describe
 the quality of a link between two nodes.
 
+% TODO: probably say most of the OFs use something
+
 \subsubsection{Node State and Attribute}
 The Node State and Attribute (NSA) object carries information about a
 node's state and capabilities. The standard defines two flags; the
@@ -68,15 +70,7 @@ over a link and receive its acknowledgement. It is calculated as
 where $D_f$ is the forward delivery ratio, the probability that a packet is
 received by the neighbour, and $D_r$ is the reverse delivery ratio, the
 probability that the acknowledgement is received by the sender. A perfect
-link
-has an ETX of $1$, and the ETX grows as the link becomes lossier.
-
-The constrained devices that run RPL usually lack hardware support
-for floating-point arithmetic, so RFC~6551 encodes ETX as a 16-bit
-fixed-point value scaled by 128. An ETX of $1.0$ is therefore
-represented as $128$, and an ETX of $2.5$ as $320$. Because 128 is a
-power of two, converting between the encoded and real values only
-requires a 7-bit shift, not a costly division.
+link has an ETX of $1$, and the ETX grows as the link becomes lossier.
 
 \subsubsection{Link Colour}
 The Link Colour object is a 10-bit field that an administrator can
@@ -89,13 +83,15 @@ Numerous objective functions have been proposed to address load
 balancing in RPL. According to their parent selection strategy, these
 can be grouped into four categories. \emph{Composite-metric} approaches
 combine several metrics, such as queue utilisation, residual energy and
-ETX, into a single cost through a hand-crafted formula or rule set, and
+ETX, into a single cost through a hand-set formula or rule set, and
 select the parent with the lowest cost. \emph{Probabilistic} approaches
-avoid committing to a single best parent; instead, they distribute
-traffic across multiple parents by selecting each next hop at random
-according to weighted probabilities. \emph{Reinforcement learning}
-approaches learn the value of each candidate parent online from the
-observed outcomes of previous transmissions. Finally, \emph{supervised
+distribute traffic across multiple parents by selecting each next hop at random
+based on weighted probabilities instead of selecting one ``best''
+parent. \emph{Reinforcement learning} approaches learn the cost of
+each candidate parent online from the
+observed outcomes of previous transmissions.
+% TODO: talk a bit more about RF
+Finally, \emph{supervised
 machine learning} approaches train a model on collected network data to
 score or rank candidate parents. Unlike composite-metric approaches,
 these models learn the relative weighting of metrics from training data
@@ -117,8 +113,8 @@ smoothed using
 exponentially weighted moving average (EWMA) filter to make it robust
 against sudden change and fluctuation. A node uses
 this queue utilisation information from DIO messages together with
-hop count to move away from parents whose queues are nearly full
-while guiding nodes to select parent that is closer to root.
+hop count to avoid parents whose queues are nearly full while
+selecting parent that is closer to root.
 QU-RPL also changes the Trickle timer so that a node resets its timer
 after several consecutive queue losses. This allows a node to
 advertise its congestion quickly, and its neighbours can adapt their
@@ -155,8 +151,9 @@ with the remaining energy of each candidate parent, so that paths
 through nodes with more battery left are preferred. EAOF accepts a
 small reduction in packet reception in exchange for more balanced
 energy consumption and a longer network lifetime. Its main limitation
-is that remaining energy is a lagging indicator of load. A node's
-battery level falls slowly and reflects the traffic it has already
+is that remaining energy is a lagging indicator of load.
+% TODO:  validate this claim
+A node's battery level falls slowly and reflects the traffic it has already
 forwarded, not the traffic it is forwarding now. EAOF therefore
 reacts only after an imbalance has already used up energy, and it
 cannot detect short-term congestion such as queue overflow at a
@@ -167,36 +164,32 @@ objective function, so hot spots can still form.
 Taghizadeh et al.~\cite{taghizadehCLRPLContextAwareLoad2018} propose
 Context-Aware and Load Balancing RPL (CLRPL). Its objective function
 uses an energy index that covers the entire chain of parents up to
-the root, not only the immediate parent. The index is computed
+the root instead of the immediate parent. The index is computed
 recursively, and a decay factor reduces the influence of each node
 farther up the chain, so a depleted node affects
 the nodes below it only weakly. The rank is then computed by this
 energy index with the ETX to the parent. Finally, CLRPL combines the
-rank with the Context-Aware Routing Metric (CARF) --- a queue
+rank with the Context-Aware Routing Metric (CARF), which is a queue
 utilisation metric along the parent chain in the same recursive,
-decaying calculation as energy index ---
+decaying calculation as energy index,
 to select the best parent.
 To avoid the thundering herd problem, a node does not advertise its
 real rank straight away. It starts with the highest rank it has heard
 from its neighbours and lowers it gradually, one step per DIO
 interval, until it reaches its real rank.
 Simulations shows that CLRPL produces a more balanced DODAG with
-smaller subtrees' size, which reduce congestion, packet loss and
+smaller subtrees' size and reduces congestion, packet loss and
 number of parent changes.
 However, CLRPL is evaluated with MAC duty cycling disabled, so every
 node's radio stays on for the whole simulation. Because the radio
-accounts for most of a node's energy consumption, and idle listening
-uses about as much power as receiving, every node spends energy at
-nearly the same rate however much traffic it forwards. As a result,
-the energy index is likely to vary little between nodes.
-The energy-aware part of the rank then has little effect on parent
-selection, and the reported improvements probably come mainly from
-ETX and queue utilisation.
+accounts for most of a node's energy consumption, every node spends energy at
+nearly the same rate regardless of the traffic load. As a result,
+the energy index is likely to vary little between nodes and the
+reported improvements probably come mainly from ETX and queue utilisation.
 In addition, the authors do not explain why queue utilisation is kept
-out of the rank. In RPL, a node recalculates its rank each
+out of the rank calculation. In RPL, a node recalculates its rank each
 time it receives a DIO from its parent, so receiving queue
-utilisation in the DIO and recomputing
-rank happens at the same moments.
+utilisation in the DIO and recomputing rank happens at the same moments.
 
 \subsubsection{Probabilistic OF}
 Liu et al.~\cite{liuLoadBalancedRouting2013} propose LB-RPL, which adds two

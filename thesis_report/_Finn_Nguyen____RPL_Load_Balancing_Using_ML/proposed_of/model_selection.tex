@@ -29,8 +29,10 @@ models: K-nearest neighbour regression, linear regression, support
 vector regression, Gaussian process regression, decision tree, random
 forest, gradient-boosted trees (LightGBM) and the multilayer
 perceptron. Each is described below, along with whether it meets
-the requirement of size constrained. In model evaluation, we analyse weather the model fit in the floating-point requirement.
+the requirement of size constrained. In model evaluation, we analyse
+weather the model fit in the floating-point requirement.
 
+% TODO: have the same symbol for the output of the model
 \subsubsection{K-Nearest Neighbor Regression (KNNR)}
 KNNR is a common nonparametric supervised learning model
 \cite{KNNRSONG201726}. A model is \emph{nonparametric} when it does
@@ -89,18 +91,117 @@ one of the $n$ training points, at a cost of $O(nm)$, which is too
 expensive for a constrained device.
 
 \subsubsection{Linear Regression}
-Linear regression: works by fitting the data on a line, forming a
-linear equation % TODO: insert latex equation for this
-. This model satisfies the simplicity, requiring less computational
-power and memory usage as the only storage is the coefficients,
-however the linear regression model relies heavily on floating point
-and is susceptible to category data type (hop count, neightbour
-counts). Thus this is not a suitable model for the application
+% TODO: insert citation for this
+Linear regression is a parametric model: it assumes the output is a
+weighted sum of the input features. For an input
+$\mathbf{x} = (x_1, \dots, x_m)$ with $m$ features, the prediction is
+\begin{equation}
+    \hat{y}(\mathbf{x}) = c_0 + \sum_{j=1}^{m} c_j x_j
+\end{equation}
+% TODO: what is the intercept
+where $c_0$ is the intercept and $c_j$ is the coefficient of
+feature $j$. Training picks the coefficients that minimise the squared
+error over the $n$ training points. In this work we use the
+regularised form, \emph{ridge regression}, which adds a penalty on the
+size of the coefficients to reduce overfitting and the effect of
+correlated features (for example, ETX and hop count):
+% TODO: maybe I don't need this coef update
+\begin{equation}
+    \hat{\mathbf{c}} = \arg\min_{\mathbf{c}}
+    \sum_{i=1}^{n} \left( y_i - c_0 - \mathbf{c}^{\top}
+    \mathbf{x}_i \right)^2 + \alpha \lVert \mathbf{c} \rVert_2^2,
+\end{equation}
+% TODO: probably simplify the equation and alpha is probably the learning rate
+where $\alpha$ sets the strength of the penalty and is chosen by a
+hyperparameter search. The features are standardised before fitting,
+so that features with large ranges, such as ETX, do not dominate
+features with small ranges, such as hop count.
+
+Linear regression fits the size requirement easily. Once trained,
+the model is just $m+1$ coefficients, plus a mean and scale for each
+feature. A prediction costs $m$ multiply-add operations, $O(m)$, and
+does not depend on the size of the training data. The model can also
+run without a floating-point unit: the scaling step and the coefficients
+can be folded into integer constants, so inference uses only 32-bit
+fixed-point arithmetic.
+
+% TODO: review this section
+However, the model's simplicity limits its accuracy for this task.
+First, it assumes each feature affects PDR linearly and independently.
+In practice, PDR stays high until a node's parent nears congestion
+and then drops sharply, which is a threshold effect that a single
+weighted sum cannot represent. Second, several features are small
+discrete counts (hop count, number of neighbours), whose effect on PDR
+does not grow steadily with each step. Third, the RPL stack reports an
+unknown value as a sentinel integer instead of a missing value. A
+linear model treats that sentinel as a very large real measurement,
+which skews the prediction. A decision tree, by contrast, can isolate
+the sentinel with a single split. Finally, quantisation hurts linear
+regression more than tree models. Each prediction sums products of
+rounded coefficients and rounded scaled features, so rounding errors build
+up across terms. The large gap between the feature ranges and the
+$[0, 65535]$ output range also forces a coarse fixed-point scale.
+
+Linear regression is therefore kept only as a baseline for comparison.
 
 \subsubsection{Support Vector Regression}
-Likewise, SVM also falls short for similar reason as linear regression.
-% TODO: include number in the model testing to show that
-% quanitisation make the model suffers terriblely
+% TODO: insert citation for this
+Support vector regression (SVR) adapts the support vector machine
+from classification to regression. In its linear form, SVR predicts
+with the same weighted sum as linear regression,
+\begin{equation}
+    \hat{y}(\mathbf{x}) = c_0 + \mathbf{c}^{\top}\mathbf{x},
+\end{equation}
+but it fits the coefficients differently. Instead of penalising every
+error, SVR ignores errors smaller than a margin $\varepsilon$ and only
+penalises points that fall outside this margin, which makes it less
+sensitive to small noise in the training data. Training solves
+\begin{equation}
+    \min_{\mathbf{c},\, c_0} \;
+    \frac{1}{2} \lVert \mathbf{c} \rVert_2^2
+    + C \sum_{i=1}^{n} \max\left(0,\;
+    \left| y_i - c_0 - \mathbf{c}^{\top}\mathbf{x}_i \right|
+    - \varepsilon \right),
+\end{equation}
+where $C$ sets the trade-off between keeping the coefficients small
+and fitting the training points. Both $C$ and $\varepsilon$ are chosen
+by a hyperparameter search.
+
+SVR can also model non-linear relationships through the
+\emph{kernel trick}. The prediction is then written in terms of the
+training points that lie on or outside the margin, called the
+\emph{support vectors}:
+\begin{equation}
+    \hat{y}(\mathbf{x}) = c_0 + \sum_{i \in \mathcal{S}} a_i \,
+    K(\mathbf{x}_i, \mathbf{x}),
+\end{equation}
+where $\mathcal{S}$ is the set of support vectors, $a_i$ is the
+coefficient learned for support vector $i$, and $K$ is a kernel
+function that measures the similarity between two points. The most
+common choice is the radial basis function (RBF) kernel:
+\begin{equation}
+    K(\mathbf{x}_i, \mathbf{x}) =
+    \exp\left( -\gamma \lVert \mathbf{x}_i - \mathbf{x} \rVert_2^2 \right),
+\end{equation}
+where $\gamma$ controls how far the influence of each support vector
+reaches. As with KNNR, the features are standardised first, since
+both the margin and the kernel depend on distances between points.
+
+Neither form of SVR suits our devices. Kernel SVR has the same
+weakness as KNNR: the model must store every support vector, and on
+noisy data such as PDR these can make up a large share of the
+training set, so the model far exceeds the 10\,KB limit. Each
+prediction also evaluates the kernel against every support vector,
+which costs $O(|\mathcal{S}|\,m)$ operations, each with an exponential
+that needs floating-point arithmetic. Linear SVR avoids these costs,
+since it stores only $m+1$ coefficients and can be converted to
+fixed point in the same way as linear regression. However, it then
+inherits all of linear regression's limitations: it cannot represent
+the threshold effect of congestion on PDR, it treats sentinel values
+for unknown features as real measurements, and its accuracy drops
+after quantisation.
+
+SVR is therefore kept only as a baseline for comparison.
 
 \subsubsection{Gaussian Process Regression (GPR)}
 GPR is a probabilistic supervised machine learning model. It makes
@@ -137,36 +238,149 @@ authors analyse GPR and conlcude that the memory requirement of GPR
 is $O(n^2)$ while the computation cost is $O(n^3)$, which is quite
 computational and memory expensive for constrained devices
 
-\subsubsection{Multilayer Perceptron Model (Deep learning)}
-Deep learning is recently a new adavnces and has achieve in terms of
-matching the complex patterns and data, and works well for a wide
-range of problems, including image, language and simple regression.
-However, due to the constrained environment of the working MCU which
-has several KB of RAM and ROM. I rule out this.
+\subsubsection{Multilayer Perceptron (MLP)}
+% TODO: insert citation for this
+The multilayer perceptron is the basic form of a neural network and
+the building block of deep learning, which in recent years has
+achieved strong results in tasks such as image recognition and
+natural language processing. An MLP is made of layers of
+\emph{neurons}. Each neuron computes a weighted sum of its inputs and
+passes it through a non-linear \emph{activation function}. For a
+hidden layer of $h$ neurons that receives the input $\mathbf{x}$ with
+$m$ features, the output is
+\begin{equation}
+    \mathbf{z} = \sigma\left( \mathbf{W}\mathbf{x} + \mathbf{c} \right),
+\end{equation}
+where $\mathbf{W}$ is an $h \times m$ matrix of coefficients
+(the \emph{weights}), $\mathbf{c}$ is a vector of $h$ offsets (the
+\emph{biases}), and $\sigma$ is the activation function, such as the
+rectified linear unit $\sigma(u) = \max(0, u)$. The output of one
+layer becomes the input of the next, and the final layer combines the
+outputs of the last hidden layer into the predicted value. The weights
+and biases are learned by gradient descent, using backpropagation to
+compute how much each one contributes to the prediction error.
+Because of the activation functions, an MLP can in theory approximate
+any continuous function, given enough neurons.
+
+This flexibility comes at a cost on constrained devices. Each hidden
+layer stores $(m+1)h$ parameters, and each prediction costs one
+multiply-add per weight, far more than a linear model. While a very
+small network could fit within the 10\,KB limit, MLPs are hard to run
+without floating-point arithmetic: quantising them requires rescaling
+the values between every layer, and smooth activation functions such
+as the sigmoid or $\tanh$ need either floating point or lookup tables.
+MLPs also need much more training data and tuning than the other
+models, such as choosing the number of layers and neurons and the
+learning rate. Like linear regression, they depend on feature
+scaling, so the sentinel values for unknown features distort their
+inputs. Finally, on small tabular datasets such as ours, tree-based
+models usually match or beat neural networks in accuracy
+% TODO: cite Grinsztajn et al. 2022, "Why do tree-based models still
+% outperform deep learning on tabular data?"
+\cite{TODO-tabular}.
+We therefore exclude the MLP from further evaluation.
 
 \subsubsection{Decision Tree}
-% TODO: include GINI impurity equation
-% TODO: include Information Gain
+% TODO: insert citation for this (e.g. Breiman et al., CART)
+A decision tree predicts by asking a series of yes/no questions about
+the input. Each internal node tests one feature against a threshold,
+such as ``is the hop count at most 3?'', and sends the input to its
+left or right child depending on the answer. The input follows this
+path from the root until it reaches a leaf, and the value stored in
+that leaf is the prediction. In a regression tree, the leaf value is
+the mean output of the training points that reached that leaf.
 
-Decision Tree:
-- Does not need scaling or normalisation
-- Fairly simple
-- Can work well with discrete value type:
+The tree is built top-down. At each node, the training algorithm
+tries every feature and threshold and picks the split that most
+reduces the error of the prediction. For regression this error is
+the squared error, so the chosen split of the node's training points
+$S$ into a left part $S_L$ and a right part $S_R$ maximises
+\begin{equation}
+    \Delta = \mathrm{MSE}(S)
+    - \frac{|S_L|}{|S|}\,\mathrm{MSE}(S_L)
+    - \frac{|S_R|}{|S|}\,\mathrm{MSE}(S_R),
+    \qquad
+    \mathrm{MSE}(S) = \frac{1}{|S|} \sum_{i \in S}
+    \left( y_i - \bar{y}_S \right)^2,
+\end{equation}
+where $\bar{y}_S$ is the mean output of the points in $S$. This plays
+the same role for regression as the Gini impurity and information
+gain do for classification trees. Splitting stops when the tree
+reaches a maximum depth or when a split would leave fewer than a
+minimum number of points in a leaf. Both limits are chosen by a
+hyperparameter search, and they also control the size of the tree,
+since a tree of depth $d$ has at most $2^d$ leaves.
+
+The decision tree fits our requirements well. A trained tree converts
+directly into nested \texttt{if}--\texttt{else} statements in C, and
+each prediction makes at most $d$ comparisons, regardless of the
+number of features or training points. Because every feature is an
+integer, each threshold can be rounded down to an integer without
+changing any decision, so inference needs no floating-point
+arithmetic at all. The only rounding is in the leaf values, which are
+rounded to the nearest integer in the $[0, 65535]$ PDR range. The
+tree also needs no feature scaling, since each split only compares
+one feature with a threshold. It handles small discrete counts, such
+as hop count, naturally, and it can separate the sentinel values for
+unknown features from real measurements with a single split. Unlike
+a linear model, it can also capture threshold effects, such as PDR
+dropping sharply once a parent nears congestion. The main weakness of
+a single tree is that its output is piecewise constant and it can
+overfit the training data, which the depth and leaf-size limits help
+to control.
 
 \subsubsection{Ensemble Tree}
-Random forest and Decision Tree operates on similar algorithm. In
-tree base algorithm, each value is split into left and right,
-following the path to reach the end. In Random Forest, multiple trees
-are used to prevent overfitting and provide better performance.
-However, in my experiments, the performance of random forest and
-decision tree are quite similar to each other. Thus I remove random
-forest from list of considered models as they are much heavier than
-decision tree.
+% TODO: insert citation for random forest (Breiman 2001)
+An ensemble combines many decision trees to reduce the overfitting of
+a single tree. The two most common ensembles are random forests and
+gradient-boosted trees. A \emph{random forest} trains each tree on a
+random sample of the training data and features, and averages their
+predictions. In our preliminary experiments, the random forest
+performed similarly to a single decision tree while being many times
+larger, so we did not consider it further.
 
-In the end, we decide to proceed with Random Forest and
-LGBMTreeRegressor due to the design and
-computation simplicity to fit in with the constrained of the devices
-that we operate on.
+% TODO: insert citation for LightGBM (Ke et al., 2017)
+\emph{Gradient boosting} instead builds the trees one after another,
+with each new tree correcting the errors of the trees before it. The
+prediction after $K$ trees is
+\begin{equation}
+    F_K(\mathbf{x}) = F_0 + \eta \sum_{k=1}^{K} f_k(\mathbf{x}),
+\end{equation}
+where $F_0$ is the mean output of the training data, $f_k$ is the
+$k$-th tree and $\eta$ is the learning rate, which shrinks each
+tree's contribution to make the ensemble less likely to overfit.
+With squared error, each tree $f_k$ is fitted to the residuals
+$y_i - F_{k-1}(\mathbf{x}_i)$ left by the previous trees.
+
+We use LightGBM's \texttt{LGBMRegressor}, a fast implementation of
+gradient boosting. Unlike a standard decision tree, which grows
+level by level, LightGBM grows each tree leaf by leaf, always
+splitting the leaf that reduces the error the most. This gives more
+accurate trees for the same number of leaves, which suits our tight
+size budget. LightGBM also finds splits from histograms of the
+feature values instead of trying every threshold, which speeds up
+training. We set the learning rate to $\eta = 0.1$, and train each
+tree on a random 80\% of the training points and 80\% of the
+features to reduce overfitting. The number of trees (10 to 50), the
+number of leaves per tree (7 to 31), the maximum depth (3 to 7) and
+the minimum number of points per leaf (5 to 20) are chosen by a
+hyperparameter search.
+
+LightGBM keeps all of the decision tree's advantages on constrained
+devices. Each tree converts to C in the same way as a single decision
+tree, with integer thresholds. Since LightGBM stores each leaf value
+with the learning rate and the starting value $F_0$ already applied,
+the prediction is simply the sum of one leaf value from each tree,
+which is computed with a 32-bit integer and clamped to the
+$[0, 65535]$ range. Rounding each leaf value to an integer adds an
+error of at most half a unit per tree, which is negligible on this
+scale. The cost is size: the model grows with the number of trees and
+leaves, so these must be kept small enough to fit within the
+10\,KB limit.
+
+In the end, we proceed with the decision tree and LightGBM, as both
+are accurate enough to model PDR while being simple enough in design
+and computation to run on our constrained devices.
 
 \subsubsection{Choosen Models for Evaluation}
 In the end, we decided to go with SVR, Linear Regression, RF and

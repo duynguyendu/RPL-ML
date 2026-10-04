@@ -1,0 +1,68 @@
+---
+# Read-only progress check for a sweep started by simulate_seeds.yml. Starts
+# nothing, kills nothing, pulls and deletes nothing -- each machine just finds
+# its own ansible_simulate_shard<N>.log and reports how far it has got.
+#
+# Shard numbers can't be mapped back to inventory hosts by position (they
+# index the hosts that were *reachable at launch*), so each machine picks out
+# the log whose worker dirs (build_z1_<hostname>_w<k>) carry its own
+# `hostname -s`.
+#
+# Usage:
+#   ansible-playbook poll_progress.yml                  # one snapshot
+#   ansible-playbook poll_progress.yml -e watch=300     # re-check every 300s
+#                                                       # until each machine is done
+#
+# Optional extra vars:
+#   target_group  inventory group the sweep ran against (default: all)
+#   repo_dir      path to the shared RPL-TinyML checkout
+#                 (default: <remote user's home>/RPL-TinyML)
+#   watch         seconds between checks; 0 = single snapshot (default: 0)
+
+- name: Report simulate.py progress on each machine
+  hosts: "{{ target_group | default('all') }}"
+  gather_facts: false
+  vars:
+    watch_secs: "{{ watch | default(0) | int }}"
+  tasks:
+    # Prints "PROGRESS ..." (quiet_retries.py shows that line on every watch
+    # poll), plus FINISHED once this machine's shard is done or it has none.
+    # The parsing mirrors the progress task in simulate_seeds.yml.
+    - name: Read this machine's shard log
+      ansible.builtin.shell: |
+        cd "{{ repo_dir | default('$HOME/RPL-TinyML') }}/scripts" || exit 1
+        me=$(hostname -s)
+        live=$(pgrep -u "$(id -u)" -af 'python[^ ]* simulate\.py' \
+                 | sed -n 's/.*--shard-index=\([0-9][0-9]*\).*/\1/p' | sort -u)
+        found=0; all_done=1
+        for log in $(ls ansible_simulate_shard*.log 2>/dev/null | sort -V); do
+          # Machine name from the first worker dir, e.g. build_z1_cuda09.ecs..._w8 -> cuda09
+          host=$(sed -n 's/.*START ([0-9]*\/[0-9]*) build_[^_]*_\([^._]*\).*/\1/p' "$log" | head -1)
+          [ "$host" = "$me" ] || continue
+          found=1
+          idx=${log#ansible_simulate_shard}; idx=${idx%.log}
+          total=$(sed -n 's/.*(shard [0-9]*\/[0-9]*, \([0-9]*\)\/[0-9]* jobs[,)].*/\1/p' "$log" | head -1)
+          done_n=$(grep -c '\] DONE (' "$log")
+          failed=$(grep -c '\] FAILED (' "$log")
+          started=$(grep -c '\] START (' "$log")
+          running=$(( ${started:-0} - ${done_n:-0} - ${failed:-0} ))
+          if grep -q 'in this shard finished' "$log"; then state=finished
+          elif grep -qx "$idx" <<< "$live"; then state=running; all_done=0
+          else state="NOT RUNNING (crashed or killed?)"; all_done=0
+          fi
+          echo "PROGRESS shard $idx: ${done_n:-0}/${total:-?} done, ${failed:-0} failed, $running running -- $state"
+        done
+        [ "$found" = 1 ] || echo "PROGRESS no shard log for $me"
+        [ "$all_done" = 1 ] && echo FINISHED
+        true
+      args:
+        executable: /bin/bash
+      register: progress
+      changed_when: false
+      until: watch_secs | int == 0 or 'FINISHED' in progress.stdout
+      retries: "{{ 288 if watch_secs | int > 0 else 0 }}"
+      delay: "{{ [watch_secs | int, 1] | max }}"
+
+    - name: Show progress
+      ansible.builtin.debug:
+        msg: "{{ progress.stdout_lines | select('match', 'PROGRESS ') | map('regex_replace', '^PROGRESS ', '') | list }}"
