@@ -5,10 +5,10 @@ Reads ``aggregate.json`` (written by plot_metrics.py) and ``config.json``
 (written by pipeline.py) from every run directory under ``--runs-dir`` and emits
 a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
-Per metric (PDR / latency / CPU util / parent switch / DIO sent per minute) the page offers two
-views -- fix #nodes (x = bit/s per node) or fix bit/s per node (x = #nodes) --
+Per metric (PDR / latency / CPU usage / parent switch / DIO sent per minute) the page offers two
+views -- fix #nodes (x = bps per node) or fix bps per node (x = #nodes) --
 each a box-and-whisker candle per objective function. The load axis is the
-config's ``bps`` (bits per second per node); runs from before ``bps`` existed
+config's ``bps`` (bps per node); runs from before ``bps`` existed
 fall back to their PPM restated as ppm * packet_size * 8 / 60.
 """
 
@@ -105,20 +105,26 @@ def compute_fixed_config(runs: list[dict]) -> list[tuple[str, object]]:
     return items
 
 
+# display order for known OFs (mirrors OF_ORDER in the page script)
+OF_ORDER = ["mhrof", "of0", "mlof_lgbm", "mlof_dtree"]
+
+
 def compute_predict_time(runs: list[dict]) -> list[tuple[str, object]]:
     """Average MLOF predict_pdr() run time per rpl_of, over all its runs' calls."""
     items = []
-    for of in sorted({r["rpl_of"] for r in runs if r.get("rpl_of") is not None}):
+    ofs = {r["rpl_of"] for r in runs if r.get("rpl_of") is not None}
+    for of in sorted(ofs, key=lambda o: (OF_ORDER.index(o) if o in OF_ORDER else len(OF_ORDER), o)):
         of_runs = [r for r in runs if r.get("rpl_of") == of and r.get("predict_count")]
         if not of_runs:
             continue
         us = sum(r["predict_us"] for r in of_runs)
         count = sum(r["predict_count"] for r in of_runs)
-        items.append((of, f"{us / count:.1f} us ({len(of_runs)} runs)"))
+        label = "MRHOF" if of == "mhrof" else of.upper()
+        items.append((label, f"{us / count:.1f} us ({len(of_runs)} runs)"))
     return items
 
 
-def _render_strip(title: str, items: list[tuple[str, object]], bg: str = "#f6f8fa") -> str:
+def _render_strip(title: str, items: list[tuple[str, object]], bg: str = "#fdfdfe") -> str:
     """Render one labelled key/value strip, styled like dashboard.html's."""
     if not items:
         return ""
@@ -144,22 +150,25 @@ HTML_TEMPLATE = r"""<!doctype html>
 <script src="__PLOTLY_SRC__"></script>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff;color:#2a3f5f;}
-  header{padding:12px 16px;background:#f6f8fa;border-bottom:1px solid #e0e0e0;}
+  header{padding:12px 16px;background:#fdfdfe;border-bottom:1px solid #e0e0e0;}
   header h1{font-size:16px;margin:0 0 4px;}
   header .meta{font-size:12px;color:#5a6b8c;}
   .controls{display:flex;flex-wrap:wrap;gap:14px 26px;align-items:center;
-    padding:12px 16px;background:#eef2f7;border-bottom:1px solid #e0e0e0;font-size:13px;}
+    padding:12px 16px;background:#fbfcfd;border-bottom:1px solid #e0e0e0;font-size:13px;}
   .controls fieldset{border:none;margin:0;padding:0;display:flex;gap:10px;align-items:center;}
   .controls legend{font-weight:bold;padding:0;margin-right:6px;}
   .controls label{display:inline-flex;gap:4px;align-items:center;white-space:nowrap;}
   select{font-size:13px;padding:2px 4px;}
-  .note{font-size:11px;color:#5a6b8c;padding:6px 16px;background:#f6f8fa;
+  .note{font-size:11px;color:#5a6b8c;padding:6px 16px;background:#fdfdfe;
     border-bottom:1px solid #e0e0e0;}
   #pickLink{font-weight:bold;color:#4363d8;text-decoration:none;}
   #pickLink:hover{text-decoration:underline;}
   #pickMissing{color:#b00;}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px;}
-  .chart{height:460px;border:1px solid #ececec;}
+  .card{border:1px solid #ececec;background:#fff;}
+  .chart-title{font-size:16px;font-weight:bold;margin:0;padding:10px 14px 0;color:#2a3f5f;}
+  .chart{height:460px;}
+  .card.wide{grid-column:1 / -1;}
   @media (max-width:1300px){.grid{grid-template-columns:1fr;}}
   .empty{padding:40px 16px;font-size:14px;color:#b00;}
   #dashboardArea{padding:8px;height:85vh;}
@@ -177,7 +186,8 @@ __FIXED_CONFIG_HTML__
   <fieldset>
     <legend>View</legend>
     <label><input type="radio" name="mode" value="fix_nodes" checked> Fix #nodes</label>
-    <label><input type="radio" name="mode" value="fix_bps"> Fix bit/s per node</label>
+    <label><input type="radio" name="mode" value="fix_bps"> Fix bps per node</label>
+    <label><input type="radio" name="mode" value="facet_nodes"> Mean &plusmn; 95% CI by #nodes</label>
     <label><input type="radio" name="mode" value="dashboard"> Run dashboard</label>
   </fieldset>
   <fieldset id="fixedWrap">
@@ -189,7 +199,7 @@ __FIXED_CONFIG_HTML__
   <fieldset>
     <legend id="pickLegend">Pick a run</legend>
     <label>#nodes <select id="pickNodes"></select></label>
-    <label>bit/s per node <select id="pickBps"></select></label>
+    <label>bps per node <select id="pickBps"></select></label>
     <label>OF <select id="pickOf"></select></label>
     <label>seed <select id="pickSeed"></select></label>
   </fieldset>
@@ -210,42 +220,54 @@ __FIXED_CONFIG_HTML__
 <script>
 const RUNS = __RUNS_JSON__;
 const METRICS = [
-  {key:'pdr',           label:'PDR',           scale:100, unit:'%',  axis:'PDR (%)'},
-  {key:'parent_switch', label:'Parent switch', scale:1,   unit:'',   axis:'Parent switches (per node)'},
-  {key:'latency',       label:'Latency',       scale:1,   unit:' s', axis:'Latency (s)'},
-  {key:'cpu_util',      label:'CPU util',      scale:1,   unit:'%',  axis:'CPU util (%)'},
-  {key:'dio_per_min',   label:'DIO sent',      scale:1,   unit:'/min', axis:'DIO sent per minute (per node)'},
+  {key:'pdr',           file:'pdr',           label:'PDR',           scale:100, unit:'%',  title:'PDR',                        axis:'PDR (%)'},
+  {key:'parent_switch', file:'parent_switch', label:'Parent switch', scale:1,   unit:'',   title:'Parent switches per node',   axis:'Parent switches per node'},
+  {key:'latency',       file:'latency',       label:'Latency',       scale:1,   unit:' s', title:'End-to-end latency',         axis:'End-to-end latency (s)'},
+  {key:'cpu_util',      file:'cpu',           label:'CPU usage',     scale:1,   unit:'%',  title:'CPU usage',                  axis:'CPU usage (%)'},
+  {key:'dio_per_min',   file:'dio_sent',      label:'DIO sent',      scale:1,   unit:'/min', title:'DIO transmission rate per node', axis:'DIO messages per node per minute'},
 ];
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
 const OF_PALETTE = [
-  {color:'#4363d8', fill:'rgba(67,99,216,0.30)'},
-  {color:'#e6194b', fill:'rgba(230,25,75,0.28)'},
-  {color:'#3cb44b', fill:'rgba(60,180,75,0.28)'},
-  {color:'#f58231', fill:'rgba(245,130,49,0.28)'},
-  {color:'#911eb4', fill:'rgba(145,30,180,0.28)'},
-  {color:'#46f0f0', fill:'rgba(70,240,240,0.28)'},
+  {color:'#4363d8', fill:'rgba(67,99,216,0.45)'},
+  {color:'#e6194b', fill:'rgba(230,25,75,0.45)'},
+  {color:'#3cb44b', fill:'rgba(60,180,75,0.45)'},
+  {color:'#f58231', fill:'rgba(245,130,49,0.45)'},
+  {color:'#911eb4', fill:'rgba(145,30,180,0.45)'},
+  {color:'#46f0f0', fill:'rgba(70,240,240,0.45)'},
 ];
 
 const $ = s => document.querySelector(s);
 const uniqNums = a => [...new Set(a)].filter(v => v != null).sort((x, y) => x - y);
 const uniqStrs = a => [...new Set(a)].filter(v => v != null).sort();
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
-const RPL_OFS = uniqStrs(RUNS.map(r => r.rpl_of));
+// display order for known OFs; any other rpl_of follows, alphabetically
+const OF_ORDER = ['mhrof', 'of0', 'mlof_lgbm', 'mlof_dtree'];
+const ofRank = of_ => { const i = OF_ORDER.indexOf(of_); return i < 0 ? OF_ORDER.length : i; };
+const uniqOfs = a => uniqStrs(a).sort((x, y) => ofRank(x) - ofRank(y));
+const RPL_OFS = uniqOfs(RUNS.map(r => r.rpl_of));
+// legend / picker name for an rpl_of value, e.g. mhrof -> MRHOF, mlof_dtree -> MLOF_DTREE
+const ofLabel = of_ => (of_ === 'mhrof') ? 'MRHOF' : String(of_).toUpperCase();
 const ofStyle = of_ => OF_PALETTE[RPL_OFS.indexOf(of_) % OF_PALETTE.length];
 
 function init(){
   if(!RUNS.length){ $('#charts').hidden = true; $('#empty').hidden = false; return; }
   $('#meta').textContent =
     RUNS.length + ' runs · #nodes: ' + uniqNums(RUNS.map(r => r.num_of_nodes)).join(', ')
-    + ' · bit/s per node: ' + uniqNums(RUNS.map(r => r.bps)).join(', ')
+    + ' · bps per node: ' + uniqNums(RUNS.map(r => r.bps)).join(', ')
     + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
 
   METRICS.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const h = document.createElement('h2');
+    h.className = 'chart-title';
+    h.id = 'chartTitle' + i;
     const d = document.createElement('div');
     d.className = 'chart';
     d.id = 'chart' + i;
-    $('#charts').appendChild(d);
+    card.append(h, d);
+    $('#charts').appendChild(card);
   });
 
   document.querySelectorAll('input[name=mode]').forEach(el => el.addEventListener('change', render));
@@ -254,20 +276,20 @@ function init(){
   render();
 }
 
-// dropdowns to pick one run's (#nodes, bit/s per node, OF, seed) and link to its dashboard.html.
+// dropdowns to pick one run's (#nodes, bps per node, OF, seed) and link to its dashboard.html.
 // Each select is rebuilt from only the runs still matching the selects "above" it, so
 // every reachable combination corresponds to a real run -- no dead-end picks possible.
 const PICK_CHAIN = [
   {id: '#pickNodes', key: 'num_of_nodes', uniq: uniqNums},
   {id: '#pickBps', key: 'bps', uniq: uniqNums},
-  {id: '#pickOf', key: 'rpl_of', uniq: uniqStrs},
+  {id: '#pickOf', key: 'rpl_of', uniq: uniqOfs, label: ofLabel},
   {id: '#pickSeed', key: 'seed', uniq: uniqNums},
 ];
 
-function fillSelect(id, vals){
+function fillSelect(id, vals, label = v => v){
   const el = $(id);
   const prev = el.value;
-  el.innerHTML = vals.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+  el.innerHTML = vals.map(v => '<option value="' + v + '">' + label(v) + '</option>').join('');
   if(vals.map(String).includes(prev)) el.value = prev;
 }
 
@@ -276,7 +298,7 @@ function cascadePicker(from){
   let scoped = RUNS;
   for(let i = 0; i < PICK_CHAIN.length; i++){
     const f = PICK_CHAIN[i];
-    if(i >= from) fillSelect(f.id, f.uniq(scoped.map(r => r[f.key])));
+    if(i >= from) fillSelect(f.id, f.uniq(scoped.map(r => r[f.key])), f.label);
     scoped = scoped.filter(r => String(r[f.key]) === $(f.id).value);
   }
 }
@@ -322,10 +344,10 @@ function mode(){ return document.querySelector('input[name=mode]:checked').value
 function syncFixed(){
   const m = mode();
   const wrap = $('#fixedWrap');
-  if(m === 'dashboard'){ wrap.style.display = 'none'; return; }
+  if(m === 'dashboard' || m === 'facet_nodes'){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'bps';
-  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'bit/s per node';
+  $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'bps per node';
   const vals = uniqNums(RUNS.map(r => r[key]));
   const prev = $('#fixed').value;
   $('#fixed').innerHTML = vals.map(v => '<option value="' + v + '">' + v + '</option>').join('');
@@ -337,7 +359,7 @@ function valueOf(r, agg, key, scale){
   return (raw == null || Number.isNaN(raw)) ? null : raw * scale;
 }
 
-// free-axis values (bit/s per node, or node counts) present for the current fixed view
+// free-axis values (bps per node, or node counts) present for the current fixed view
 function fixedXs(m, fixedVal){
   const freeKey = (m === 'fix_nodes') ? 'bps' : 'num_of_nodes';
   const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
@@ -371,7 +393,7 @@ function tracesCandle(metric, m, fixedVal){
     if(!xArr.length) continue;
     const style = ofStyle(of_);
     out.push({
-      type:'box', name:of_, x:xArr,
+      type:'box', name:ofLabel(of_), x:xArr,
       lowerfence:lo, q1:q1, median:med, q3:q3, upperfence:hi, mean:mn,
       boxmean:true, whiskerwidth:0.5,
       marker:{color:style.color},
@@ -382,29 +404,133 @@ function tracesCandle(metric, m, fixedVal){
   return out;
 }
 
+// PNG export sized for the thesis: the page is 155 mm (6.1 in) wide and
+// figures go in at \textwidth, so an EXPORT_W px wide chart prints 18 px text
+// at ~9 pt; the scale renders that width at 300 ppi
+const EXPORT_W = 880;
+const EXPORT_SCALE = 6.1 * 300 / EXPORT_W;
+
+// two-sided 95% Student-t critical value for df degrees of freedom: table for
+// df 1-30, Cornish-Fisher expansion beyond (within 0.001 of the exact value)
+const T95 = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042];
+function tCrit95(df){
+  if(df < 1) return NaN;
+  if(df <= T95.length) return T95[df - 1];
+  const z = 1.959964;
+  return z + (z**3 + z) / (4 * df) + (5 * z**5 + 16 * z**3 + 3 * z) / (96 * df * df);
+}
+
+// mean and 95% CI half-width of the per-run average of `metric` over `rows`
+function meanCI(rows, metric){
+  const v = rows.map(r => valueOf(r, 'avg', metric.key, metric.scale)).filter(x => x != null);
+  if(!v.length) return null;
+  const mu = mean(v);
+  if(v.length < 2) return {mean:mu, ci:0, n:v.length};
+  const sd = Math.sqrt(v.reduce((s, x) => s + (x - mu) ** 2, 0) / (v.length - 1));
+  return {mean:mu, ci:tCrit95(v.length - 1) * sd / Math.sqrt(v.length), n:v.length};
+}
+
+// one chart per metric with a panel per node count: x = bps, one line per OF
+// through the mean of the per-run averages, error bars = 95% CI over runs
+function renderFacets(){
+  const nodes = uniqNums(RUNS.map(r => r.num_of_nodes));
+  const bpsAll = uniqNums(RUNS.map(r => r.bps));
+  const gap = 0.04, w = (1 - gap * (nodes.length - 1)) / nodes.length;
+  // spread the OFs a little along x so their error bars don't overlap
+  const step = bpsAll.length > 1 ? Math.min(...bpsAll.slice(1).map((b, i) => b - bpsAll[i])) : 16;
+  const dodge = of_ => (RPL_OFS.indexOf(of_) - (RPL_OFS.length - 1) / 2) * step * 0.08;
+  // drawn at the export size so the page shows exactly what the PNG will be
+  const chartHeight = 440;
+  METRICS.forEach((metric, i) => {
+    const traces = [];
+    const lay = {
+      width:EXPORT_W, height:chartHeight, autosize:false,
+      margin:{l:80, r:10, t:80, b:70},
+      font:{size:18},
+      legend:{orientation:'h', x:0.5, xanchor:'center', y:1.09, yanchor:'bottom', font:{size:16}},
+      paper_bgcolor:'white', plot_bgcolor:'#FBFCFE',
+      annotations:[],
+    };
+    nodes.forEach((n, k) => {
+      const ax = k ? String(k + 1) : '';
+      const lo = k * (w + gap);
+      lay['xaxis' + ax] = {
+        domain:[lo, lo + w], anchor:'y' + ax,
+        tickmode:'array', tickvals:bpsAll, ticktext:bpsAll.map(String), tickfont:{size:16},
+        range:[bpsAll[0] - step * 0.5, bpsAll[bpsAll.length - 1] + step * 0.5],
+        showgrid:true, gridcolor:'rgba(128,128,128,0.3)', zeroline:false,
+      };
+      lay['yaxis' + ax] = {
+        anchor:'x' + ax, tickfont:{size:16}, gridcolor:'rgba(128,128,128,0.3)',
+        rangemode:'tozero', nticks:12,
+      };
+      if(k){ lay['yaxis' + ax].matches = 'y'; lay['yaxis' + ax].showticklabels = false; }
+      lay.annotations.push({
+        text:'<b>N = ' + n + '</b>', xref:'paper', yref:'paper', showarrow:false,
+        x:lo + w / 2, xanchor:'center', y:1.0, yanchor:'bottom', font:{size:17},
+      });
+      for(const of_ of RPL_OFS){
+        const pts = bpsAll.map(b => [b, meanCI(RUNS.filter(r =>
+          r.num_of_nodes === n && r.bps === b && r.rpl_of === of_), metric)])
+          .filter(([, c]) => c);
+        if(!pts.length) continue;
+        const style = ofStyle(of_);
+        traces.push({
+          type:'scatter', mode:'lines+markers', xaxis:'x' + ax, yaxis:'y' + ax,
+          name:ofLabel(of_), legendgroup:of_, showlegend:k === 0,
+          x:pts.map(([b]) => b + dodge(of_)), y:pts.map(([, c]) => c.mean),
+          customdata:pts.map(([b, c]) => [b, c.ci, c.n]),
+          error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1.5, width:4, color:style.color},
+          line:{color:style.color, width:2}, marker:{color:style.color, size:8},
+          hovertemplate:ofLabel(of_) + ', N = ' + n + ', %{customdata[0]} bps<br>' +
+            'mean: %{y:.3f} &plusmn; %{customdata[1]:.3f} (%{customdata[2]} runs)<extra></extra>',
+        });
+      }
+    });
+    lay.xaxis.title = {text:'Traffic rate per node (bps)', font:{size:18, weight:'bold'}};
+    // centre the shared x title under the middle panel
+    if(nodes.length === 3){ lay.xaxis2.title = lay.xaxis.title; delete lay.xaxis.title; }
+    lay.yaxis.title = {text:metric.axis, font:{size:18, weight:'bold'}};
+
+    const div = document.getElementById('chart' + i);
+    div.style.height = chartHeight + 'px';
+    div.style.width = EXPORT_W + 'px';
+    div.style.margin = '0 auto';
+    document.getElementById('chartTitle' + i).textContent =
+      metric.title + ' versus traffic rate per node (mean ± 95% CI over runs)';
+    Plotly.react(div, traces, lay,
+      {responsive:false, displaylogo:false,
+       toImageButtonOptions:{format:'png', filename:metric.file + '_all_nodes',
+                             width:EXPORT_W, height:chartHeight, scale:EXPORT_SCALE}});
+  });
+}
+
 function layout(metric, m, fixedVal, chartHeight){
   const base = {
     height:chartHeight,
-    margin:{l:80, r:16, t:56, b:70},
-    font:{size:16},
-    legend:{orientation:'h', y:-0.15, yanchor:'top', font:{size:15}},
-    paper_bgcolor:'white', plot_bgcolor:'#E5ECF6',
-    title:{text:'', font:{size:20}},
+    margin:{l:90, r:16, t:56, b:80},
+    font:{size:18},
+    // horizontal legend centred just above the plot area
+    legend:{orientation:'h', x:0.5, xanchor:'center', y:1.02, yanchor:'bottom', font:{size:14}},
+    paper_bgcolor:'white', plot_bgcolor:'#FBFCFE',
   };
-  const xtitle = (m === 'fix_nodes') ? 'bits per second per node' : 'number of nodes';
+  const xtitle = (m === 'fix_nodes') ? 'Traffic rate per node (bps)' : 'Number of nodes';
+  const xname = (m === 'fix_nodes') ? 'traffic rate per node' : 'number of nodes';
   const fixtxt = (m === 'fix_nodes')
-    ? ('number of nodes = ' + fixedVal) : ('bit/s per node = ' + fixedVal);
+    ? ('N = ' + fixedVal + ' nodes') : (fixedVal + ' bps per node');
   const cats = fixedXs(m, fixedVal).map(String);
-  base.title.text = metric.label + ' vs ' + xtitle + '  (' + fixtxt + ')';
+  base.chartTitle = metric.title + ' versus ' + xname + ' (' + fixtxt + ')';
   base.boxmode = 'group';
   base.xaxis = {
-    title:{text:xtitle}, type:'category',
+    title:{text:xtitle, font:{size:19, weight:'bold'}}, type:'category',
+    tickfont:{size:17},
     categoryorder:'array', categoryarray:cats,
     tickmode:'array', tickvals:cats,
     showgrid:true, gridcolor:'rgba(128,128,128,0.3)',
   };
   base.yaxis = {
-    title:{text:metric.axis}, gridcolor:'rgba(128,128,128,0.3)',
+    title:{text:metric.axis, font:{size:19, weight:'bold'}}, tickfont:{size:17},
+    gridcolor:'rgba(128,128,128,0.3)',
     rangemode:'tozero', nticks:12,
   };
   return base;
@@ -416,13 +542,25 @@ function render(){
   $('#charts').style.display = (m === 'dashboard') ? 'none' : '';
   $('#dashboardArea').hidden = (m !== 'dashboard');
   if(m === 'dashboard'){ updateDashboardFrame(); return; }
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('wide', m === 'facet_nodes'));
+  if(m === 'facet_nodes'){ renderFacets(); return; }
   const chartHeight = 736;
   const fixedVal = Number($('#fixed').value);
   METRICS.forEach((metric, i) => {
     const div = document.getElementById('chart' + i);
     div.style.height = chartHeight + 'px';
-    Plotly.react(div, tracesCandle(metric, m, fixedVal), layout(metric, m, fixedVal, chartHeight),
-      {responsive:true, displaylogo:false});
+    div.style.width = '';
+    div.style.margin = '';
+    const lay = layout(metric, m, fixedVal, chartHeight);
+    document.getElementById('chartTitle' + i).textContent = lay.chartTitle;
+    delete lay.chartTitle;
+    // "Download plot as PNG" file name: <metric>_<#nodes>, or <metric>_<bps>bps
+    // in the fixed-bps view so the two views never share a name
+    const filename = metric.file + '_' + fixedVal + (m === 'fix_nodes' ? '' : 'bps');
+    Plotly.react(div, tracesCandle(metric, m, fixedVal), lay,
+      {responsive:true, displaylogo:false,
+       toImageButtonOptions:{format:'png', filename:filename,
+                             width:EXPORT_W, height:chartHeight, scale:EXPORT_SCALE}});
   });
 }
 

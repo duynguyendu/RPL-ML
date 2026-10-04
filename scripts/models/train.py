@@ -170,6 +170,49 @@ def plot_feature_importance(results: list[dict], models_dir: Path) -> None:
         print(f"  Saved {out_path}")
 
 
+def plot_predicted_vs_actual(models: dict[str, dict], eval_df: pd.DataFrame, title: str, out_path: Path) -> None:
+    """Predicted vs. actual PDR, one panel per model on shared axes, with a y = x line.
+
+    ``models`` maps a model type to its result row (needs ``_model`` and ``features``).
+    """
+    if not models:
+        return
+    n_cols = 2
+    n_rows = -(-len(models) // n_cols)
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows), sharex=True, sharey=True, squeeze=False
+    )
+    actual = eval_df[LABEL_COLUMN].to_numpy() / MAXUINT16 * 100
+    predicted_by_model = {
+        model_name: result["_model"].predict(eval_df[result["features"]]) / MAXUINT16 * 100
+        for model_name, result in models.items()
+    }
+    low = min(0.0, actual.min(), *(p.min() for p in predicted_by_model.values()))
+    high = max(100.0, actual.max(), *(p.max() for p in predicted_by_model.values()))
+
+    for ax, (model_name, predicted) in zip(axes.flat, predicted_by_model.items()):
+        ax.scatter(actual, predicted, s=4, alpha=0.15, color="#4363d8", linewidths=0, rasterized=True)
+        ax.plot([low, high], [low, high], color="#555555", linestyle="--", linewidth=1, label="y = x")
+        maep = np.abs(predicted - actual).mean()
+        ax.text(0.04, 0.96, f"{model_name}\nMAEP = {maep:.2f}%", transform=ax.transAxes, va="top")
+        ax.set_xlim(low, high)
+        ax.set_ylim(low, high)
+        ax.set_aspect("equal")
+        ax.grid(color="#dddddd", linewidth=0.5)
+    for ax in axes.flat[len(predicted_by_model):]:
+        ax.set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel("Actual PDR (%)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Predicted PDR (%)")
+    axes.flat[0].legend(loc="lower right")
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"  Saved {out_path}")
+
+
 def _load_training_data(train_config) -> pd.DataFrame:
     """Load train.csv, dropping unlabeled rows and (if configured) unknown-sentinel rows."""
     train_csv = Path(train_config.data_dir) / "train.csv"

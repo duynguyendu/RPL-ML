@@ -188,6 +188,8 @@ def _is_overloading(mote):
 
 PDR_COLORSCALE = [[0.0, "red"], [1.0, "green"]]
 CPU_COLORSCALE = [[0.0, "darkblue"], [1.0, "red"]]
+LOAD_COLORSCALE = "YlOrRd"
+LOAD_TITLE = "Load (bps)"
 
 
 def _title(text):
@@ -488,6 +490,230 @@ def _parent_switches_by_node(df_dir):
     return (dodag.groupby("node_id").size() - 1).clip(lower=0)
 
 
+LOAD_INTERVAL_S = 60  # simulated seconds between load-model snapshots
+
+
+def _load_inputs(df_dir):
+    """(config, role_of, rate_of, server_id) for the load model, or None.
+
+    ``rate_of`` is each node's own send rate r(v) in bps: ``bps`` for a client,
+    ``overloading_client_bps`` for an overloading client and 0 for the server.
+    """
+    paths = {
+        name: os.path.join(df_dir, f"{name}.json") for name in ("config", "topology")
+    }
+    if not all(os.path.exists(p) for p in paths.values()):
+        return None
+    with open(paths["config"]) as fh:
+        cfg = json.load(fh)
+    with open(paths["topology"]) as fh:
+        motes = json.load(fh).get("motes", [])
+    if "bps" not in cfg:
+        return None
+    role_of = {int(m["id"]): str(m.get("role", "client")).lower() for m in motes}
+    server_id = next((i for i, r in role_of.items() if r == "server"), None)
+    if server_id is None:
+        return None
+    rate_of = {
+        nid: 0.0
+        if role == "server"
+        else float(cfg.get("overloading_client_bps", cfg["bps"]))
+        if role == "overloading_client"
+        else float(cfg["bps"])
+        for nid, role in role_of.items()
+    }
+    return cfg, role_of, rate_of, server_id
+
+
+def _tree_load(parent, rate_of, server_id):
+    """(load, hop, children) per node for one DODAG given as {node: parent}.
+
+    L(v) = r(v) + sum of L(children); a node without a parent has not joined
+    and offers nothing. ``hop`` only holds nodes whose chain reaches the server.
+    """
+    load = {nid: 0.0 for nid in rate_of}
+    hop = {server_id: 0}
+    children = {nid: 0 for nid in rate_of}
+    for nid in rate_of:
+        if nid in parent:
+            children[parent[nid]] = children.get(parent[nid], 0) + 1
+        # walk up the parent chain once per node: add its rate to itself and
+        # every ancestor, and record its depth if the chain hits the server
+        if nid == server_id or nid not in parent:
+            continue
+        r = rate_of[nid]
+        load[nid] += r
+        seen, u, depth = {nid}, parent[nid], 1
+        while u not in seen:
+            load[u] = load.get(u, 0.0) + r
+            if u == server_id:
+                hop[nid] = depth
+                break
+            seen.add(u)
+            if u not in parent:
+                break
+            u, depth = parent[u], depth + 1
+    return load, hop, children
+
+
+def compute_load(df_dir):
+    """Offered load per node, sampled every ``LOAD_INTERVAL_S`` simulated seconds.
+
+    The DODAG at each snapshot is the latest parent of every node from
+    dodag.csv. A joined client offers its send rate r(v) (``bps``, or
+    ``overloading_client_bps`` for overloading clients); a node's load is its
+    own rate plus the load of all its children, L(v) = r(v) + sum L(children),
+    so the server's load is everything that reaches it. Nodes not yet joined
+    offer nothing. ``hop`` is the depth along parent links, NaN if the chain
+    never reaches the server (detached or looping).
+
+    Returns columns time_s, node_id, role, parent_id, hop, children, rate, load.
+    """
+    columns = [
+        "time_s", "node_id", "role", "parent_id", "hop", "children", "rate", "load",
+    ]
+    empty = pd.DataFrame(columns=columns)
+    inputs = _load_inputs(df_dir)
+    dodag_path = os.path.join(df_dir, "dodag.csv")
+    if inputs is None or not os.path.exists(dodag_path):
+        return empty
+    cfg, role_of, rate_of, server_id = inputs
+    dodag = pd.read_csv(dodag_path)
+    if dodag.empty:
+        return empty
+    end = cfg.get("duration", 0) + cfg.get("ramp_up_duration", 0)
+    if end <= 0:
+        end = float(dodag["time_s"].max())
+
+    events = dodag.sort_values("time_s")[["time_s", "node_id", "parent_id"]]
+    events = list(events.itertuples(index=False))
+    parent, ev = {}, 0
+    rows = []
+    for t in range(LOAD_INTERVAL_S, int(end) + 1, LOAD_INTERVAL_S):
+        while ev < len(events) and events[ev].time_s <= t:
+            parent[int(events[ev].node_id)] = int(events[ev].parent_id)
+            ev += 1
+
+        load, hop, children = _tree_load(parent, rate_of, server_id)
+        for nid, role in role_of.items():
+            rows.append(
+                (
+                    t,
+                    nid,
+                    role,
+                    parent.get(nid, float("nan")),
+                    hop.get(nid, float("nan")),
+                    children.get(nid, 0),
+                    rate_of[nid],
+                    load[nid],
+                )
+            )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def plot_load(load):
+    """Heatmap of every client's load over time, plus the server's children's
+    loads stacked to show how traffic is split across the DODAG branches."""
+    if load.empty:
+        return []
+    figs = []
+    unit = "Offered load (bps)"
+
+    clients = load[load["role"] != "server"].copy()
+    ol_ids = set(clients.loc[clients["role"] == "overloading_client", "node_id"])
+    label = {
+        nid: f"{nid} ★" if nid in ol_ids else str(nid)
+        for nid in sorted(clients["node_id"].unique())
+    }
+    times = sorted(clients["time_s"].unique())
+
+    def _grid(col):
+        return clients.pivot(index="node_id", columns="time_s", values=col).loc[
+            list(label)
+        ]
+
+    z, par, hop, kids = (_grid(c) for c in ("load", "parent_id", "hop", "children"))
+    custom = [
+        [[p, h, k] for p, h, k in zip(pr, hr, kr)]
+        for pr, hr, kr in zip(par.values, hop.values, kids.values)
+    ]
+    heat = go.Figure(
+        go.Heatmap(
+            x=times,
+            y=list(label.values()),
+            z=z.values,
+            customdata=custom,
+            colorscale="YlOrRd",
+            colorbar=dict(title=dict(text=unit, side="right"), thickness=14),
+            hovertemplate=(
+                "Node %{y}<br>t = %{x} s<br>Load: %{z:.0f} bps<br>"
+                "Parent: %{customdata[0]}<br>Hop: %{customdata[1]}<br>"
+                "Children: %{customdata[2]}<extra></extra>"
+            ),
+        )
+    )
+    heat.update_layout(
+        title=_title(
+            f"Load per node every {LOAD_INTERVAL_S} s "
+            "(L = own rate + children's load, ★ = overloading client)"
+        ),
+        xaxis=_axis("Simulated time (s)"),
+        yaxis=_axis("Node ID", type="category", autorange="reversed"),
+        height=max(450, 14 * len(label) + 150),
+    )
+    figs.append(heat)
+
+    server_ids = set(load.loc[load["role"] == "server", "node_id"])
+    root_kids = load[load["parent_id"].isin(server_ids)]
+    if not root_kids.empty:
+        # overloading clients carried by each first-hop branch at each snapshot
+        ol_rows = load[load["node_id"].isin(ol_ids)]
+        ol_branch = {}
+        parent_at = {
+            t: dict(zip(g["node_id"], g["parent_id"])) for t, g in load.groupby("time_s")
+        }
+        for row in ol_rows.itertuples():
+            par_t, u, seen = parent_at[row.time_s], row.node_id, set()
+            while u in par_t and not _isnan(par_t[u]) and u not in seen:
+                seen.add(u)
+                if par_t[u] in server_ids:
+                    key = (row.time_s, u)
+                    ol_branch[key] = ol_branch.get(key, 0) + 1
+                    break
+                u = int(par_t[u])
+
+        stack = go.Figure()
+        for nid in sorted(root_kids["node_id"].unique()):
+            g = root_kids[root_kids["node_id"] == nid].set_index("time_s")
+            y = [g["load"].get(t, 0.0) for t in times]
+            n_ol = [ol_branch.get((t, nid), 0) for t in times]
+            stack.add_trace(
+                go.Scatter(
+                    x=times,
+                    y=y,
+                    customdata=n_ol,
+                    mode="lines",
+                    stackgroup="branches",
+                    line=dict(width=0.5),
+                    name=label.get(nid, str(nid)),
+                    hovertemplate=(
+                        f"Branch via node {nid}<br>t = %{{x}} s<br>"
+                        "Load: %{y:.0f} bps<br>"
+                        "Overloading clients: %{customdata}<extra></extra>"
+                    ),
+                )
+            )
+        stack.update_layout(
+            title=_title("Load reaching the server, split by first-hop branch"),
+            xaxis=_axis("Simulated time (s)"),
+            yaxis=_axis(unit),
+            hovermode="x unified",
+        )
+        figs.append(stack)
+    print("  Add load model")
+    return figs
+
+
 def _isnan(v):
     return isinstance(v, float) and math.isnan(v)
 
@@ -554,6 +780,7 @@ _SUMMARY_METRICS = {
         lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
     ),
     "dio_per_min": ("DIO/min", lambda v: f"{v:.2f}"),
+    "load": ("load", lambda v: f"{v:.0f} bps"),
 }
 
 # aggregation name -> reducer over a per-node Series. avg/max/min/p95 are shown
@@ -590,6 +817,7 @@ def _summary_node_series(metrics, df_dir):
         "cpu_util": _col(metrics.get("cpu"), "cpu_usage"),
         "parent_switch": _parent_switches_by_node(df_dir),
         "dio_per_min": _col(metrics.get("dio_rate"), "dio_per_min"),
+        "load": metrics.get("load_by_node", pd.Series(dtype=float)),
     }
 
 
@@ -600,7 +828,8 @@ def compute_aggregate(metrics, data, df_dir):
     (min, q1, median, avg, q3, p95, max) each map every summary metric to that
     statistic taken across nodes. Metric values are raw numbers -- pdr as a 0..1
     fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
-    dio_per_min in DIOs per minute -- and missing values are ``None``.
+    dio_per_min in DIOs per minute, load in bps (each client's offered load
+    averaged over the 60 s snapshots) -- and missing values are ``None``.
     """
     series_map = _summary_node_series(metrics, df_dir)
 
@@ -682,7 +911,7 @@ def render_predict_time_html(aggregate):
     )
 
 
-def plot_topology(df_dir, metrics):
+def plot_topology(df_dir, metrics, load=None):
     path = os.path.join(df_dir, "topology.json")
     if not os.path.exists(path):
         print(f"  Warning: {path} not found, skipping topology plot")
@@ -703,14 +932,17 @@ def plot_topology(df_dir, metrics):
                 int(row.node_id): int(row.parent_id)
                 for row in dodag.drop_duplicates("node_id", keep="last").itertuples()
             }
+            # one [time, [[node, parent], ...]] step per distinct timestamp; plain
+            # lists instead of a pandas groupby, which is slow with ~10k groups
             steps = []
-            for t, grp in dodag.groupby("time_s", sort=True):
-                steps.append(
-                    [
-                        float(t),
-                        [[int(r.node_id), int(r.parent_id)] for r in grp.itertuples()],
-                    ]
-                )
+            for t, nid, pid in zip(
+                dodag["time_s"].tolist(),
+                dodag["node_id"].astype(int).tolist(),
+                dodag["parent_id"].astype(int).tolist(),
+            ):
+                if not steps or steps[-1][0] != t:
+                    steps.append([float(t), []])
+                steps[-1][1].append([nid, pid])
             parent_steps = [[0.0, []]] + steps
 
     pdr_df = metrics["pdr"]
@@ -830,13 +1062,32 @@ def plot_topology(df_dir, metrics):
     pdr_cmin = min(pdr_cmin, 0.75)
     clients_cpu = _per_client(cpu_by_node)
     clients_latency = _per_client(latency_by_node)
+    # load of each client under the final DODAG (the slider's default position);
+    # the page script recomputes it for whichever DODAG the slider shows
+    load_inputs = _load_inputs(df_dir)
+    has_load = load_inputs is not None and bool(parent_of)
+    rate_of, server_id = ({}, None) if load_inputs is None else load_inputs[2:]
+    final_load = _tree_load(parent_of, rate_of, server_id)[0] if has_load else {}
+    clients_load = _per_client(final_load)
+    # fixed colour-scale top so colours stay comparable while the slider moves:
+    # the highest client load over the 60 s snapshots (and the final DODAG).
+    # Brief spikes between snapshots are clipped to the top colour.
+    snap_max = (
+        float(load.loc[load["role"] != "server", "load"].max())
+        if load is not None and not load.empty
+        else 0.0
+    )
+    load_cmax = max(
+        [snap_max, *(v for v in clients_load if not math.isnan(v))], default=0.0
+    ) or 1.0
     clients_custom = [
-        [int(m["id"]), m.get("role", "client"), pdr, cpu, lat]
-        for m, pdr, cpu, lat in zip(
+        [int(m["id"]), m.get("role", "client"), pdr, cpu, lat, load]
+        for m, pdr, cpu, lat, load in zip(
             clients,
             clients_pdr,
             clients_cpu,
             clients_latency,
+            clients_load,
         )
     ]
     clients_hover = (
@@ -878,28 +1129,31 @@ def plot_topology(df_dir, metrics):
         )
     )
 
-    for mid, pid in parent_of.items():
-        if mid not in positions or pid not in positions:
-            continue
-        cx, cy = positions[mid]
-        px, py = positions[pid]
-        fig.add_annotation(
-            x=px,
-            y=py,
-            ax=cx,
-            ay=cy,
-            xref="x",
-            yref="y",
-            axref="x",
-            ayref="y",
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1.2,
-            arrowwidth=1.5,
-            arrowcolor="rgba(60,60,60,0.7)",
-            standoff=9,
-            startstandoff=9,
-        )
+    # set every parent arrow in one update: add_annotation per arrow re-validates
+    # the whole annotation list each call
+    fig.update_layout(
+        annotations=[
+            dict(
+                x=positions[pid][0],
+                y=positions[pid][1],
+                ax=positions[mid][0],
+                ay=positions[mid][1],
+                xref="x",
+                yref="y",
+                axref="x",
+                ayref="y",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1.2,
+                arrowwidth=1.5,
+                arrowcolor="rgba(60,60,60,0.7)",
+                standoff=9,
+                startstandoff=9,
+            )
+            for mid, pid in parent_of.items()
+            if mid in positions and pid in positions
+        ]
+    )
 
     edge_script = (
         "(function() {\n"
@@ -909,6 +1163,8 @@ def plot_topology(df_dir, metrics):
         "  var TX_RANGE = %s, INT_RANGE = %s;\n"
         "  var CIRC_X = %s, CIRC_Y = %s;\n"
         "  var PARENT_STEPS = %s;\n"
+        "  var RATES = %s, SERVER_ID = %s, FINAL_PARENTS = %s, LOAD_MAX = %s;\n"
+        "  var LOAD_TITLE = %s;\n"
         "  var EDGE_IDX = 0, TX_CIRCLE_IDX = 1, INT_CIRCLE_IDX = 2;\n"
         "  var SERVER_IDX = 3, CLIENTS_IDX = 4;\n"
         "  var current = null;\n"
@@ -934,6 +1190,39 @@ def plot_topology(df_dir, metrics):
         "    tip.style.top = (sz.t + 8) + 'px';\n"
         "  }\n"
         "  function hideTip() { tip.style.display = 'none'; }\n"
+        "  // load model: L(v) = own rate + sum of children's load, for a DODAG\n"
+        "  // given as {node: parent}; nodes without a parent offer nothing\n"
+        "  function treeLoad(par) {\n"
+        "    var L = {};\n"
+        "    for (var id in RATES) L[id] = 0;\n"
+        "    for (var id in RATES) {\n"
+        "      if (id === SERVER_ID || !(id in par)) continue;\n"
+        "      var r = RATES[id], seen = {}, u = String(par[id]);\n"
+        "      L[id] += r; seen[id] = true;\n"
+        "      while (!seen[u]) {\n"
+        "        L[u] = (L[u] || 0) + r;\n"
+        "        if (u === SERVER_ID || !(u in par)) break;\n"
+        "        seen[u] = true;\n"
+        "        u = String(par[u]);\n"
+        "      }\n"
+        "    }\n"
+        "    return L;\n"
+        "  }\n"
+        "  var curParents = FINAL_PARENTS, curLoad = treeLoad(FINAL_PARENTS);\n"
+
+        "  function colorTitle() {\n"
+        "    var cb = gd.data[CLIENTS_IDX].marker.colorbar;\n"
+        "    return cb && cb.title ? cb.title.text : '';\n"
+        "  }\n"
+        "  function applyLoadColors() {\n"
+        "    if (colorTitle() !== LOAD_TITLE) return;\n"
+        "    var ids = gd.data[CLIENTS_IDX].customdata.map(function(c) { return String(c[0]); });\n"
+        "    Plotly.restyle(gd, {\n"
+        "      'marker.color': [ids.map(function(id) { return curLoad[id] || 0; })],\n"
+        "      'marker.cmin': [0], 'marker.cmax': [LOAD_MAX]\n"
+        "    }, [CLIENTS_IDX]);\n"
+        "  }\n"
+        "  gd.on('plotly_buttonclicked', function() { setTimeout(applyLoadColors, 0); });\n"
         "  var PRE = {};\n"
         "  for (var id in nodes) {\n"
         "    var node = nodes[id];\n"
@@ -987,14 +1276,16 @@ def plot_topology(df_dir, metrics):
         "    var cbTitle = cb ? (cb.title ? cb.title.text : '') : '';\n"
         "    if (cbTitle === 'CPU Usage (%%)') metricIdx = 3;\n"
         "    else if (cbTitle === 'Avg Latency (s)') metricIdx = 4;\n"
+        "    else if (cbTitle === LOAD_TITLE) metricIdx = 5;\n"
         "    var tipHtml = 'Node <b>' + id + '</b> (' + pt.customdata[1] + ')<br>' +\n"
         "      'Position: (' + pt.x.toFixed(1) + ', ' + pt.y.toFixed(1) + ')<br>' +\n"
         "      'TX range: ' + TX_RANGE + ' m<br>' +\n"
         "      'Interference range: ' + INT_RANGE + ' m';\n"
-        "    var v = pt.customdata[metricIdx];\n"
+        "    var v = metricIdx === 5 ? curLoad[id] : pt.customdata[metricIdx];\n"
         "    if (v !== undefined && v !== null && !isNaN(v)) {\n"
         "      if (metricIdx === 3) tipHtml += '<br>CPU: ' + v.toFixed(1) + '%%';\n"
         "      else if (metricIdx === 4) tipHtml += '<br>Latency: ' + v.toFixed(3) + ' s';\n"
+        "      else if (metricIdx === 5) tipHtml += '<br>Load: ' + v.toFixed(0) + ' bps';\n"
         "      else tipHtml += '<br>PDR: ' + (v * 100).toFixed(1) + '%%';\n"
         "    }\n"
         "    showTip(tipHtml);\n"
@@ -1041,6 +1332,9 @@ def plot_topology(df_dir, metrics):
         "          standoff:9, startstandoff:9});\n"
         "      }\n"
         "      Plotly.relayout(gd, {annotations: anns});\n"
+        "      curParents = arrowState;\n"
+        "      curLoad = treeLoad(curParents);\n"
+        "      applyLoadColors();\n"
         "    }\n"
         "    var sRaf = null, sTarget = null;\n"
         "    range.addEventListener('input', function() {\n"
@@ -1064,6 +1358,11 @@ def plot_topology(df_dir, metrics):
         json.dumps(circ_x),
         json.dumps(circ_y),
         json.dumps(parent_steps),
+        json.dumps({str(k): v for k, v in rate_of.items()}),
+        json.dumps(str(server_id)),
+        json.dumps({str(k): v for k, v in parent_of.items()}),
+        json.dumps(load_cmax),
+        json.dumps(LOAD_TITLE),
     )
 
     cpu_cmin, cpu_cmax = _finite_bounds(clients_cpu, 0.0, 10.0)
@@ -1122,6 +1421,17 @@ def plot_topology(df_dir, metrics):
                 "Avg Latency (s)",
             ),
         ]
+    if has_load:
+        buttons.append(
+            _color_button(
+                "Load",
+                [0.0 if math.isnan(v) else v for v in clients_load],
+                0.0,
+                load_cmax,
+                LOAD_COLORSCALE,
+                LOAD_TITLE,
+            )
+        )
     if buttons:
         layout["updatemenus"] = _button_menu(buttons)
     fig.update_layout(layout)
@@ -1137,9 +1447,18 @@ def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
     metrics = compute_metrics(data)
     os.makedirs(output_dir, exist_ok=True)
 
+    load = compute_load(df_dir)
+    if not load.empty:
+        load.to_csv(os.path.join(output_dir, "load.csv"), index=False)
+        print(f"  Wrote {os.path.join(output_dir, 'load.csv')}")
+        # each client's load averaged over every snapshot of the run
+        clients = load[load["role"] != "server"]
+        metrics["load_by_node"] = clients.groupby("node_id")["load"].mean()
+
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = [
-        *plot_topology(df_dir, metrics),
+        *plot_topology(df_dir, metrics, load),
+        *plot_load(load),
         # *plot_etx(metrics),
         *plot_cpu_usage(metrics),
         *plot_by_hop(metrics),

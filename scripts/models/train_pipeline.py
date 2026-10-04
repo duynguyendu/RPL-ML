@@ -13,7 +13,15 @@ import train_config
 from models.data import process_data
 from models.feature_analysis import analyse_correlation, analyse_features
 from models.to_c import convert_to_c_fixed, measure_size, verify_fixed
-from models.train import NON_PORTABLE_MODELS, analyse_data, grid_search, select_for_porting
+from models.train import (
+    NON_PORTABLE_MODELS,
+    _hold_out_last_topo_seed,
+    _load_training_data,
+    analyse_data,
+    grid_search,
+    plot_predicted_vs_actual,
+    select_for_porting,
+)
 
 # model types ported to rpl-lite's mlof-<name>.{c,h}
 EXPORTED_MODELS = ("dtree", "lgbm")
@@ -60,6 +68,13 @@ def run_pipeline() -> None:
             )
 
         models_dir.mkdir(parents=True, exist_ok=True)
+        train_df, test_df = _hold_out_last_topo_seed(_load_training_data(train_config), train_config)
+        if test_df is not None:
+            eval_df, title = test_df, "Predicted vs. actual PDR (unseen-topology test set)"
+        else:
+            eval_df, title = train_df, "Predicted vs. actual PDR (training data, in-sample)"
+        plot_predicted_vs_actual(best_by_model, eval_df, title, models_dir / "predicted_vs_actual.png")
+
         for model_name in EXPORTED_MODELS:
             if model_name in best_by_model:
                 joblib.dump(best_by_model[model_name]["_model"], models_dir / f"best_model_{model_name}.joblib")

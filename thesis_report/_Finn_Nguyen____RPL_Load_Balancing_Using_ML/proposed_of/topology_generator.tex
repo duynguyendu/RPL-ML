@@ -1,32 +1,35 @@
-\section{Topology Scenerios}
+\section{Topology Scenarios}
 In this work, random topologies are used both to collect the data for
 training the model and to evaluate the performance of the proposed OF.
 The topologies are generated in Python and converted into \texttt{.csc}
-simulation files that Cooja can load. The generator parameters and
-their default values are listed in Table~\ref{tab:topology-params}.
+Cooja simulation files. A topology consists of a server, clients and
+overloading clients. The overloading clients are the same as clients
+except they have a higher traffic rate to create unbalance section in
+the network. The generator parameters and
+their default values are listed in
+Table~\ref{tab:topology-params}.
 
-The root node is placed at the centre of the network and acts as the
-server that receives packets from all clients. The $N$ client nodes
+The server node is placed at the centre of the network and acts as the
+root of the DODAG. The $N$ client nodes
 are then added one at a time, each at a random position near the
-existing nodes. A candidate position is accepted only if it satisfies
-two constraints. First, it must be at least $\alpha_{\mathrm{min}}R$
-distance from
-every existing node, which prevents nodes from clustering. Second, it
-must lie within $\alpha_{\mathrm{nbr}}R$ distance of at least $k$ existing
-nodes (or of the root, for the first client). These
-constraints keep the network connected, spread the nodes fairly
-evenly, and ensure that no node is limited to a single parent and the
-links between nodes are usable rather than at the edge of radio range.
+existing nodes. A position is accepted only if it satisfies two constrains so that the network is connected the nodes are spread fairly evenly:
+\begin{itemize}
+    \item \textbf{Minimum distance.} The position must be at least
+        $\alpha_{\mathrm{min}}R$ distance from every existing node,
+        which prevents nodes from clustering.
+    \item \textbf{Connectivity.} The position must lie within
+        $\alpha_{\mathrm{nbr}}R$ distance of at least $k$ existing
+        nodes to ensure that nodes are not limited to a single parent and the
+        links between nodes are not at the edge of radio range.
+\end{itemize}
 
-Next, 5\,\% of the clients, rounded up, are randomly
-selected as \emph{overloading clients}. They send traffic at a rate
-higher than that of normal clients, representing devices that
-generate heavy traffic, such as cameras. Overloading clients are
+Afterward, 5\,\% of the clients are randomly selected as
+\emph{overloading clients} and are
 placed at least $\alpha_{\mathrm{o}}R$ distance
-apart, so that their ranges do not overlap and the extra load
-is not concentrated in one part of the network.
+apart, so that their ranges do not overlap concentrate in one part of
+the network.
 
-Each topology is therefore defined by two seeds: a topology
+Overall, the shape of each topology is defined by two seeds: a topology
 seed $s_t$, which determines node placement, and a client seed $s_o$,
 which determines which clients become overloading clients.
 Figure~\ref{fig:topology-random1} shows an example random topology
@@ -61,9 +64,9 @@ with 60 nodes with transmission range $R = 50m$.
 \begin{fig}[tbh]
     \begin{center}
         \includegraphics[width=0.75\textwidth]{assets/topology_random1.png}
-        \caption{A random generated topology with 60 nodes, the green
-            node is the root node, the yellow nodes are normal client and
-        the pink nodes are overloading client.}
+        \caption{A random generated topology with 60 nodes and default parameters, the green
+            node is the root node, the yellow nodes are clients and
+        the pink nodes are overloading clients.}
         \label{fig:topology-random1}
     \end{center}
 \end{fig}

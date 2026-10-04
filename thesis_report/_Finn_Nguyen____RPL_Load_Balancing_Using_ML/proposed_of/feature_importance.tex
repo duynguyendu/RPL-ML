@@ -9,82 +9,76 @@ model and the cost of inference on a constrained device. It also
 reduces the number of metrics each node must measure and share with
 its neighbours.
 
-Closely related is \emph{feature importance analysis}, which
-quantifies how much each feature contributes to a model's
-predictions. Feature importance scores are often used to rank the
-features, and the ranking then guides which features to keep. Feature
-selection methods are commonly grouped into three families: filter,
-wrapper and embedded methods.
-
-\paragraph{Filter methods} assess each feature by its statistical
-relationship with the target variable, independently of any machine
-learning model. The features are ranked by a score and the
-lowest-ranked ones are removed. Filter methods are fast and
-model-agnostic, but they evaluate each feature in isolation and so can
-miss interactions between features. Common scores include:
-\begin{itemize}
-    \item \textbf{Pearson correlation coefficient}, which measures the
-        strength of the linear relationship between two continuous
-        variables;
-    \item \textbf{Spearman rank correlation coefficient}, which
-        measures the strength of a monotonic relationship, whether linear
-        or not, and also applies to ordinal variables;
-    \item \textbf{Mutual information}, which measures how much knowing
-        one variable reduces uncertainty about the other, and so captures
-        any kind of dependency, including non-monotonic ones;
-    \item \textbf{Variance threshold}, which removes features whose
-        values barely change and therefore carry little information.
-\end{itemize}
-
-\paragraph{Wrapper methods} use the performance of a machine learning
-model as the score for a subset of features. The model is trained and
-evaluated on different subsets, and the subset with the best
-performance is kept. A common example is \emph{sequential backward
-selection} (SBS), which starts with all features and repeatedly
-removes the feature whose removal hurts the performance least, until
-the performance drops below an acceptable level. Wrapper methods
-account for interactions between features and for the behaviour of
-the model in use, but they are computationally expensive, because the
-model must be retrained for every subset evaluated.
-
-\paragraph{Embedded methods} perform feature selection as part of
-training the model. For example, decision trees and gradient-boosted
-trees such as LightGBM choose, at each split, the feature that most
-reduces the prediction error. Features that are never chosen have no
-effect on the model. These models also report a built-in importance,
-such as the mean decrease in impurity (MDI) or the number of splits
-on each feature. However, these built-in scores are calculated on the
-training data. They also tend to favour features with many distinct
-values over low-cardinality features, such as the binary
-\texttt{is\_new}, and they are not comparable across model types.
-
-In addition to these three families, \emph{model-agnostic}
-interpretation methods can measure feature importance for any fitted
-model. Two widely used examples are permutation importance
+% TODO: have to specify how feature correlation and feature
+% importance are different
+In this section, we combine filter method: Spearman correlations
+which measures the correlation between
+features prior to training the model and identify weakly related
+features to the output label.
+Two widely used examples are permutation importance
 \cite{altmannPermutationImportanceCorrected2010} and SHapley Additive
 exPlanations (SHAP) \cite{lundbergUnifiedApproachInterpreting2017},
-both described below. Unlike built-in importances, they can be
-calculated on held-out data, and their scores can be compared directly
-across the decision tree and LightGBM models.
+both described below.
+And permutation importance and SHAP after training on a full feature
+set to identify the subset of feature.
+Decision tree and LGBMTreeRegressor have embedded feature importance
+during the training. However, these are not comparable to each other
+as the method used to calculate that differ from model to model.
 
-In this work, we combine these approaches. Before training, Spearman
-and Pearson correlations are used as a filter method to identify
-redundant features and to measure each feature's relationship with
-the PDR. After training, permutation importance and SHAP are used to
-rank the features for each model. Finally, in a wrapper-style step,
-the lowest-ranked features are removed one at a time and the model is
-retrained, until its error exceeds the best model's error by more than
-1\%.
+\subsection{Feature Correlation}
+Spearman's rank correlation coefficient by measuring how well the
+relationship between the two variables can be
+described by a \emph{monotonic} function, that is, whether one
+variable consistently increases or consistently decreases as the
+other increases, regardless of whether the change is linear. Like
+Pearson's coefficient, it ranges from $-1$ to $1$. A value of $1$
+means that $Y$ always increases when $X$ increases, $-1$ means that
+$Y$ always decreases when $X$ increases, and $0$ means there is no
+monotonic trend.
+
+To compute the coefficient, each value is first replaced by its
+\emph{rank}, its position when the data are sorted, with tied values
+given the average of their ranks. The Spearman coefficient is then
+the Pearson coefficient between the ranks:
+% TODO: review the equation
+\begin{equation}
+    \rho_{XY} = r_{R(X)\,R(Y)},
+\end{equation}
+where $R(X)$ and $R(Y)$ are the ranks of $X$ and $Y$. Because the
+ranks of a monotonic relationship always lie on a straight line,
+Pearson's coefficient on the ranks reaches $\pm 1$ for any perfectly
+monotonic relationship, linear or not. For example, if PDR falls
+whenever the parent's drop rate rises, $\rho = -1$ even if PDR falls
+slowly at first and then sharply
+
+Figure~\ref{fig:feature_correlation} shows the Spearman correlation
+between each pair of the 11 collected features and the PDR. Three
+observations stand out. First, the features most strongly related to
+PDR all describe the load on the path towards the root: the parent's
+drop rate ($\rho = -0.69$), the parent's CPU usage ($-0.67$), the hop
+count ($-0.66$) and the parent's traffic rate ($-0.55$). All are
+negatively correlated with PDR, as expected, since a node behind a
+busier parent or a longer path loses more packets. Second, these
+features are also strongly correlated with each other. The three
+parent metrics have pairwise correlations between $0.72$ and $0.78$,
+and hop count is correlated with them by $0.68$ to $0.77$. They
+therefore carry much of the same information, so a model may need
+only one or two of them. Third, the neighbour count ($0.04$) and RSSI
+($-0.16$) are only weakly correlated with PDR, and the neighbour count
+is barely correlated with any other feature.
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=0.9\textwidth]{assets/feature_correlation.png}
+        \caption{Spearman feature correlation of 11 collected features.}
+        \label{fig:feature_correlation}
+    \end{center}
+\end{fig}
 
 \subsection{Permutation Importance}
 Permutation importance \cite{altmannPermutationImportanceCorrected2010}
-is a model inspection technique that measures how much each feature
-contributes to a fitted model's performance on a tabular dataset. It
-treats the model as a black box: it only needs the model's
-predictions, not its internal structure. This makes it suitable for
-non-linear models such as decision trees and LightGBM, and its scores
-can be compared directly across model types.
-
+inspects how importance each feature is by permutation the value of
+each feature in data rows.
 The idea is that if a feature is important, breaking its link with
 the output should make the model's predictions worse. The method
 first measures the model's baseline score $s$ on a dataset. Then, for
@@ -113,17 +107,13 @@ model splits the data, so it has no such bias, and it can be computed
 on unseen data.
 
 However, permutation importance has two limitations. First, it
-measures how much the model's \emph{error} depends on a feature, not
-how the feature changes the model's \emph{prediction}. Its scores are
-only meaningful if the model is accurate, and they do not show
+measures how much the model's \emph{error} depends on a feature does not show
 whether a feature pushes the predicted PDR up or down. Second, when
 two features are strongly correlated, such as ETX and hop count,
 shuffling one of them has little effect because the model can still
 rely on the other. Both features may then appear less important than
 they really are. Shuffling can also create unrealistic inputs, such
-as a node with a high hop count but a very low ETX. SHAP, described
-next, addresses the first limitation by measuring each feature's
-contribution to every individual prediction.
+as a node with a high hop count but a very low ETX.
 
 \subsection{SHAP}
 SHapley Additive exPlanations (SHAP) is technique that measures the
@@ -156,49 +146,82 @@ Afterward, we did train the models on reduce number of features from
 1 to 11. From that we choose the ... features, to reduce the size of
 the tree significantly while trading the performance of the model minimally.
 
-% TODO: have to specify how feature correlation and feature
-% importance are different
-\subsection{Feature Correlation}
-This is done before training the model to see which features are
-related to each other
+SHapley Additive exPlanations (SHAP)
+\cite{lundbergUnifiedApproachInterpreting2017} is a technique  based
+on the Shapley value from cooperative game theory, which divides the
+total payout of a game fairly among the players according to each
+player's contribution. In SHAP, the ``game'' is a single prediction,
+the ``players'' are the input features, and the ``payout'' is the
+difference between the model's prediction and its average prediction.
+Unlike permutation importance, which measures how much a feature
+affects the model's \emph{error}, SHAP measures how much each feature
+moves the model's \emph{prediction}, and in which direction.
 
-Pearson's correlation assesses linear relationships, Spearman's
-correlation assesses monotonic relationships (whether linear or not)
+SHAP explains a prediction with an \emph{additive} model: the
+prediction for an input $\mathbf{x}$ is written as a base value plus
+one contribution per feature,
+\begin{equation}
+    f(\mathbf{x}) = \phi_0 + \sum_{i=1}^{M} \phi_i,
+\end{equation}
+where $M$ is the number of features, $\phi_0 = \mathbb{E}[f(\mathbf{X})]$
+is the model's average prediction over the data, and $\phi_i$ is the
+SHAP value of feature $i$ for this input. A positive $\phi_i$ means
+that feature $i$ raised the predicted PDR above the average, and a
+negative $\phi_i$ means it lowered it. Because the contributions add
+up exactly to the prediction, each prediction can be broken down into
+the share contributed by each feature.
 
-ranking is the data transformation in which numerical or ordinal
-values are replaced by their rank when the data are sorted.
-The Spearman correlation coefficient is defined as the Pearson
-correlation coefficient between the rank variables.
-Instead of having numerical, we have rank
+The SHAP value of feature $i$ is its Shapley value: its average
+contribution over every possible subset of the other features,
+\begin{equation}
+    \phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!\,(|F| -
+    |S| - 1)!}{|F|!} \left[ f_{S \cup \{i\}}\!\left(x_{S \cup
+    \{i\}}\right) - f_S\!\left(x_S\right) \right],
+\end{equation}
+where $F$ is the set of all features, $S$ is a subset of features
+that does not include $i$, and $f_S(x_S)$ is the model's expected
+prediction when only the features in $S$ are known. The term in
+brackets is the change in prediction when feature $i$ is added to
+the subset $S$, and the fraction weights each subset so that every
+order in which features could be added counts equally. This is the
+only attribution method that satisfies a set of fairness properties,
+including that the contributions add up to the prediction and that a
+feature that never changes the prediction receives a value of zero
+\cite{lundbergUnifiedApproachInterpreting2017}.
 
-% TODO: explain Pearson
-% TODO: justify why not using Pearson but Spearman
-% TODO: maybe include something
+% TODO: probs don't need this paragraph
+Computing this sum directly requires evaluating the model on all
+$2^{M}$ subsets of features, which quickly becomes impractical. For
+tree-based models, we use Tree SHAP
+\cite{lundbergLocalExplanationsGlobal2020}, which exploits the
+structure of the trees to compute the exact SHAP values in polynomial
+time, $O(TLD^2)$ for an ensemble of $T$ trees with at most $L$ leaves
+and depth $D$. It does this by tracking, as it follows every path
+through each tree, what fraction of the possible feature subsets
+would reach each leaf. This makes it fast enough to explain thousands
+of predictions from both the decision tree and LightGBM models.
 
-Figure~\ref{fig:feature_dendrogram} and
-Figure~\ref{fig:feature_correlation} illustrates the ... respectively.
-In this feature dendrogram, we can see that three parent metrics are
-highly correlated to each other
-IN the correlation diagram, number of neighbour and RSSI are weakly
-correlate to the output PDR.
-
-% TODO: spearman or pearson
-
-\begin{fig}[tbh]
-    \begin{center}
-        \includegraphics[width=0.7\textwidth]{assets/feature_dendrogram.png}
-        \caption{Spearman feature dendrogram of 11 collected features.}
-        \label{fig:feature_dendrogram}
-    \end{center}
-\end{fig}
-
-\begin{fig}[tbh]
-    \begin{center}
-        \includegraphics[width=0.9\textwidth]{assets/feature_correlation.png}
-        \caption{Spearman feature correlation of 11 collected features.}
-        \label{fig:feature_correlation}
-    \end{center}
-\end{fig}
+SHAP values can be viewed at two levels. Locally, a \emph{waterfall
+plot} explains a single prediction: it starts from the base value
+$\phi_0$ and adds the contribution of each feature in turn, showing
+which features pushed the predicted PDR up or down for that node.
+Globally, a \emph{beeswarm plot} combines the SHAP values of many
+predictions to show the overall trend. Each point is one prediction,
+placed horizontally by the feature's SHAP value and coloured by the
+feature's value, so the plot shows both how much a feature matters
+and whether high or low values of the feature raise or lower the
+prediction. To rank the features with a single number, we use the
+mean absolute SHAP value of each feature over $n$ predictions,
+\begin{equation}
+    I_i = \frac{1}{n} \sum_{k=1}^{n} \left| \phi_i^{(k)} \right|,
+\end{equation}
+which is the average amount by which feature $i$ moves the predicted
+PDR. As with permutation importance, we compute the SHAP values on
+the held-out test set, using a random sample of 2\,000 rows.
+Figure~\ref{fig:shap_beeswarm} shows the beeswarm plots for the
+decision tree and LightGBM models, and the mean absolute SHAP values
+are listed alongside the permutation importances in
+Tables~\ref{tab:fi_dtree} and~\ref{tab:fi_lgbm}.
 
 \subsection{Feature Analysis}
 Figure ... shows the correlation and the influence of the features to

@@ -17,19 +17,19 @@ using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
             Simulator                      & COOJA \\
             Mote type                      & Zolertia Z1 \\
             Simulation Time                & 1800\,s \\
-            Number of Nodes                & 40, 60, 80 \\
+            Number of Nodes                & 60, 80, 100 \\
             Transmission rate              & 90\% \\
             Receiving rate                 & 90\% \\
-            Topology                       & Random with seeds from 1-10 \\
+            Topology                       & Random with seeds 11--35 \\
             MAC Layer Protocol             & CSMA \\
             Radio Range                    & 50\,m \\
             Interference Range             & 60\,m \\
             Packet Size                    & 64 bytes \\
             Routing Protocol               & MLOF, OF0 and MRHOF \\
-            Packet per minute  & 5, 10, 15 packets/minute\\
-            Overloading client Packet per minute  & 30
-            packets/minute\\
+            Traffic rate per node          & 64, 80, 96, 112, 128\,bps \\
+            Overloading client traffic rate & 256\,bps \\
             Overloading client rate        & 5\% \\
+            Overloading client seed        & 1, 2 \\
             \hline
         \end{tabular}
     \end{center}
@@ -37,16 +37,55 @@ using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
 
 \section{QoS Evaluation}
 \subsection{Packet Delivery Performance}
-PDR
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/pdr_60.png}
+        \caption{Aggregated PDR of 50 random topologies with 60 nodes.}
+        \label{fig:pdr_60}
+    \end{center}
+\end{fig}
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/pdr_all_nodes.png}
+        \caption{Aggregated PDR of 50 random topologies with 60 nodes.}
+        \label{pdr_all_nodes}
+    \end{center}
+\end{fig}
 
 \subsection{Latency}
 Latency
 
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/latency_60.png}
+        \caption{Aggregated end-to-end latency of 50 random topologies with 60 nodes.}
+        \label{fig:latency_60}
+    \end{center}
+\end{fig}
+
 \subsection{CPU Utilisation}
 CPU util
 
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/cpu_60.png}
+        \caption{Aggregated CPU usage of 50 random topologies with 60 nodes.}
+        \label{fig:cpu_60}
+    \end{center}
+\end{fig}
+
 \subsection{DODAG Stablity}
 Parent switch
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/parent_switch_60.png}
+        \caption{Aggregated parent switches per node of 50 random topologies with 60 nodes.}
+        \label{fig:parent_switch_60}
+    \end{center}
+\end{fig}
 
 \section{Routing Overhead}
 The ML-RPL OF increases the memory usage by (...) bytes, leaving 20KB
@@ -56,6 +95,14 @@ The DIO includes new ..., with ... bytes.
 In total, the whole network send arounds ... DIOs and ... packets,
 which translate to ...\% increase in the network overhead.
 However, this reduce the CPU usage and increase in PDR,...
+
+\begin{fig}[tbh]
+    \begin{center}
+        \includegraphics[width=1\textwidth]{assets/dio_sent_60.png}
+        \caption{Aggregated DIO messages sent per node per minute of 50 random topologies with 60 nodes.}
+        \label{fig:dio_sent_60}
+    \end{center}
+\end{fig}
 
 \section{Routing Topology}
 
