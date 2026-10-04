@@ -41,14 +41,14 @@ license \cite{ContikiNG}. It targets modern IoT devices,
 mainly 32-bit MCUs such as ARM Cortex-M3, and focuses on reliable and
 secure standardised protocols like IPv6/6LoWPAN, 6TiSCH, RPL, and CoAP.
 To this end, Contiki-NG removes the support for 8-bits and 16-bits
-platforms, and older, experimental and non-standarised protocols. It
+platforms, and older, experimental and non-standardised protocols. It
 drops the non-IP Rim and IPv4 support, making the system IPv6-only.
 It also removes the RDC layer, leaving only CSMA, \ieeemacE{} TSCH
 and a minimal \texttt{nullmac}, a MAC layer that neither sends or
 receives packets.
 Although the main support of Contiki-NG is 32 bits MCUs, several older 16-bit
 MSP430 platforms such as Tmote Sky and Zolertia Z1 are still
-maintained, and can be emulated in Cooja simulator.
+retained, and can be emulated in Cooja simulator.
 
 Contiki-NG also rewrote the RPL implementation called RPL-lite and
 make the new version default RPL implementation in the system.
@@ -66,8 +66,7 @@ the difference stays below the switching threshold.
 \subsection{Cooja Simulator}
 Cooja is a network simulator tool distributed with Contiki-NG. It is
 capable of emulating hardware motes to instruction level from
-firmware image built for a real platform
-or software motes, which run Contiki compiled for the host machine.
+firmware image built for a real platform.
 Out of the box, Cooja provides two hardware mote types: Tmote Sky
 (TelosB) and Zolertia Z1 with the platform specifications shown in
 Table~\ref{tab:mote-specs}, and a software-based mote type called Cooja.

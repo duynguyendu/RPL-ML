@@ -21,8 +21,7 @@ component stays in each power state, measured in timer ticks.
 Energest tracks give states. Three describe the MCU: active (CPU),
 low power mode (LPM),
 deep low power mode (DLPM). The other two describe the radio:
-transmitting (TX) and receiving (RX). So the energy estimate in
-Contiki-NG is calculated as follow. The time $t_x$ spent in each state is
+transmitting (TX) and receiving (RX). The time $t_x$ spent in each state is
 obtained by dividing its tick count by the number of ticks per second
 \begin{equation}
     t_x = \mathit{ticks}_x / \mathit{ENERGEST\_SECOND}
@@ -36,8 +35,8 @@ And the energy consumed by a node is estimated as
     + I_{\mathrm{RX}}\, t_{\mathrm{RX}} \right),
 \end{equation}
 where $V$ is the supply voltage, and $I_x$ and $t_x$ are the
-average current
-draw and the time spent in each state. In many cases where the energy
+average current draw and the time spent in each state. In many cases
+where the energy
 estimation is used to compare between
 homogeneous nodes within the same network, V does not need to be
 explicitly calculated to simplify the calculation.
@@ -50,7 +49,6 @@ of two platforms Z1 \cite{zolertia_z1} and Tmote Sky
 current draw from datasheet is only taken as a reference
 point as it can vary a lot in different situation.
 
-% TODO: what should I do with Z1 CPU active at 8mhz
 \begin{table}[ht]
     \centering
     \caption{Average current draw per Energest state for the Zolertia
@@ -71,57 +69,67 @@ point as it can vary a lot in different situation.
     \end{tabular}
 \end{table}
 
-% TODO: wording
 In CSMA mode, the radio is turn on at all time, thus the difference
 in energy usage between nodes using this energy model is mainly
-difference in CPU utilisation and pretty negligible as CPU energy
+difference in CPU utilisation and can be negligible as CPU energy
 consumption is much smaller than that of radio. In contrast, TSCH and
 radio cycling allow nodes to turn off their radio if their is no
 packet intended for them, the energy consumption would be much bigger
 for nodes that have high traffic.
 
 \section{Hardware Selection}
-% TODO: do this
-However, TSCH is a much more complicated and memory heavy algorithm
-for such old devices Sky and Z1. Hence we opt for CSMA and use active CPU ticks
-as intermediate value to measure the energy consumption relative to
-other nodes in the network.
+In this section, we consider the mote type and the MAC mode that we
+would use for simulation. Table~\ref{tab:footprint-nbr10} shows the
+firmware size of \texttt{rpl-udp} example of Contiki-NG for Z1 and
+Sky mote using CSMA and TSCH MAC mode. \texttt{rpl-udp} is a simple
+project that demonstrate how to setup RPL server and client, in which
+the client periodically send packets to the server.
+
+Ideally, we prefer to use TSCH in order to save energy, however, TSCH
+does not fit into the supported mote type in Cooja simulator due the
+complexity of synchronising schedule. Thus we choose to simulate on
+CSMA MAC mode and use CPU usage as an intermediate for energy
+consumption. For the mote type, we choose Z1 instead of Sky as there
+are more flash memory and faster CPU speed.
 
 \begin{table}[htbp]
     \centering
+    \renewcommand{\arraystretch}{1.3}
     \caption{Memory footprint of the Contiki-NG \texttt{rpl-udp}
-        example with \texttt{QUEUEBUF\_CONF\_NUM}=8 and
-        \texttt{NBR\_TABLE\_CONF\_MAX\_NEIGHBORS}=10.
-        Z1: 92\,KB flash, 8\,KB RAM; Tmote Sky: 48\,KB flash, 10\,KB RAM.
-    All values in bytes.}
+    example on Z1 and Sky mote.}
     \label{tab:footprint-nbr10}
-    \begin{tabular}{lllrrrrr}
+    \begin{tabular}{lllrrrrrl}
         \hline
         Platform & MAC & Node & \texttt{.text} & \texttt{.data}
-        & \texttt{.bss} & Flash & RAM \\
+        & \texttt{.bss} & Flash & RAM & Fit \\
         \hline
-        Z1  & CSMA & udp-client & 43\,788 & 350 & 6\,002 & 44\,138 & 6\,352 \\
-        &      & udp-server & 43\,412 & 350 & 5\,946 & 43\,762 & 6\,296 \\
-        \cline{2-8}
-        & TSCH & udp-client & 56\,092 & 398 & 7\,962 & 56\,490
-        & 8\,360$^{\dagger}$ \\
-        &      & udp-server & 55\,716 & 398 & 7\,906 & 56\,114
-        & 8\,304$^{\dagger}$ \\
+        Z1  & CSMA & client & 43\,788 & 350 & 6\,002 & 44\,138 & 6\,352 &
+        \textbf{Yes} \\
+        &      & server & 43\,412 & 350 & 5\,946 & 43\,762 & 6\,296 &
+        \textbf{Yes}
+        \\
+        \cline{2-9}
+        & TSCH & client & 56\,092 & 398 & 7\,962 & 56\,490
+        & 8\,360 & No (RAM) \\
+        &      & server & 55\,716 & 398 & 7\,906 & 56\,114
+        & 8\,304 & No (RAM) \\
         \hline
-        Sky & CSMA & udp-client & 44\,861 & 362 & 6\,752 & 45\,223 & 7\,114 \\
-        &      & udp-server & 44\,481 & 362 & 6\,696 & 44\,843 & 7\,058 \\
-        \cline{2-8}
-        & TSCH & udp-client & 57\,739 & 402 & 9\,098
-        & 58\,141$^{\ddagger}$ & 9\,500 \\
-        &      & udp-server & 57\,359 & 402 & 9\,042
-        & 57\,761$^{\ddagger}$ & 9\,444 \\
+        Sky & CSMA & client & 44\,861 & 362 & 6\,752 & 45\,223 & 7\,114 &
+        \textbf{Yes} \\
+        &      & server & 44\,481 & 362 & 6\,696 & 44\,843 & 7\,058 &
+        \textbf{Yes}
+        \\
+        \cline{2-9}
+        & TSCH & client & 57\,739 & 402 & 9\,098
+        & 58\,141 & 9\,500 & No (Flash) \\
+        &      & server & 57\,359 & 402 & 9\,042
+        & 57\,761 & 9\,444 & No (Flash) \\
         \hline
     \end{tabular}
 
     \smallskip
     \footnotesize{Flash = \texttt{.text} + \texttt{.data}; RAM =
-        \texttt{.data} + \texttt{.bss}.\\
-        $^{\dagger}$Exceeds the 8\,192\,B RAM of the Z1.
-        $^{\ddagger}$Exceeds the 49\,149\,B usable flash of the Sky. The
-    image fails to link.}
+        \texttt{.data} + \texttt{.bss}. Fit indicates whether the
+        image fits within the mote's memory (Z1: 92\,KB flash,
+    8\,KB RAM; Sky: 48\,KB flash, 10\,KB RAM).}
 \end{table}
