@@ -195,24 +195,21 @@ utilisation in the DIO and recomputing rank happens at the same moments.
 Liu et al.~\cite{liuLoadBalancedRouting2013} propose LB-RPL, which adds two
 load-balancing mechanisms to RPL while still taking link quality into
 account. First, each node keeps a table of its top $k$ candidate
-parents and spreads its traffic across them, not sending everything
-through a single preferred parent. Each packet is forwarded to parent
+parents and spreads its traffic across them. Each packet is forwarded to parent
 $j$ with probability $f_{ij}$
 \begin{equation}
     f_{ij} = \frac{(1 - p^{c}_{ij})}{\sum_{j=1}^{k} (1 - p^{c}_{ij})}
 \end{equation}
 where $p^{c}_{ij}$ is packet drop probability due to link condition
-between node $i$ and node $j$. This means that the traffic is spread across the
-$k$ parents, with parents that have better links being chosen more often.
+between node $i$ and node $j$. This means that the traffic is
+forwarded to parents with better links more often.
 Second, a node signals its workload by delaying its DIO messages in
 proportion to its buffer utilisation. Heavily loaded nodes therefore
-advertise themselves later than lightly loaded ones and are less
-likely to be selected as parents by their neighbours. Because this
-signal is carried by the timing of existing messages, it adds no
+advertise themselves later than lightly loaded ones, thus these nodes are less
+likely to be selected as parents by their neighbours without introducing
 extra control overhead. In simulation, LB-RPL achieves a higher
-packet delivery ratio and lower latency than standard RPL, and it
+packet delivery ratio and lower latency than standard RPL, and
 substantially reduces the workload of nodes near the root.
-The authors do not give how to calculate drop probability.
 However, the authors do not specify
 how the drop probability $p_{j}^{c}$ is calculated, which makes the
 scheme difficult to reproduce. Additionally, using delayed DIOs as a signal
@@ -223,7 +220,7 @@ Homaei et al.~\cite{homaeiLoadBalancingIoT2025} propose Learning
 Automata-based Load-Aware RPL (LALARPL), which uses learning automata
 to spread traffic across several parents. Each parent advertises a
 Traffic Index (TI), which measures how much of its capacity is being
-used,
+used
 \begin{equation}
     TI_i = \frac{\sum_{k} \theta_{ki} \, T_k}{CB_i},
 \end{equation}
@@ -231,12 +228,11 @@ where $T_k$ is the total traffic that child $k$ send, $\theta_{ki}$
 is the fraction of child $k$'s traffic $T_k$
 routed through parent $i$ and $CB_i$ is the bandwidth available to
 $i$. The TI is advertised along with the parent's hop count and
-remaining energy in extended DIO messages. Using this information,
+remaining energy in extended DIO messages. Using these information,
 each node builds a small set of candidate parents, excluding those
-that are nearly out of energy. For each packet, a learning automaton
-chooses a parent from this set based on each parent's traffic index
-and hop count relative to the other candidates. The initial
-selection probability of parent $i$ is
+that are nearly out of energy. The initial
+selection probability of parent $i$ is calculated from hop count and
+traffic index
 \begin{equation}
     P_i = \zeta \, \frac{1/\mathrm{hop\_count}_i}{\sum_{j=1}^{N}
     1/\mathrm{hop\_count}_j} + (1-\zeta)\, \frac{TI_i}{\sum_{j=1}^{N} TI_j},
@@ -247,7 +243,7 @@ Parents periodically reply with an acknowledgement carrying their
 current TI. A parent is rewarded if its TI is low compared with the
 other parents in the set and penalised if it is high. The selection
 probabilities are then updated using the linear reward--penalty
-scheme. When parent $i$ is rewarded,
+scheme: when parent $i$ is rewarded,
 \begin{equation}
     p_i \leftarrow p_i + \alpha (1 - p_i), \qquad
     p_j \leftarrow (1 - \alpha)\, p_j \quad \forall j \neq i,
@@ -259,35 +255,31 @@ and when it is penalised,
     \quad \forall j \neq i,
 \end{equation}
 where the reward and penalty rates $\alpha$ and $\beta$ are
-recomputed at each update from the parent's TI and hop count. Over
-time, nodes therefore learn to prefer lightly loaded parents.
+recomputed at each update from the parent's TI and hop count.
+Over time, nodes learn to prefer lightly loaded parents.
 LALARPL also lengthens the Trickle interval when traffic is heavy,
 which reduces control overhead during congestion. In simulation,
 LALARPL improves packet delivery ratio, throughput and delay compared
 with several other load-balancing protocols. Despite that, the reward
 depends only on how heavily each parent is
-loaded, not on link quality, and lost packets give no feedback at
-all. Moreover, the authors do not specify how the child's $k$ traffic
+loaded and lost reply packets give no feedback at all. Moreover, the
+authors do not specify how the child's $k$ traffic
 contribution calculated and do not evaluate the network overhead of
 the acknowledgements that parents send to update the learning
 automata.
+% TODO: wording
 
 Acevedo et al.~\cite{acevedoWRFRPLWeightedRandom2021} propose
 Weighted Random Forward RPL (WRF-RPL), an objective function that
-spreads traffic by choosing the next hop at random according to a
-weighted score, similar to LB-RPL and LALARPL. WRF-RPL sets the
-$\mathit{Rank\_Increase}$ to a fixed value of 1, so a node's rank
-equals its hop count to the root. Each candidate is given a weight
-based equal its remaining energy percentage, and the next hop is
-drawn at random in proportion to these weights. Nodes with more
-remaining energy are
-therefore more likely to be chosen. Nodes with less energy can still
-be selected, but less
-often, so no single relay is used all the time. This spreads traffic
-across the available parents, reduces congestion and prevents any one
-relay from being used repeatedly.
-The authors acknowledge that the performance of WRF-RPL depends on the
-topology. Networks with many
+spreads traffic by choosing the next hop at random based on
+remaining energy percentage.
+% TODO: wording
+% TODO: result
+This spread traffic to nodes with higher energy level while avoiding
+nodes with low energy level.
+WRF-RPL achieves higher network lifetime and PDR in random topology simulations.
+Despite that, the authors acknowledge that the performance of WRF-RPL
+depends on the topology. Networks with many
 intermediate nodes offer more candidate parents and can therefore
 spread the load more evenly, whereas in networks made up mostly of
 leaf nodes there are few alternatives to choose from. WRF-RPL also
@@ -301,7 +293,7 @@ short-term congestion such as queue overflow at a parent.
 \subsubsection{Reinforcement learning}
 % TODO: how to link between q learning and ML of the same author
 Duenas Santos et al.~\cite{duenassantosQRPLQLearningBasedRouting2024}
-propose Q-RPL, which brings Q-learning into the objective function.
+propose Q-RPL, which uses Q-learning in the objective function.
 In Q-RPL, each node learns a value for each of its candidate parents
 from the actual outcome of the packets it sends. When a transmission
 succeeds, the agent receives
@@ -313,34 +305,27 @@ highest learned value. Each node also includes its Q-value in its DIO
 messages, so neighbouring nodes can take it into account when
 selecting their own parents. In addition, ETX and RSSI are used to
 filter out unsuitable candidates and to break ties between parents
-with similar values. The authors report that the learned behaviour
-settles after roughly two to three hours of operation. However, this
-long convergence period is itself a limitation. While the agent is
-exploring, nodes may select poor parents, which leads to packet loss
-and wasted energy. The paper does not measure this cost, and it does
-not report the memory or computational overhead of running Q-learning
-on constrained devices. Moreover, because the reward depends only on
-the number of transmissions to the next hop, it mainly reflects the
-quality of each link. It does not directly capture congestion or load
-at the parent, so Q-RPL is not designed specifically for load balancing.
+with similar Q-values. Despite being able to achieve higher PDR and
+low latency across
+various scenarios, Q-RPL requires two to three hours to learn the
+optimal routes.
 
 Farag and Stefanovic~\cite{faragCongestionAwareRoutingDynamic2021}
 propose a Q-learning approach to congestion-aware parent selection in
 RPL. Each node maintains a Q-value $Q_x(y)$ for every neighbour $y$,
 representing the cost of routing through that neighbour. The cost
-signal combines the neighbour's queue occupancy, the link quality and
+signal $R$ combines the neighbour's queue occupancy, the link quality and
 the neighbour's hop count:
 \begin{equation}
     R(y) = \lambda(y)\,\mathrm{BF}(y) + \mathrm{ETX}(x,y) + H(y),
 \end{equation}
 where the backlog factor $\mathrm{BF}(y)$ is the fraction of $y$'s
 queue currently occupied, $H(y)$ is its hop count, and $\lambda(y)$
-amplifies the backlog term once $\mathrm{BF}(y)$ exceeds a threshold.
-Under light load the cost is therefore dominated by ETX and hop count,
-whereas under heavy load congested parents become expensive. The
-backlog factor is encoded together with the hop count in the RANK
-field of DIO messages, so no new control messages are required, and
-a node resets its Trickle timer after several consecutive queue
+amplifies the backlog term once $\mathrm{BF}(y)$ exceeds a threshold,
+ensuring the cost is expensive for heavily loaded nodes.
+The backlog factor is encoded together with the hop count in the RANK
+field of DIO messages. A node also resets its Trickle timer after
+several consecutive queue
 losses so that congestion information spreads quickly. On receiving
 a DIO, a node updates the corresponding Q-value as
 \begin{equation}
@@ -349,10 +334,14 @@ a DIO, a node updates the corresponding Q-value as
 The Q-value is thus updated from the state advertised by each
 neighbour rather than from the outcome of the node's own forwarding
 decisions, and each node learns to prefer parents whose queues are
-less full. To avoid the thundering herd problem, parents are
-selected probabilistically using a softmax-based strategy that
-favours the neighbour with the lowest Q-value. Although described as
-reinforcement learning, the update
+less full.
+The proposed OF also utilises probabilistic approach to spread
+traffic across multiple parents, whose weights are calculated from
+applying softmax on the Q-value.
+Even though the new OF sends out more DIO, it attains higher PDR and
+lower latency compared to MRHOF in simulations.
+% TODO: wording
+Although described as reinforcement learning, the update
 rule has no discount factor or next-state term, so each Q-value is
 simply a smoothed estimate of the immediate cost of a neighbour
 rather than of future rewards. The evaluation uses
@@ -365,45 +354,36 @@ node, loads already heavy by LLN standards, so its behaviour under
 the light-to-moderate traffic typical of many WSN deployments is
 untested.
 
+\subsubsection{Supervised Learning OF}
 Sangeetha et al.~\cite{sangeethaFederatedLearningBasedParent2025}
-propose a novel method to incorporate
-federated learning to train a parent-selection model while the
-network is running. The model is a multilayer perceptron (MLP) that
-takes four inputs: ETX, hop count, residual energy and delay; and
-predicts the energy cost of routing through each candidate parent. Each
-node trains the model on its own local data and sends the updated
-weights to the root. The root combines the weights from all nodes
+propose incorporating multilayer perceptron (MLP)
+model in parent selection and
+federated learning to train the model while the
+network is running. The model takes four inputs: ETX, hop count,
+residual energy and delay; and predicts the energy cost of routing
+through each candidate parent. Each node trains the model on its own
+local data and sends a lightweight
+vector summarisation to the root to avoid increasing network
+overhead. The root then combines the output from the nodes
 into a global model and sends it back to the network in DIO messages.
-The output of each node is a lightweight vector summarisation, which
-does not increase the overhead of the network too much.
-% TODO: talk ab it more about overhead
-The authors report lower energy consumption and a longer network
-lifetime than OF0 and MRHOF. However, several aspects of the
-evaluation raise doubts about whether the method would work on real
-devices. First, the experiments use the Cooja mote type, which
-compiles the firmware for the host machine and runs it natively. Code
-running on Cooja motes is therefore not limited by the processing
-power or memory of real sensor hardware, so the results do not show
-that the MLP can be trained or run on a constrained device.
-Second, the authors estimate energy consumption on Tmote Sky devices
-from Energest measurements taken on Cooja motes. Cooja motes do not
-emulate the Sky's MSP430 microcontroller, so the time spent running
+In simulations, the authors report lower energy consumption and a longer network
+lifetime than OF0 and MRHOF. However, the experiments use the Cooja
+mote type, which compiles the firmware for the host machine and runs it natively
+without the limitations of real hardware, so the results do not show
+that this method can run on a constrained device.
+Additionally, the authors estimate energy consumption on Tmote Sky devices
+from Energest measurements taken on Cooja motes, so the time spent running
 code, including training and running the MLP, is not modelled
 realistically. The CPU component of the energy estimate, which is
 where the cost of the learning model would appear, is therefore
 unlikely to reflect the energy a real Sky would consume.
 
-\subsubsection{Supervised Learning OF}
-
-Little research has applied supervised machine learning to parent
-selection in RPL. To the best of our knowledge, the main body of work
-consists of three related papers by Duenas Santos, Mezher and
+The next three works are related from Duenas Santos, Mezher and
 colleagues, which proposed three related
 schemes: RPL+~\cite{duenassantosRPLImprovedParent2022},
 GNB-RPL~\cite{mezherGNBRPLGaussianNaive2023} and
-ML-RPL~\cite{santosMLRPLMachineLearningBased2023}. All three use
-machine learning to predict how likely a packet is to be forwarded
-successfully over each hop.
+ML-RPL~\cite{santosMLRPLMachineLearningBased2023}. These methods
+focus on predicting the one packet transmission success probability.
 
 In RPL+, the authors collect per-hop data from simulations and train
 a decision tree to rank the importance of six candidate metrics: ETX,
@@ -411,26 +391,21 @@ channel utilisation, node density, throughput, queue utilisation and
 MAC-layer losses \cite{duenassantosRPLImprovedParent2022}. The
 resulting importance scores become the
 coefficients of a linear equation that combines these metrics into a
-single score for each candidate parent.
-The $\mathit{Rank\_Increase}$ is fixed at 1, so a node's rank equals its
-hop count to the root, and the parent with the lowest score is
-selected. RPL+ improves the packet delivery ratio and
-end-to-end delay compared with standard RPL. The machine learning
-model is only used to analyse the feature importance without being
-incorporated into the OF. Furthermore, a decision tree can capture
-non-linear relationships
-between the metrics and delivery, but RPL+ uses only its importance
-scores as weights in a linear combination, which cannot express these
-relationships.
+single score for each candidate parent. The node with lowest score is
+selected as the preferred parent.
+RPL+ improves the packet delivery ratio and
+end-to-end delay compared with standard RPL. Despite that, the decision tree
+model is only used to extract the feature importance as coefficients for
+linear equation, which does not capture the non-linear relationship
+that the model is able to learn.
 
-Building on RPL+, GNB-RPL uses a Gaussian Naive Bayes classifier,
-trained on the same features as RPL+, to predict the probability that
-a packet will be delivered successfully to a candidate parent
-\cite{mezherGNBRPLGaussianNaive2023}.
-Unlike RPL+, which used to calculate the coefficients in path cost
-equation, GNB-RPL is trained on a larger dataset and runs the
-classifier inside the objective function itself, so that parent
-selection is based directly on the output of the model.
+Building on RPL+, the same authors introduce GNB-RPL, which use
+Gaussian Naive Bayes (GNB) classifier
+that is trained on the same features as RPL+ to predict a packet
+successful transmission probability \cite{mezherGNBRPLGaussianNaive2023}.
+GNB-RPL is trained on a larger dataset and runs the
+classifier inside the objective function, so that parent
+selection is based on the output of the model compared to RPL+.
 However, the model rests on two strong assumptions. The Gaussian form
 assumes that each feature follows a normal distribution, but metrics
 such as ETX and queue utilisation are bounded and often skewed. The
@@ -439,7 +414,7 @@ another, although several of them are clearly related, such as ETX
 and MAC-layer losses, or channel utilisation and node density. When
 these assumptions do not hold, the predicted probabilities may be
 poorly calibrated. Moreover, the evaluation does not
-include OF0, so it is unclear how GNB-RPL compares with the simplest
+include OF0, so it is unclear how GNB-RPL compares with the simple
 standard objective function.
 
 Later on, the authors introduce
@@ -447,14 +422,14 @@ ML-RPL~\cite{santosMLRPLMachineLearningBased2023}, which replaces the
 Naive Bayes classifier with a CatBoost model, a gradient-boosted
 decision tree ensemble. The model learns from eight metrics: hop
 count, ETX, MAC-layer losses, node density, channel utilisation,
-throughput, queue utilisation and RSSI. Unlike GNB-RPL,
+throughput, queue utilisation and RSSI. Unlike GNB,
 gradient-boosted trees assume neither normally distributed features
 nor independence between them, so the model can capture non-linear
 relationships and interactions between the metrics.
 Although ML-RPL performs better than MRHOF and RPL+ in terms of PDR and delay,
 the evaluation does not examine the costs of running the
 model on constrained devices. It reports neither energy consumption
-nor CPU utilisation, and it does not discuss the size of the model.
+nor CPU utilisation, and does not discuss the size of the model.
 This is a significant omission for gradient-boosted ensembles, which
 usually contain hundreds of trees and may exceed the few kilobytes of
 RAM and limited flash available on typical sensor nodes.
