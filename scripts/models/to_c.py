@@ -267,10 +267,10 @@ _INT32_BUDGET = 0.9 * 2**31  # headroom under int32_t's ~2.147e9 ceiling
 # _INT32_BUDGET rather than a 64-bit budget.
 
 
-def _largest_power_of_10(budget: float) -> int:
+def _largest_power_of_2(budget: float) -> int:
     scale = 1
-    while scale * 10 <= budget:
-        scale *= 10
+    while scale * 2 <= budget:
+        scale *= 2
     return scale
 
 
@@ -287,7 +287,7 @@ def _standardise_fixed_params(
         z_fixed = (raw - mean_fixed) * inv_scale_mult
 
     approximates the standardised value scaled up by ``std_scale`` -- e.g. a
-    real ratio of 0.2 becomes an integer multiply (``* 2``), with the ``/ 10``
+    real ratio of 0.25 becomes an integer multiply (``* 32``), with the ``/ 128``
     folded into the final divisor rather than done here. ``std_scale`` is
     picked as large as possible while keeping every ``z_fixed`` itself --
     not just its multiplier -- within int32_t, since ``z_fixed`` is stored
@@ -301,7 +301,7 @@ def _standardise_fixed_params(
         _INT32_BUDGET * float(s) / _raw_bound(name, mf) if _raw_bound(name, mf) > 0 else float("inf")
         for name, mf, s in zip(feature_names, mean_fixed, scale)
     ]
-    std_scale = _largest_power_of_10(min([*per_feature_cap, combined_budget], default=1.0))
+    std_scale = _largest_power_of_2(min([*per_feature_cap, combined_budget], default=1.0))
     inv_scale_mult = [max(1, round(std_scale / float(s))) for s in scale]
     return mean_fixed, inv_scale_mult, std_scale
 
@@ -313,7 +313,7 @@ def _pick_coef_scale(coef, std_scale: int, combined_budget: float) -> int:
     # up its share of combined_budget -- whatever's left is coef_scale's.
     max_scale_coef = _INT32_BUDGET / max_coef if max_coef > 0 else float("inf")
     max_scale_budget = combined_budget / std_scale
-    return _largest_power_of_10(min(max_scale_coef, max_scale_budget))
+    return _largest_power_of_2(min(max_scale_coef, max_scale_budget))
 
 
 def _linear_fixed_params(model):
