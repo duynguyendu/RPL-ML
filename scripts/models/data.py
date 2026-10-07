@@ -27,6 +27,17 @@ RE_SERVER_RECEIVE = re.compile(r"Sending response '(\d+)' to ([0-9a-f:]+)")
 MIN_CHUNK_SECONDS = 15.0
 MAXUINT16 = 65535
 
+# names shown in figures; the CSV columns and exported C code keep the raw names
+FEATURE_DISPLAY_NAMES = {
+    "p_cpu": "path_cpu",
+    "parent_ppm": "path_ppm",
+    "parent_drop_rate": "path_drop_rate",
+}
+
+
+def display_name(feature: str) -> str:
+    return FEATURE_DISPLAY_NAMES.get(feature, feature)
+
 
 def _parse_log(log_path: Path):
     rows_mlof = []

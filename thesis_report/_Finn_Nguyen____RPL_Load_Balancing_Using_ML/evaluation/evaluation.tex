@@ -54,8 +54,9 @@ using Z1 mote. Table~\ref{tab:sim-parameters} shows the training parameters
     \end{center}
 \end{fig}
 
-\subsection{Latency}
-Latency
+The PDR of Dtree is consistently higher in all cases. However, MLOF performance degrades fast as the load increase and as the nodes increase, reaching the same PDR in 80 and 100 nodes with 128 bps per node.
+As for the latency, the Dtree are better for low node and low traffic and degrade exponentially as the load increase. This might be due to the lower average hop count in the DODAG.
+In ... the latency of OF0 is lower, however, this might be due to the outer nodes unable to reach root as shown in the decrease in PDR
 
 \begin{fig}[tbh]
     \begin{center}
@@ -66,6 +67,8 @@ Latency
 \end{fig}
 
 \subsection{CPU Utilisation}
+Despite adding a computational layer in the OF, Dtree and LGBM are able to reduce the ... by saving the need of retransmission and ...
+% TODO: include ETX
 CPU util
 
 \begin{fig}[tbh]
@@ -75,6 +78,8 @@ CPU util
         \label{fig:cpu_60}
     \end{center}
 \end{fig}
+
+The average CPU usage is lower in Dtree, with the LGBM model follow right after.
 
 \subsection{DODAG Stablity}
 Parent switch
@@ -86,6 +91,8 @@ Parent switch
         \label{fig:parent_switch_60}
     \end{center}
 \end{fig}
+
+The number parent switches of the OF except OF0 is substaintially lower thanks to rank hytersis, however, as the load increase, the number parent switches increase especially in MRHOF. Similarly, the number of transmitted DIO message is also lower for DTree and LGBM. Thus eliminating the thundering herd problem.
 
 \section{Routing Overhead}
 The ML-RPL OF increases the memory usage by (...) bytes, leaving 20KB
@@ -105,5 +112,3 @@ However, this reduce the CPU usage and increase in PDR,...
 \end{fig}
 
 \section{Routing Topology}
-
-\section{Effect of parameter $\alpha$}

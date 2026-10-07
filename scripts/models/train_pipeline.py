@@ -12,7 +12,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import train_config
 from models.data import process_data
 from models.feature_analysis import analyse_correlation, analyse_features
-from models.to_c import convert_to_c_fixed, measure_size, verify_fixed
+from models.to_c import (
+    convert_to_c_fixed,
+    convert_to_c_linear,
+    measure_size,
+    verify_fixed,
+    verify_linear,
+)
 from models.train import (
     NON_PORTABLE_MODELS,
     _hold_out_last_topo_seed,
@@ -20,19 +26,26 @@ from models.train import (
     analyse_data,
     grid_search,
     plot_predicted_vs_actual,
+    print_best_models,
     select_for_porting,
 )
 
-# model types ported to rpl-lite's mlof-<name>.{c,h}
-EXPORTED_MODELS = ("dtree", "lgbm")
+# model type -> <name> of the rpl-lite mlof-<name>.{c,h} it is ported to
+# (matching csc_generator.py's mlof_<name> RPL_OF values)
+EXPORTED_MODELS = {"dtree": "dtree", "lgbm": "lgbm", "ridge": "linear", "svr": "svm"}
 
 
 def export_model(model_name: str, model_path: Path) -> None:
-    """Port a fitted tree model to rpl-lite's mlof-<model_name>.{c,h}; nothing else is written."""
+    """Port a fitted model to rpl-lite's mlof-<model_name>.{c,h}; nothing else is written."""
     func_name = f"mlof_predict_pdr_{model_name}"
     with tempfile.TemporaryDirectory() as tmp:
-        c_path, h_path = convert_to_c_fixed(str(model_path), tmp, func_name)
-        verify_fixed(str(model_path), str(train_config.data_dir))
+        converted = convert_to_c_fixed(str(model_path), tmp, func_name)
+        if converted is not None:
+            verify_fixed(str(model_path), str(train_config.data_dir))
+        else:
+            converted = convert_to_c_linear(str(model_path), tmp, func_name)
+            verify_linear(str(model_path), str(train_config.data_dir))
+        c_path, h_path = converted
         measure_size(c_path)
 
         train_config.rpl_lite_dir.mkdir(parents=True, exist_ok=True)
@@ -69,15 +82,16 @@ def run_pipeline() -> None:
 
         models_dir.mkdir(parents=True, exist_ok=True)
         train_df, test_df = _hold_out_last_topo_seed(_load_training_data(train_config), train_config)
+        print_best_models(best_by_model, train_df, test_df)
         if test_df is not None:
             eval_df, title = test_df, "Predicted vs. actual PDR (unseen-topology test set)"
         else:
             eval_df, title = train_df, "Predicted vs. actual PDR (training data, in-sample)"
         plot_predicted_vs_actual(best_by_model, eval_df, title, models_dir / "predicted_vs_actual.png")
 
-        for model_name in EXPORTED_MODELS:
+        for model_name, export_name in EXPORTED_MODELS.items():
             if model_name in best_by_model:
-                joblib.dump(best_by_model[model_name]["_model"], models_dir / f"best_model_{model_name}.joblib")
+                joblib.dump(best_by_model[model_name]["_model"], models_dir / f"best_model_{export_name}.joblib")
 
     if train_config.is_feature_analysis:
         analyse_correlation()
@@ -89,21 +103,21 @@ def run_pipeline() -> None:
     # training run already left in models_dir, instead of silently doing
     # nothing.
     if train_config.is_porting:
-        for model_name in EXPORTED_MODELS:
-            best_model_path = models_dir / f"best_model_{model_name}.joblib"
+        for model_name, export_name in EXPORTED_MODELS.items():
+            best_model_path = models_dir / f"best_model_{export_name}.joblib"
             selected = best_by_model.get(model_name)
             if selected is not None:
                 print(
-                    f"\n=== selected {model_name} -> mlof-{model_name} "
+                    f"\n=== selected {model_name} -> mlof-{export_name} "
                     f"(avg_mae={selected['avg_mae']:.4f}, avg_maep={selected['avg_maep']:.2f}%, "
                     f"flash={selected['flash']} B) ==="
                 )
             elif best_model_path.exists():
-                print(f"\n=== {model_name} -> mlof-{model_name} (re-porting previously trained model) ===")
+                print(f"\n=== {model_name} -> mlof-{export_name} (re-porting previously trained model) ===")
             else:
                 print(f"\n=== {model_name}: no trained model available -- skipped ===")
                 continue
-            export_model(model_name, best_model_path)
+            export_model(export_name, best_model_path)
 
 
 if __name__ == "__main__":

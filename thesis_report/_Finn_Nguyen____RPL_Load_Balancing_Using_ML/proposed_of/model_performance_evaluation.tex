@@ -1,13 +1,96 @@
 \section{Model Performance Evaluation}
 % TODO: include the result of the model
 % TODO: include hyperparameters selection
-Three models
+In this section, we evaluate the performance of four models: Linear
+regression, Linear Support Vector Regression (SVR), Decision Tree and
+LightGBM and the effect of quantisation on the performance of the model
 
-Quanitisation: the quanitisation reduces the performance of linear regression and support vector regression significantly. This is probably due to the fact that these models rely heavily on floating point for coefficients and the different in range of the features and predicted value.
+First we train the model then quantise the models to see how
+quantisation affect the model performance
+The Linear regression and Linear SVR have min-max scaling and
+standardisation before fitting the model to improve the accuracy.
 
-Size of the models 
+For the decision tree and LightGBM, we quantise by converting each
+tree into nested \texttt{if}/\texttt{else} statements in C and
+rounding only its constants.
+Because every input feature is already an integer, a split threshold
+$t$ can be replaced by $\lfloor t \rfloor$ without changing any
+decision: for integer $x$, $x \le t$ and $x \le \lfloor t \rfloor$
+give the same result.
+Leaf values are rounded to the nearest integer on the output scale
+$[0, 65535]$.
+For LightGBM, each tree returns its rounded leaf value, and the trees
+are summed in an \texttt{int32\_t} that is clamped to $[0, 65535]$
+once at the end.
+Each rounded leaf adds at most $0.5$ of error, so the worst-case
+rounding error is $0.5$ for the decision tree and $0.5T$ for LightGBM
+with $T$ trees.
+Neither model needs any multiplication or division on the mote.
 
-% TODO: write this better
-We select the model whose size when compile to C code does not exceed 10KB while within the 1\% error rate of the best model (without any regard to the size of the model).
+For linear regression and linear SVR, we quantise using fixed-point
+arithmetic, since both the feature scaling and the coefficients are
+fractional.
+First, the two preprocessing steps, min--max scaling followed by
+standardisation, are folded into a single affine transform
+$(x_i - \mu_i)/d_i$ per feature.
+This transform is then computed with integers only,
+\begin{equation}
+    z_i = (x_i - \mu_i) \cdot s_i,
+    \qquad s_i = \operatorname{round}\!\left(\frac{S_z}{d_i}\right),
+\end{equation}
+where $\mu_i$ is rounded to an integer and $s_i$ is an integer
+multiplier, so the mote never divides at this step.
+The coefficients and intercept are scaled to integers as
+$c_j' = \operatorname{round}(c_j S_c)$ and
+$c_0' = \operatorname{round}(c_0 S_z S_c)$, and the prediction uses a
+single division at the end:
+\begin{equation}
+    \hat{y}(\mathbf{x}) = \operatorname{clamp}\!\left(
+        \frac{c_0' + \sum_{j=1}^{m} c_j' z_j}{S_z S_c},\; 0,\; 65535
+    \right).
+\end{equation}
+The scale factors $S_z$ and $S_c$ are powers of ten, chosen so that
+every intermediate value fits in 32 bits, because the MSP430F2617
+performs 64-bit multiplication and division in software.
+Let $K$ be the worst-case accumulator magnitude with both scales set
+to 1.
+We require $S_z S_c < 0.9 \cdot 2^{31} / K$, which leaves 10\%
+headroom.
+$S_z$ takes as much of this budget as possible, and $S_c$ takes the
+rest
 
-Table ... gives the accuracy, size and features that dtree and lgbm includes.
+Table ... gives the traininig performance of the four models on full
+11 features in the training data set and the testing result on the
+random topology 6.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Prediction error of each model. MAE is on the PDR scaled
+    to $[0, 65535]$, and MAEP is the MAE as a percentage of this range.}
+    \label{tab:model_results}
+    \begin{tabular}{l|c|c|c|c|c|c}
+        \hline
+        & \multicolumn{2}{c|}{Train}
+        & \multicolumn{2}{c|}{Test}
+        & \multicolumn{2}{c}{Test (quantised)} \\
+        \textbf{Model}
+        & MAE & MAEP (\%) & MAE & MAEP (\%) & MAE & MAEP (\%) \\
+        \hline
+        LightGBM          & 10638.6 & 16.233 & 13751.8 & 20.984 & 13751.7 &
+        20.984 \\
+        Decision Tree     & 10574.7 & 16.136 & 13765.0 & 21.004 & 13764.9 &
+        21.004 \\
+        Linear SVR        & 12198.8 & 18.614 & 15015.7 & 22.912 & 15116.6 &
+        23.066 \\
+        Linear regression & 12634.1 & 19.278 & 15300.5 & 23.347 & 15216.1 &
+        23.218 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Quantisation reduces the performance of linear regression and
+support vector regression significantly. This is probably due to the
+fact that these models rely heavily on floating point for
+coefficients and the different in range of the features and predicted value.
+Thus we conclude that linear regression and linear SVR are not fit
+for our purposes

@@ -225,6 +225,7 @@ const METRICS = [
   {key:'latency',       file:'latency',       label:'Latency',       scale:1,   unit:' s', title:'End-to-end latency',         axis:'End-to-end latency (s)'},
   {key:'cpu_util',      file:'cpu',           label:'CPU usage',     scale:1,   unit:'%',  title:'CPU usage',                  axis:'CPU usage (%)'},
   {key:'dio_per_min',   file:'dio_sent',      label:'DIO sent',      scale:1,   unit:'/min', title:'DIO transmission rate per node', axis:'DIO messages per node per minute'},
+  {key:'hop_count',     file:'hop_count',     label:'Hop count',     scale:1,   unit:'',   title:'Average hop count',          axis:'Average hop count'},
 ];
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
@@ -410,6 +411,18 @@ function tracesCandle(metric, m, fixedVal){
 const EXPORT_W = 880;
 const EXPORT_SCALE = 6.1 * 300 / EXPORT_W;
 
+// per-OF marker shape and line dash, so overlapping points stay distinguishable
+// without colour (and in greyscale print)
+const OF_SYMBOL = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star'];
+const OF_DASH = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot'];
+
+// pull a hex colour ~20% of the way towards its grey to soften the saturation
+function mute(hex, k = 0.2){
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const g = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  return 'rgb(' + c.map(v => Math.round(v + (g - v) * k)).join(',') + ')';
+}
+
 // two-sided 95% Student-t critical value for df degrees of freedom: table for
 // df 1-30, Cornish-Fisher expansion beyond (within 0.001 of the exact value)
 const T95 = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042];
@@ -435,12 +448,10 @@ function meanCI(rows, metric){
 function renderFacets(){
   const nodes = uniqNums(RUNS.map(r => r.num_of_nodes));
   const bpsAll = uniqNums(RUNS.map(r => r.bps));
-  const gap = 0.04, w = (1 - gap * (nodes.length - 1)) / nodes.length;
-  // spread the OFs a little along x so their error bars don't overlap
+  const gap = 0.015, w = (1 - gap * (nodes.length - 1)) / nodes.length;
   const step = bpsAll.length > 1 ? Math.min(...bpsAll.slice(1).map((b, i) => b - bpsAll[i])) : 16;
-  const dodge = of_ => (RPL_OFS.indexOf(of_) - (RPL_OFS.length - 1) / 2) * step * 0.08;
   // drawn at the export size so the page shows exactly what the PNG will be
-  const chartHeight = 440;
+  const chartHeight = 520;
   METRICS.forEach((metric, i) => {
     const traces = [];
     const lay = {
@@ -474,14 +485,17 @@ function renderFacets(){
           r.num_of_nodes === n && r.bps === b && r.rpl_of === of_), metric)])
           .filter(([, c]) => c);
         if(!pts.length) continue;
-        const style = ofStyle(of_);
+        const color = mute(ofStyle(of_).color);
+        const j = RPL_OFS.indexOf(of_);
         traces.push({
           type:'scatter', mode:'lines+markers', xaxis:'x' + ax, yaxis:'y' + ax,
           name:ofLabel(of_), legendgroup:of_, showlegend:k === 0,
-          x:pts.map(([b]) => b + dodge(of_)), y:pts.map(([, c]) => c.mean),
+          x:pts.map(([b]) => b), y:pts.map(([, c]) => c.mean),
           customdata:pts.map(([b, c]) => [b, c.ci, c.n]),
-          error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1.5, width:4, color:style.color},
-          line:{color:style.color, width:2}, marker:{color:style.color, size:8},
+          error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1, width:3, color:color},
+          line:{color:color, width:1.25, dash:OF_DASH[j % OF_DASH.length]},
+          marker:{color:color, size:8, symbol:OF_SYMBOL[j % OF_SYMBOL.length],
+                  line:{color:'white', width:1}},
           hovertemplate:ofLabel(of_) + ', N = ' + n + ', %{customdata[0]} bps<br>' +
             'mean: %{y:.3f} &plusmn; %{customdata[1]:.3f} (%{customdata[2]} runs)<extra></extra>',
         });

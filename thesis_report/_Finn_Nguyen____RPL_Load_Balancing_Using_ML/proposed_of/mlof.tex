@@ -1,5 +1,12 @@
 \section{Proposed Objective Function MLOF}
 
+Size of the models 
+
+% TODO: write this better
+We select the model whose size when compile to C code does not exceed 10KB while within the 1\% error rate of the best model (without any regard to the size of the model).
+
+Table ... gives the accuracy, size and features that dtree and lgbm includes.
+
 Most existing OFs rely on a single routing metric. As a result, they
 behave greedily: a node selects the neighbour with the best link
 quality without considering the performance of the route as a whole.

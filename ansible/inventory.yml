@@ -6,15 +6,15 @@ all:
         compute2: {}
         # piccolo: {}
         red-tomatoes: {}
-        cuda16: {}
+        # cuda16: {}
         cuda15: {}
         # cuda14: {}
-        cuda13: {}
+        # cuda13: {}
         cuda12: {}
-        cuda11: {}
-        cuda10: {}
+        # cuda11: {}
+        # cuda10: {}
         cuda9: {}
-        cuda8: {}
+        # cuda8: {}
         cuda1: {}
         cuda2: {}
         cuda3: {}

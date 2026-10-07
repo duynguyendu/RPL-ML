@@ -781,6 +781,7 @@ _SUMMARY_METRICS = {
     ),
     "dio_per_min": ("DIO/min", lambda v: f"{v:.2f}"),
     "load": ("load", lambda v: f"{v:.0f} bps"),
+    "hop_count": ("hop count", lambda v: f"{v:.2f}"),
 }
 
 # aggregation name -> reducer over a per-node Series. avg/max/min/p95 are shown
@@ -818,6 +819,7 @@ def _summary_node_series(metrics, df_dir):
         "parent_switch": _parent_switches_by_node(df_dir),
         "dio_per_min": _col(metrics.get("dio_rate"), "dio_per_min"),
         "load": metrics.get("load_by_node", pd.Series(dtype=float)),
+        "hop_count": metrics.get("hop_by_node", pd.Series(dtype=float)),
     }
 
 
@@ -829,7 +831,9 @@ def compute_aggregate(metrics, data, df_dir):
     statistic taken across nodes. Metric values are raw numbers -- pdr as a 0..1
     fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
     dio_per_min in DIOs per minute, load in bps (each client's offered load
-    averaged over the 60 s snapshots) -- and missing values are ``None``.
+    averaged over the 60 s snapshots), hop_count in hops to the root (each
+    client's depth averaged over the snapshots it was attached) -- and missing
+    values are ``None``.
     """
     series_map = _summary_node_series(metrics, df_dir)
 
@@ -1454,6 +1458,8 @@ def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
         # each client's load averaged over every snapshot of the run
         clients = load[load["role"] != "server"]
         metrics["load_by_node"] = clients.groupby("node_id")["load"].mean()
+        # each client's hop depth averaged over the snapshots it was attached
+        metrics["hop_by_node"] = clients.groupby("node_id")["hop"].mean()
 
     print(f"\nGenerating plots in {output_dir}/ ...")
     figs = [

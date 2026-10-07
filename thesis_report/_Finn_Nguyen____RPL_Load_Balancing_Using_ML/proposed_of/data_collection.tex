@@ -4,14 +4,17 @@ whole chain from a candidate parent to the root. Nodes closer to the root
 forward the traffic of all their children, so they process more
 packets, have higher CPU usage and a higher transmission rate, and
 are more likely to drop packets when their queues fill up. To capture
-this load, we include CPU usage, transmission rate and drop rate in
-the training features. We use CPU usage instead of residual energy
+this load, we use CPU usage, transmission rate and drop rate. We use
+CPU usage instead of residual energy
 due to the CSMA MAC layer. The radio stays on all the time in CSMA,
 so the energy
 consumption of every node is similar regardless of its load where as
 the CPU usage increases with the number of packets the node processes.
 
-Each node measures three metrics of its own and smooths the value
+In total, we have 10 features ranging from node metrics, link
+metrics and whole path metrics, and one flag \texttt{is\_new} due to
+the way we gather the metrics as explained in later section. Each
+node measures three metrics of its own and smooths the value
 using EWMA to avoid sudden changes in value:
 \begin{itemize}
     \item \textbf{CPU usage} (\texttt{cpu}): the fraction of time the
@@ -25,33 +28,30 @@ using EWMA to avoid sudden changes in value:
         full.
 \end{itemize}
 
-Each node also advertises its metrics to its neighbours in its DIO
-messages. A node therefore knows the following metrics of every
-candidate parent:
+Each node also measures the link metrics from the received packets:
 \begin{itemize}
     \item \textbf{ETX} (\texttt{etx}): the expected number of
         transmissions needed for a packet to be received and
         acknowledged on the parent's link towards the root.
     \item \textbf{RSSI} (\texttt{rssi}): the received signal strength
         on that link.
-    \item \textbf{Hop count} (\texttt{hop\_count}): the parent's
+\end{itemize}
+
+For the path metrics, node receives these from potential parent
+candidate in their DIOs:
+\begin{itemize}
+    \item \textbf{Parent hop count} (\texttt{parent\_hop\_count}): the parent's
         number of hops to the root.
-    \item \textbf{Neighbour count} (\texttt{nbr\_count}): the number
+    \item \textbf{Parent neighbour count}
+        (\texttt{parent\_nbr\_count}): the number
         of neighbours of the parent.
-    \item \textbf{Path CPU usage} (\texttt{p\_cpu}), \textbf{path
-        transmission rate} (\texttt{parent\_ppm}) and \textbf{path drop
-        rate} (\texttt{parent\_drop\_rate}): the parent's CPU usage,
+    \item \textbf{Path CPU usage} (\texttt{path\_cpu}), \textbf{path
+        transmission rate} (\texttt{path\_ppm}) and \textbf{path drop
+        rate} (\texttt{path\_drop\_rate}): the parent's CPU usage,
         transmission rate and drop rate, combined with those of its
         ancestors as described below.
 \end{itemize}
-Finally, the \texttt{is\_new} flag records whether the parent is a new
-parent or the node's current one, as explained in
-Section~\ref{sec:data-collection-logging}. This gives 11 features in
-total. A metric that is not yet known, for example before the first
-measurement or when a node has no parent, is encoded as a reserved
-sentinel value rather than left empty.
 
-\subsection{Smoothing and Path Metrics}
 CPU usage, transmission rate and drop rate are measured over windows
 of at least 30\,s and fluctuate from one window to the next. To reduce
 this noise, each node smooths its own measurements with an
@@ -63,37 +63,43 @@ where $m_t$ is the latest measurement and $\bar{m}_t$ the smoothed
 value. The weights are multiples of $1/16$ so that the division is a
 bit shift, which is cheap on the microcontroller.
 
-A single node's metrics only describe the first hop of the path. A
-congested node further up the path also lowers the PDR, but a node
-several hops below it would not see that congestion. Each node
-therefore advertises a \emph{path} value of CPU usage, transmission
-rate and drop rate, which blends its own smoothed value with the path
+We include the path metrics in a decayed fashion so that node high
+above would affect the current node decision weakly.
+which blends its own smoothed value with the path
 value advertised by its parent:
 \begin{equation}
     w_v = \frac{5}{16}\,\bar{m}_v + \frac{11}{16}\,w_{p(v)},
 \end{equation}
 where $w_v$ is the path value of node $v$, $p(v)$ is its parent, and
 the root advertises $w = 0$. Expanding this recursion, an ancestor $k$
-hops above $v$ contributes with weight
-$\frac{5}{16}\left(\frac{11}{16}\right)^k$, so the influence of each
-node decays exponentially with its distance. The path value therefore
-reflects the load of the whole route to the root, with the nearest
-nodes counting the most.
+hops above $v$ contributes with weight.
 
-\subsection{Logging Training Data}
-\label{sec:data-collection-logging}
 RPL re-evaluates a node's preferred parent whenever the node processes
-a DIO. We therefore log a row of features in two situations: when a
+a DIO so we log a row of features in two situations: when a
 node switches to a new parent, and when it receives a DIO from its
-current parent and decides to keep that parent. These two situations
-differ in one important way. When a node is already a child of a
-parent, the parent's advertised transmission rate, CPU usage and drop
-rate already include the node's own traffic. When the node has just
-switched, the new parent's metrics do not yet include it. To let the
-model tell the two situations apart, each row includes the
+current parent and decides to keep that parent. One important
+difference between the two situations is in parent DIO update, the
+load of the current node is reflected in the parent's CPU usage,
+transmission and drop rate metrics, while the parent switches do not.
+To let the model tell the two situations apart, each row includes the
 \texttt{is\_new} flag, which is 1 after a parent switch and 0
 otherwise.
-% TODO: ref the table
+
+The model should predict the PDR a node would achieve if it selected
+a given parent. The label of each row is the PDR the node
+achieved with that parent, measured over the period until
+its next row. For a row logged at time $t_i$, with the node's next
+row at time $t_{i+1}$, the label is
+\begin{equation}
+    \mathrm{PDR}_i = \frac{\text{Number of received packets at
+    root}}{\text{number of transmitted packets}}
+\end{equation}
+
+We use the parameters in
+Table~\ref{tab:data-gathering-sim-parameters} to gather the training
+data. We discard the timeslot less than 30 seconds.
+We have around 388331 logs, and randomly select 80000 logs for
+training purposes. And one final random seed with 77339 rows is used for evaluation.
 
 \begin{table}[ht]
     \caption{Simulation parameters for data gathering.}
@@ -109,37 +115,17 @@ otherwise.
             Number of Nodes                & 60, 80, 100 \\
             Transmission rate              & 90\% \\
             Receiving rate                 & 90\% \\
-            Topology                       & Random with seeds from 1-5 \\
+            Topology                       & Random with seeds from 1-6 \\
             MAC Layer Protocol             & CSMA \\
             Radio Range                    & 50\,m \\
             Interference Range             & 60\,m \\
             Packet Size                    & 64 bytes \\
-            Routing Protocol               & MLOF, OF0 and MRHOF \\
-            Packet per minute  & 5, 10, 15 packets/minute\\
-            Overloading client Packet per minute  & 30
-            packets/minute\\
+            Routing Protocol               & MRHOF \\
+            Traffic rate per node          & 64, 80, 96, 112, 128\,bps \\
+            Overloading client traffic rate & 256\,bps \\
             Overloading client rate        & 5\% \\
+            Overloading client seed        & 1, 2 \\
             \hline
         \end{tabular}
     \end{center}
 \end{table}
-
-\subsection{Training Label}
-The model should predict the PDR a node would achieve if it selected
-a given parent. The label of each row is therefore the PDR the node
-actually achieved with that parent, measured over the period until
-its next row. For a row logged at time $t_i$, with the node's next
-row at time $t_{i+1}$, the label is
-\begin{equation}
-    \mathrm{PDR}_i = \frac{N_{\mathrm{rx}}}{N_{\mathrm{tx}}}
-    \times 65535,
-\end{equation}
-where $N_{\mathrm{tx}}$ is the number of application packets the
-node sent in $[t_i, t_{i+1})$, and $N_{\mathrm{rx}}$ is the number of
-those packets the root received. The PDR is scaled to the range
-$[0, 65535]$ to match the unsigned 16-bit output of the model. Rows
-during the network's ramp-up period are excluded, and rows whose
-period lasts less than 15\,s are discarded, since too few packets are
-sent in such a short period to give a reliable PDR.
-
-% TODO: should include the data value analysis

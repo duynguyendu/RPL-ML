@@ -1,27 +1,28 @@
 \section{Regression Machine Learning Model Selection}
-Running a machine learning model on constrained devices, with limited
-computation
-power, memory and energy, imposes strict requirements. The model must
-be lightweight and fast at inference. Most microcontrollers used in
-low-power networks have no floating-point unit, so floating-point
-operations are emulated in software. That emulation is slow,
-energy-hungry and adds to the code size. A common
-solution is \emph{quantisation}, which represents the model's
-parameters and inputs as fixed-point integers \cite{TODO-quantisation}.
-However, quantisation can lower accuracy, and some models are much more
-sensitive to it than others. The chosen model must therefore either
-need no floating-point arithmetic at all, or keep its accuracy after
-quantisation.
+The model must be lightweight and fast at inference due to the
+constrained computation power and memory of the devices in LLN.
+Moreover, the model must avoid floating-point arithmetic, as most
+microcontrollers used in LLNs lack a floating-point unit. On these
+devices, floating-point operations are emulated in software, which is
+slow and increases code size. A common workaround is
+\emph{quantisation}, which represents the model's parameters and
+inputs as fixed-point integers
+\cite{hasanpourSurveyQuantizationTechniques2025}. As such, the
+chosen model must either need no floating-point arithmetic at all, or
+remain accurate once quantised.
 
-In this work, every input feature is kept in its native integer type,
-as reported by the RPL stack (for example, ETX as a 16-bit
-fixed-point value and hop count as an 8-bit integer). The predicted
+% TODO: talk about this normalising somewhere else
+In this work, every input feature is kept in integer type
+as Z1 mote type does not support floating-point arithmetic. The predicted
 PDR is scaled to an unsigned 16-bit integer in the range
-$[0, 65535]$. Specifically, the model must:
-% TODO: include reason for 10KB
+$[0, 65535]$. Specifically, the model ported to C code must:
 \begin{itemize}
-    \item Compile to C code of less than 10\,KB, and
-    \item Use no floating-point operations during inference.
+    \item Compile to C code of less than 5\,KB so the size of the RPL
+        is not significant, and
+    \item Use no floating-point operations during inference to speed
+        up for constrained microcontrollers
+        % TODO: add this point as well
+    \item Not computational heavy
 \end{itemize}
 
 With these requirements in mind, we considered eight regression
@@ -30,254 +31,201 @@ vector regression, Gaussian process regression, decision tree, random
 forest, gradient-boosted trees (LightGBM) and the multilayer
 perceptron. Each is described below, along with whether it meets
 the requirement of size constrained. In model evaluation, we analyse
-weather the model fit in the floating-point requirement.
+how the models perform after quantisation.
 
-% TODO: have the same symbol for the output of the model
 \subsubsection{K-Nearest Neighbor Regression (KNNR)}
-KNNR is a common nonparametric supervised learning model
-\cite{KNNRSONG201726}. A model is \emph{nonparametric} when it does
-not assume a fixed functional form for the relationship between the
-inputs and the output, and so has no fixed set of parameters to
-learn. Instead, the training data itself forms the model, and its
-complexity grows with the size of the data.
-
-KNNR rests on the idea that points close to each other in feature
-space have similar output values. To predict the value of an unseen
-point $\mathbf{x}$, it finds the $k$ training points nearest to
-$\mathbf{x}$, written $\mathcal{N}_k(\mathbf{x})$, and averages their
-outputs:
-% TODO: probs simplify the equation
+KNNR is a simple model based on the idea that points close to each
+other in feature space have similar output values. To predict the
+value of an unseen point $\mathbf{x}$, it finds the $k$ neighbours nearest to
+$\mathbf{x}$, and averages the neighbours values:
 \begin{equation}
-    \hat{y}(\mathbf{x}) = \frac{1}{k}
-    \sum_{i \in \mathcal{N}_k(\mathbf{x})} y_i
+    \hat{y}(\mathbf{x}) = \frac{1}{k} \sum_{i=1}^{k} y_i
 \end{equation}
 Alternatively, each neighbour can be weighted by the inverse of its
 distance to $\mathbf{x}$, so that closer neighbours contribute more
 to the prediction:
 \begin{equation}
-    \hat{y}(\mathbf{x}) =
-    \frac{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i \, y_i}
-    {\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i},
+    \hat{y}(\mathbf{x}) = \frac{\sum_{i=1}^{k} w_i y_i}{\sum_{i=1}^{k} w_i},
     \qquad w_i = \frac{1}{d(\mathbf{x}, \mathbf{x}_i)}
 \end{equation}
 
-The distance between two points with $m$ features is most commonly
-measured by the Euclidean distance:
-\begin{equation}
-    d(\mathbf{x}, \mathbf{x}_i) =
-    \sqrt{\sum_{j=1}^{m} \left( x_j - x_{i,j} \right)^2}
-\end{equation}
-% TODO: probs no need to include this many distances
-Other common choices include the Manhattan distance, the Minkowski
-distance (which generalises the Euclidean and Manhattan distances),
-the Chebyshev distance and the Mahalanobis distance, which accounts
-for correlations between features. The value of $k$ depends on the
+Some common distance choice in KNNR includes Euclidean distance,
+Manhattan distance, the Minkowski
+distance and so on. The value of $k$ depends on the
 application and is usually chosen by a hyperparameter search. Because
 KNNR relies on distances between points, features with large ranges
 can dominate those with small ranges, so normalising or scaling the
 features often improves its accuracy.
 
-KNNR needs no training: the model simply stores the training data
-and uses it at inference. This also makes it easy to update, as new
-observations can just be added to the stored data. However, this is
-also one of its main weaknesses. KNNR does not scale well to large
-datasets or high-dimensional feature spaces, and it is sensitive to
-noise, outliers and missing values.
-
-Although KNNR is simple, it does not meet our requirements. The whole
+KNNR does not need training since the model stores the training data
+and uses it at inference.
+However, this means that KNNR does not fit into our memory
+requirement. The whole
 training dataset must be stored on the device, which far exceeds the
-10\,KB limit. Each prediction must also compute the distance to every
-one of the $n$ training points, at a cost of $O(nm)$, which is too
+5\,KB limit. Each prediction must also compute the distance to every
+one of the $n$ training points, each with $m$ features at a cost of
+$O(nm)$, which is
 expensive for a constrained device.
 
 \subsubsection{Linear Regression}
 % TODO: insert citation for this
-Linear regression is a parametric model: it assumes the output is a
+Linear regression is a parametric model that assumes the output is a
 weighted sum of the input features. For an input
 $\mathbf{x} = (x_1, \dots, x_m)$ with $m$ features, the prediction is
 \begin{equation}
     \hat{y}(\mathbf{x}) = c_0 + \sum_{j=1}^{m} c_j x_j
 \end{equation}
-% TODO: what is the intercept
 where $c_0$ is the intercept and $c_j$ is the coefficient of
 feature $j$. Training picks the coefficients that minimise the squared
-error over the $n$ training points. In this work we use the
-regularised form, \emph{ridge regression}, which adds a penalty on the
+error over the $n$ training points.
+
+Linear regression fits the size requirement as
+the model only contains $m+1$ coefficients, a mean and scale for each
+feature. A prediction costs $O(m)$ from $m$ multiply-add operations, and
+does not depend on the size of the training data. In the evaluation, we use the
+ridge regression, which adds a penalty on the
 size of the coefficients to reduce overfitting and the effect of
-correlated features (for example, ETX and hop count):
-% TODO: maybe I don't need this coef update
-\begin{equation}
-    \hat{\mathbf{c}} = \arg\min_{\mathbf{c}}
-    \sum_{i=1}^{n} \left( y_i - c_0 - \mathbf{c}^{\top}
-    \mathbf{x}_i \right)^2 + \alpha \lVert \mathbf{c} \rVert_2^2,
-\end{equation}
-% TODO: probably simplify the equation and alpha is probably the learning rate
-where $\alpha$ sets the strength of the penalty and is chosen by a
-hyperparameter search. The features are standardised before fitting,
+correlated features. The features are standardised before fitting,
 so that features with large ranges, such as ETX, do not dominate
 features with small ranges, such as hop count.
 
-Linear regression fits the size requirement easily. Once trained,
-the model is just $m+1$ coefficients, plus a mean and scale for each
-feature. A prediction costs $m$ multiply-add operations, $O(m)$, and
-does not depend on the size of the training data. The model can also
-run without a floating-point unit: the scaling step and the coefficients
-can be folded into integer constants, so inference uses only 32-bit
-fixed-point arithmetic.
-
-% TODO: review this section
-However, the model's simplicity limits its accuracy for this task.
-First, it assumes each feature affects PDR linearly and independently.
-In practice, PDR stays high until a node's parent nears congestion
-and then drops sharply, which is a threshold effect that a single
-weighted sum cannot represent. Second, several features are small
-discrete counts (hop count, number of neighbours), whose effect on PDR
-does not grow steadily with each step. Third, the RPL stack reports an
-unknown value as a sentinel integer instead of a missing value. A
-linear model treats that sentinel as a very large real measurement,
-which skews the prediction. A decision tree, by contrast, can isolate
-the sentinel with a single split. Finally, quantisation hurts linear
-regression more than tree models. Each prediction sums products of
-rounded coefficients and rounded scaled features, so rounding errors build
-up across terms. The large gap between the feature ranges and the
-$[0, 65535]$ output range also forces a coarse fixed-point scale.
-
-Linear regression is therefore kept only as a baseline for comparison.
-
 \subsubsection{Support Vector Regression}
 % TODO: insert citation for this
-Support vector regression (SVR) adapts the support vector machine
-from classification to regression. In its linear form, SVR predicts
-with the same weighted sum as linear regression,
-\begin{equation}
-    \hat{y}(\mathbf{x}) = c_0 + \mathbf{c}^{\top}\mathbf{x},
-\end{equation}
-but it fits the coefficients differently. Instead of penalising every
-error, SVR ignores errors smaller than a margin $\varepsilon$ and only
-penalises points that fall outside this margin, which makes it less
-sensitive to small noise in the training data. Training solves
-\begin{equation}
-    \min_{\mathbf{c},\, c_0} \;
-    \frac{1}{2} \lVert \mathbf{c} \rVert_2^2
-    + C \sum_{i=1}^{n} \max\left(0,\;
-    \left| y_i - c_0 - \mathbf{c}^{\top}\mathbf{x}_i \right|
-    - \varepsilon \right),
-\end{equation}
-where $C$ sets the trade-off between keeping the coefficients small
-and fitting the training points. Both $C$ and $\varepsilon$ are chosen
-by a hyperparameter search.
-
-SVR can also model non-linear relationships through the
-\emph{kernel trick}. The prediction is then written in terms of the
-training points that lie on or outside the margin, called the
-\emph{support vectors}:
+% TODO: maybe include separating hyperplan
+Support Vector Regression (SVR) is a regression method based on the
+Support Vector Machine (SVM). It ignores errors smaller than a margin
+$\varepsilon$ and penalises only the points that fall outside it,
+which makes it less sensitive to small noise. The prediction for an
+input $\mathbf{x}$ is
 \begin{equation}
     \hat{y}(\mathbf{x}) = c_0 + \sum_{i \in \mathcal{S}} a_i \,
     K(\mathbf{x}_i, \mathbf{x}),
 \end{equation}
-where $\mathcal{S}$ is the set of support vectors, $a_i$ is the
-coefficient learned for support vector $i$, and $K$ is a kernel
-function that measures the similarity between two points. The most
-common choice is the radial basis function (RBF) kernel:
+where $\mathcal{S}$ is the set of support vectors (the training points
+that lie on or outside the margin), $a_i$ is the coefficient learned
+for support vector $i$, $c_0$ is a bias term, and $K(\cdot,\cdot)$ is
+a kernel function that measures the similarity between two inputs.
+
+With a linear kernel $K(\mathbf{x}_i, \mathbf{x}) =
+\mathbf{x}_i \cdot \mathbf{x}$, the model becomes linear SVR, which
+predicts with the same weighted sum as linear regression
+\begin{equation}
+    \hat{y}(\mathbf{x}) = c_0 + \sum_{j=1}^{m} c_j x_j,
+\end{equation}
+% TODO: this sentence
+but fits the coefficients differently: errors smaller than $\varepsilon$ are
+ignored and larger errors are penalised linearly rather than quadratically,
+making it less sensitive to outliers than least squares.
+
+With a nonlinear kernel, the inputs are implicitly mapped to a
+higher-dimensional feature space (the \emph{kernel trick}), which
+allows SVR to capture nonlinear relationships.
+The most common choice is the radial basis function (RBF) kernel
 \begin{equation}
     K(\mathbf{x}_i, \mathbf{x}) =
-    \exp\left( -\gamma \lVert \mathbf{x}_i - \mathbf{x} \rVert_2^2 \right),
+    \exp\left( -\gamma \lVert \mathbf{x}_i - \mathbf{x} \rVert_2^2 \right)
 \end{equation}
 where $\gamma$ controls how far the influence of each support vector
-reaches. As with KNNR, the features are standardised first, since
-both the margin and the kernel depend on distances between points.
+reaches. As
+with KNNR, the features are often required standardisation and
+scaling, since both the margin and the kernel depend on distances
+between points.
 
-Neither form of SVR suits our devices. Kernel SVR has the same
-weakness as KNNR: the model must store every support vector, and on
-noisy data such as PDR these can make up a large share of the
-training set, so the model far exceeds the 10\,KB limit. Each
-prediction also evaluates the kernel against every support vector,
-which costs $O(|\mathcal{S}|\,m)$ operations, each with an exponential
-that needs floating-point arithmetic. Linear SVR avoids these costs,
-since it stores only $m+1$ coefficients and can be converted to
-fixed point in the same way as linear regression. However, it then
-inherits all of linear regression's limitations: it cannot represent
-the threshold effect of congestion on PDR, it treats sentinel values
-for unknown features as real measurements, and its accuracy drops
-after quantisation.
-
-SVR is therefore kept only as a baseline for comparison.
+Kernel SVR shares the main weakness of KNNR as it must store
+every support vector for kernel calculation, which is likely to
+exceed the memory limit of constrained devices. Each prediction also
+evaluates the kernel against
+every support vector, which costs $O(|\mathcal{S}|\,m)$ operations,
+each involving an exponential that requires floating-point
+arithmetic. Linear SVR avoids these costs: it stores only $m+1$
+coefficients and can be converted to fixed point in the same way as
+linear regression. We therefore evaluate linear SVR for quantisation.
 
 \subsubsection{Gaussian Process Regression (GPR)}
-GPR is a probabilistic supervised machine learning model. It makes
-prediction by incorperating the knowledge from the kernel and
-provides the uncertainty measure over its prediction
-\cite{wangIntuitiveTutorialGaussian2023}.
+% TODO: probably too much math
+Gaussian process regression is a probabilistic model that predicts a
+continuous numerical value along with a confidence interval
+\cite{wangIntuitiveTutorialGaussian2023}, and is built with the
+assumption that any set of inputs follow a multivariate Gaussian
+$\mathbf{f} \sim \mathcal{N}(\boldsymbol{\mu},
+\boldsymbol{\Sigma})$.
 
-Use multivariate Gaussian distribution
+% TODO: include a bit of the kernel
+% TODO: include how the model predict
+To predict, GPR conditions this prior on the training data. Let
+$\mathbf{K}$ be the $n \times n$ matrix with entries
+$K(\mathbf{x}_i, \mathbf{x}_j)$ over the training points, $\mathbf{y}$
+the vector of training outputs, and $\mathbf{k}_*$ the vector of
+kernel values between a new input $\mathbf{x}$ and each training
+point. Assuming the observed outputs contain Gaussian noise with
+variance $\sigma_n^2$, the prediction at $\mathbf{x}$ is again
+Gaussian, with mean and variance
 \begin{equation}
-    P_X(x) = \frac{1}{\sqrt{2\pi}\,\sigma} \exp\left( -\frac{(x -
-    \mu)^2}{2\sigma^2} \right).
+    \hat{y}(\mathbf{x}) = \mathbf{k}_*^{\top}
+    \left( \mathbf{K} + \sigma_n^2 \mathbf{I} \right)^{-1} \mathbf{y},
+    \qquad
+    \sigma^2(\mathbf{x}) = K(\mathbf{x}, \mathbf{x})
+    - \mathbf{k}_*^{\top}
+    \left( \mathbf{K} + \sigma_n^2 \mathbf{I} \right)^{-1}
+    \mathbf{k}_*.
 \end{equation}
+The mean $\hat{y}(\mathbf{x})$ is used as the predicted value, and the
+variance $\sigma^2(\mathbf{x})$ gives its uncertainty. The kernel
+parameters $\ell$, $\sigma_f$ and $\sigma_n$ are learned during
+training by maximising the likelihood of the training data. As with
+KNNR and SVR, the features must be standardised first, since the
+kernel depends on distances between points.
 
-The Gaussian Process is the process that fits each feature in the
-training dataset to a Gaussian Distribution and then join them
-together to create a probabilistic prediction functions.
-In regression model, the output is mean and variance with the ... is
-the predicted value.
-
-The kernel, or covariance function, plays a pivotal role in this
-smoothing process, encapsulating our prior knowledge about the
-functions we aim to model
-The squared exponential (SE) kernel, also known as the Gaussian or
-radial basis function (RBF) kernel
-he SE kernel function is defined as follows
-There are many other kernel types
-
-The computational complexity is O(N3), where N represents the
-dimension of the covariance matrix K. 2) The memory consumption
-increases quadratically with data size.
-
-However, in , the
-authors analyse GPR and conlcude that the memory requirement of GPR
-is $O(n^2)$ while the computation cost is $O(n^3)$, which is quite
-computational and memory expensive for constrained devices
+GPR does not suit our devices. Like KNNR, it is non-parametric: every
+prediction depends on all $n$ training points, so they must all be
+stored on the device, together with the precomputed weights
+$(\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1}\mathbf{y}$, which far
+exceeds the 10\,KB limit. Training is also expensive, since inverting
+the $n \times n$ matrix costs $O(n^3)$ operations and $O(n^2)$ memory
+\cite{wangIntuitiveTutorialGaussian2023}. Training could be done
+offline, but each prediction still evaluates the kernel against every
+training point, at a cost of $O(nm)$ for the mean and $O(n^2)$ for
+the variance, and each kernel evaluation needs an exponential that
+requires floating-point arithmetic. Finally, the uncertainty estimate,
+which is GPR's main advantage, is not used by our objective function,
+which only needs a point estimate of PDR. We therefore exclude GPR
+from further evaluation.
 
 \subsubsection{Multilayer Perceptron (MLP)}
-% TODO: insert citation for this
-The multilayer perceptron is the basic form of a neural network and
-the building block of deep learning, which in recent years has
-achieved strong results in tasks such as image recognition and
-natural language processing. An MLP is made of layers of
-\emph{neurons}. Each neuron computes a weighted sum of its inputs and
+The multilayer perceptron is the basic form of a neural network,
+consisting of layers of \emph{neurons} \cite{goodfellow2016deep}.
+Each neuron computes a weighted sum of its inputs and
 passes it through a non-linear \emph{activation function}. For a
-hidden layer of $h$ neurons that receives the input $\mathbf{x}$ with
+hidden layer $h$ that receives the input $\mathbf{x}$ with
 $m$ features, the output is
 \begin{equation}
-    \mathbf{z} = \sigma\left( \mathbf{W}\mathbf{x} + \mathbf{c} \right),
+    \mathbf{z} = \sigma\left( \mathbf{W}\mathbf{x} + \mathbf{B} \right),
 \end{equation}
-where $\mathbf{W}$ is an $h \times m$ matrix of coefficients
-(the \emph{weights}), $\mathbf{c}$ is a vector of $h$ offsets (the
-\emph{biases}), and $\sigma$ is the activation function, such as the
-rectified linear unit $\sigma(u) = \max(0, u)$. The output of one
+where $\mathbf{W}$ is the weights of the layer $h$, $\mathbf{B}$ is
+the biases, and $\sigma$ is the
+activation function. The output of one
 layer becomes the input of the next, and the final layer combines the
 outputs of the last hidden layer into the predicted value. The weights
 and biases are learned by gradient descent, using backpropagation to
 compute how much each one contributes to the prediction error.
-Because of the activation functions, an MLP can in theory approximate
-any continuous function, given enough neurons.
+An MLP can in theory approximate any continuous function, given enough neurons.
 
-This flexibility comes at a cost on constrained devices. Each hidden
-layer stores $(m+1)h$ parameters, and each prediction costs one
-multiply-add per weight, far more than a linear model. While a very
-small network could fit within the 10\,KB limit, MLPs are hard to run
-without floating-point arithmetic: quantising them requires rescaling
-the values between every layer, and smooth activation functions such
-as the sigmoid or $\tanh$ need either floating point or lookup tables.
-MLPs also need much more training data and tuning than the other
-models, such as choosing the number of layers and neurons and the
-learning rate. Like linear regression, they depend on feature
-scaling, so the sentinel values for unknown features distort their
-inputs. Finally, on small tabular datasets such as ours, tree-based
-models usually match or beat neural networks in accuracy
-% TODO: cite Grinsztajn et al. 2022, "Why do tree-based models still
-% outperform deep learning on tabular data?"
-\cite{TODO-tabular}.
+% TODO: include computation cost
+Despite that, the MLP's size remains a concern for memory-constrained
+devices. Each hidden layer stores $(m+1)h$ parameters, and each
+prediction costs one multiply-add per weight, far more than a linear
+model. % TODO: need a stronger argument for this
+While a very small network could fit within the 5\,KB limit,
+MLPs are hard to run without floating-point arithmetic: quantising
+them requires rescaling the values between every layer, and smooth
+activation functions such as the sigmoid or $\tanh$ need either
+floating point or lookup tables. MLPs also need much more training
+data and tuning than the other models, such as choosing the number of
+layers and neurons and the learning rate. Like linear regression,
+they depend on feature scaling, so the sentinel values for unknown
+features distort their inputs. Finally, on small tabular datasets
+such as ours, tree-based models usually match or beat neural networks
+in accuracy \cite{grinsztajn2022treebasedmodelsoutperformdeep}.
 We therefore exclude the MLP from further evaluation.
 
 \subsubsection{Decision Tree}
@@ -290,8 +238,7 @@ path from the root until it reaches a leaf, and the value stored in
 that leaf is the prediction. In a regression tree, the leaf value is
 the mean output of the training points that reached that leaf.
 
-The tree is built top-down. At each node, the training algorithm
-tries every feature and threshold and picks the split that most
+The tree is built top-down. At each node, picks the feature to split that most
 reduces the error of the prediction. For regression this error is
 the squared error, so the chosen split of the node's training points
 $S$ into a left part $S_L$ and a right part $S_R$ maximises
@@ -303,9 +250,8 @@ $S$ into a left part $S_L$ and a right part $S_R$ maximises
     \mathrm{MSE}(S) = \frac{1}{|S|} \sum_{i \in S}
     \left( y_i - \bar{y}_S \right)^2,
 \end{equation}
-where $\bar{y}_S$ is the mean output of the points in $S$. This plays
-the same role for regression as the Gini impurity and information
-gain do for classification trees. Splitting stops when the tree
+where $\bar{y}_S$ is the mean output of the points in $S$. Splitting
+stops when the tree
 reaches a maximum depth or when a split would leave fewer than a
 minimum number of points in a leaf. Both limits are chosen by a
 hyperparameter search, and they also control the size of the tree,
@@ -381,8 +327,3 @@ leaves, so these must be kept small enough to fit within the
 In the end, we proceed with the decision tree and LightGBM, as both
 are accurate enough to model PDR while being simple enough in design
 and computation to run on our constrained devices.
-
-\subsubsection{Choosen Models for Evaluation}
-In the end, we decided to go with SVR, Linear Regression, RF and
-LightGBMRegressor. The rest are discarded as they do not fit into our
-requirements, either too heavy or too computational expensive.

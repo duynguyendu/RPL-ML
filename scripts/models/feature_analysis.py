@@ -41,7 +41,7 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from models.data import LABEL_COLUMN, MAXUINT16
+from models.data import LABEL_COLUMN, MAXUINT16, display_name
 from models.train import _load_training_data, _with_params, get_model_configs, mae_to_maep as _to_maep
 from plotly_utils import plotly_src
 
@@ -77,7 +77,7 @@ def _plot_permutation(model_name: str, features: list[str], importances: np.ndar
     ax.boxplot(
         [_to_maep(importances[i]) for i in order],
         orientation="horizontal",
-        tick_labels=[features[i] for i in order],
+        tick_labels=[display_name(features[i]) for i in order],
     )
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
     ax.set_xlabel("Increase in held-out MAEP when shuffled (percentage points)")
@@ -90,6 +90,7 @@ def _plot_permutation(model_name: str, features: list[str], importances: np.ndar
 
 def _save_shap_plot(plot_fn, explanation, title: str, out_path: Path) -> None:
     plt.figure()
+    explanation.feature_names = [display_name(f) for f in explanation.feature_names]
     plot_fn(explanation, max_display=explanation.shape[1], show=False)
     fig = plt.gcf()
     fig.axes[0].set_xlabel(f"{fig.axes[0].get_xlabel()} [PDR, 0-{MAXUINT16} scale]")
@@ -103,8 +104,8 @@ def _save_shap_plot(plot_fn, explanation, title: str, out_path: Path) -> None:
 def _plot_correlation(corr: pd.DataFrame, method: str, out_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(0.7 * len(corr) + 2, 0.6 * len(corr) + 1.5))
     image = ax.imshow(corr.to_numpy(), cmap="RdBu_r", vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr)), corr.columns, rotation=45, ha="right")
-    ax.set_yticks(range(len(corr)), corr.index)
+    ax.set_xticks(range(len(corr)), [display_name(c) for c in corr.columns], rotation=45, ha="right")
+    ax.set_yticks(range(len(corr)), [display_name(c) for c in corr.index])
     for i in range(len(corr)):
         for j in range(len(corr)):
             value = corr.iat[i, j]
@@ -150,7 +151,7 @@ def _plot_feature_vs_pdr(
     cols = 3
     rows = -(-len(features) // cols)
     fig = make_subplots(
-        rows=rows, cols=cols, subplot_titles=features, vertical_spacing=0.08 / max(1, rows / 4)
+        rows=rows, cols=cols, subplot_titles=[display_name(f) for f in features], vertical_spacing=0.08 / max(1, rows / 4)
     )
     points = df.sample(n=min(len(df), sample_rows), random_state=0)
     for i, feature in enumerate(features):
@@ -164,7 +165,7 @@ def _plot_feature_vs_pdr(
                 name="rows (sample)",
                 legendgroup="rows",
                 showlegend=i == 0,
-                hovertemplate=f"{feature}=%{{x}}<br>PDR=%{{y:.1f}}%<extra></extra>",
+                hovertemplate=f"{display_name(feature)}=%{{x}}<br>PDR=%{{y:.1f}}%<extra></extra>",
             ),
             row=row,
             col=col,
@@ -190,7 +191,7 @@ def _plot_feature_vs_pdr(
                 legendgroup="trend",
                 showlegend=i == 0,
                 hovertemplate=(
-                    f"{feature}=%{{x:.2f}}<br>mean PDR=%{{y:.1f}}%<br>"
+                    f"{display_name(feature)}=%{{x:.2f}}<br>mean PDR=%{{y:.1f}}%<br>"
                     "IQR=%{customdata[0]:.1f}-%{customdata[1]:.1f}%<br>"
                     "rows=%{customdata[2]}<extra></extra>"
                 ),
@@ -266,7 +267,7 @@ def analyse_correlation() -> pd.DataFrame:
 
     fig, ax = plt.subplots(figsize=(7, 0.4 * len(features) + 1.5))
     hierarchy.dendrogram(
-        linkage, labels=features, orientation="left", color_threshold=1 - train_config.corr_threshold, ax=ax
+        linkage, labels=[display_name(f) for f in features], orientation="left", color_threshold=1 - train_config.corr_threshold, ax=ax
     )
     ax.axvline(1 - train_config.corr_threshold, color="grey", linestyle="--", linewidth=1)
     ax.set_xlabel("1 - |Spearman correlation| (complete linkage)")

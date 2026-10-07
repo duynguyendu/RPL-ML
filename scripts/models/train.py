@@ -22,13 +22,13 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import ParameterGrid, ShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.svm import SVR
+from sklearn.svm import LinearSVR
 from sklearn.tree import DecisionTreeRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from models.data import LABEL_COLUMN, MAXUINT16
-from models.to_c import compiled_size, convert_to_c_fixed, convert_to_c_linear
+from models.data import LABEL_COLUMN, MAXUINT16, display_name
+from models.to_c import compiled_size, convert_to_c_fixed, convert_to_c_linear, predict_fixed
 
 NON_PORTABLE_MODELS = set()
 
@@ -159,7 +159,7 @@ def plot_feature_importance(results: list[dict], models_dir: Path) -> None:
         )
 
         fig, ax = plt.subplots(figsize=(6, 0.4 * len(features) + 1))
-        ax.barh(features, values, color="#4363d8")
+        ax.barh([display_name(f) for f in features], values, color="#4363d8")
         ax.set_xlabel("Importance")
         ax.set_title(f"Feature importance - best {label} model")
         fig.tight_layout()
@@ -257,36 +257,36 @@ def get_model_configs(train_config) -> list[tuple]:
             ),
             train_config.lgbm_param_grid,
         ),
-        # (
-        #     "ridge",
-        #     True,
-        #     Pipeline(
-        #         [
-        #             ("minmax", MinMaxScaler(feature_range=(0, 65535))),
-        #             ("scaler", StandardScaler()),
-        #             ("model", Ridge()),
-        #         ]
-        #     ),
-        #     train_config.ridge_param_grid,
-        # ),
+        (
+            "ridge",
+            True,
+            Pipeline(
+                [
+                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+                    ("scaler", StandardScaler()),
+                    ("model", Ridge()),
+                ]
+            ),
+            train_config.ridge_param_grid,
+        ),
         (
             "dtree",
             False,
             DecisionTreeRegressor(random_state=0),
             train_config.dtree_param_grid,
         ),
-        # (
-        #     "svr",
-        #     True,
-        #     Pipeline(
-        #         [
-        #             ("minmax", MinMaxScaler(feature_range=(0, 65535))),
-        #             ("scaler", StandardScaler()),
-        #             ("model", SVR()),
-        #         ]
-        #     ),
-        #     train_config.svr_param_grid,
-        # ),
+        (
+            "svr",
+            True,
+            Pipeline(
+                [
+                    ("minmax", MinMaxScaler(feature_range=(0, 65535))),
+                    ("scaler", StandardScaler()),
+                    ("model", LinearSVR()),
+                ]
+            ),
+            train_config.svr_param_grid,
+        ),
     ]
 
 
@@ -572,6 +572,40 @@ def select_for_porting(results: list[dict], maep_tolerance: float) -> dict[str, 
         else:
             selected[model_name] = min(model_results, key=lambda r: r["avg_mae"])
     return selected
+
+
+def print_best_models(best_by_model: dict[str, dict], train_df: pd.DataFrame, test_df: pd.DataFrame | None) -> None:
+    """Per model type: hyperparameters, and MAE/MAEP on the training data, on the
+    test data, and on the test data using the quantised (ported C) model.
+    """
+    import train_config
+
+    param_names = {model_name: list(grid) for model_name, _, _, grid in get_model_configs(train_config)}
+    evaluations = [("train", train_df, False)]
+    if test_df is not None:
+        evaluations += [("test", test_df, False), ("test quantised", test_df, True)]
+
+    rows = []
+    for model_name, result in best_by_model.items():
+        model = result["_model"]
+        row = {
+            "model": model_name,
+            "params": ", ".join(f"{name}={result[name]}" for name in param_names[model_name]),
+        }
+        for label, eval_df, quantised in evaluations:
+            predicted = predict_fixed(model, eval_df) if quantised else model.predict(eval_df[result["features"]])
+            if predicted is None:
+                row[f"{label} MAE"] = row[f"{label} MAEP (%)"] = None
+                continue
+            mae = float(np.abs(predicted - eval_df[LABEL_COLUMN].to_numpy()).mean())
+            row[f"{label} MAE"] = round(mae, 1)
+            row[f"{label} MAEP (%)"] = round(mae_to_maep(mae), 3)
+        rows.append(row)
+
+    print("\nBest model per type (training data = all non-held-out rows, in-sample):")
+    print(pd.DataFrame(rows).to_string(index=False))
+    if test_df is None:
+        print("  (no held-out test set -- hold_out_last_topo_seed is off or there is one topo seed)")
 
 
 def _save_results(results: list[dict], output_path: Path, desired_columns: list[str]) -> None:

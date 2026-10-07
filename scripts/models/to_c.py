@@ -459,6 +459,23 @@ def _linear_predict_fixed(
     return np.clip(results, 0, 65535)
 
 
+def predict_fixed(model, df: pd.DataFrame) -> np.ndarray | None:
+    """What the ported C code would return for each row of ``df`` (emulated
+
+    bit-exactly in Python), or None if ``model`` has no C port.
+    """
+    model_type = _linear_model_type(model)
+    rows = df[[str(name) for name in model.feature_names_in_]].to_numpy()
+    if model_type == "DecisionTreeRegressor":
+        return _dtree_predict_fixed(model, rows)
+    if model_type == "LGBMRegressor":
+        return _lgbm_predict_fixed(model, rows)
+    if model_type in LINEAR_SUPPORTED_ESTIMATORS:
+        _, *fixed_params = _linear_fixed_params(model)
+        return _linear_predict_fixed(*fixed_params, rows)
+    return None
+
+
 def verify_linear(model_path: str | Path, data_dir: str | Path) -> float | None:
     model = joblib.load(model_path)
     if _linear_model_type(model) not in LINEAR_SUPPORTED_ESTIMATORS:
