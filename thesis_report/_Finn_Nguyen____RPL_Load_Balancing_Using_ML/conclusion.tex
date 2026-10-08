@@ -1,9 +1,100 @@
 \chapter{Conclusions}\label{C:con}
-The conclusions are presented in this Chapter.
+This report investigated how machine learning can be used to make
+RPL's parent selection load-aware. The objective functions proposed by
+the ROLL working group rely on a single metric and react to
+congestion only after a route has degraded. To address this, we
+proposed MLOF, an objective function that uses a
+lightweight regression model to predict the packet delivery ratio
+of a candidate parent's path. The predicted PDR is combined with ETX
+to compute the rank increase. To train the model, we collected data from
+random Cooja topologies containing overloading clients and compared
+several regression models. We then used Spearman correlation,
+permutation importance and SHAP to reduce the input to six features:
+\texttt{is\_new}, \texttt{cpu}, \texttt{path\_cpu},
+\texttt{drop\_rate}, \texttt{path\_ppm} and \texttt{hop\_count}. The
+feature analysis showed that the metrics describing the load on the
+path towards the root, such as the parent's drop rate, CPU usage and
+traffic rate, together with the hop count, are far more informative of
+the delivery ratio than link-level metrics such as RSSI and ETX. Two
+models, a decision tree (DTree) and a gradient-boosted ensemble
+(LGBM), were embedded in Contiki-NG on the Z1 platform. We evaluated
+them against OF0 and MRHOF in random topologies with 60, 80 and 100
+nodes and traffic loads from 64 to 128~bps per node.
 
-Limitation:
-- Not simuating with duty cycle radio, thus missing the evaluation on energy consumption
-- The simulations result may not be relavent in real life situation
-- Testing the OF in various senarios, with more topology 
+The evaluation shows that MLOF, and DTree in particular, extends the
+range of load that the network can sustain. At 60 nodes and 128~bps,
+DTree delivered 94.2\% of packets, compared with 83.1\% for OF0 and
+76.8\% for MRHOF. At 100 nodes and 64~bps it delivered 97.6\%, against
+81.5\% for OF0. DTree also formed the shortest paths over
+the best links, which resulted in the lowest end-to-end latency and
+CPU usage in every configuration. Furthermore, MLOF built a
+considerably more stable DODAG. It performed a fraction of the parent
+switches of OF0 and MRHOF and sent fewer DIO messages, so that its
+total routing control traffic remained lower despite the 7 bytes added
+to
+each DIO. Inference on the Z1 took 13.0~$\mu$s for DTree and
+118.8~$\mu$s for LGBM, which shows that the cost of embedding a
+tree-based model in the objective function is small compared with the
+savings in routing overhead.
+
+However, the advantage of MLOF is limited to the range before the
+network saturates. Once the load exceeds the capacity of the network,
+at 80 nodes from 112~bps and at 100 nodes from 96~bps, all OFs suffer
+a similar loss of delivery ratio and DTree performs no better than
+OF0.
+In this regime, LGBM also maintained a more stable topology than
+DTree,
+although the simpler decision tree performed best overall. These
+results indicate that a load-aware objective function can delay
+congestion but cannot compensate for insufficient network capacity.
+
+\section{Limitations}
+
+\begin{itemize}
+    \item \textbf{No radio duty cycling.} All simulations used CSMA
+        with the radio always on. Radio listening therefore dominates
+        the energy consumption, so the reduction in CPU usage and
+        control traffic could not be translated into a meaningful
+        evaluation of energy consumption or network lifetime.
+    \item \textbf{Simulation only.} The model was both trained and
+        evaluated on data generated in Cooja. Although Cooja emulates
+        the Z1 hardware at the instruction level, its radio model does
+        not capture the interference, multipath fading and
+        time-varying link quality of real deployments. The model may
+        therefore need to be retrained or calibrated before it can be
+        deployed on physical nodes.
+    \item \textbf{Limited range of scenarios.} The training and
+        evaluation topologies were drawn from the same random
+        generator, with a single root, static nodes and a fixed share
+        of 5\% overloading clients. It remains open whether the model
+        generalises to other layouts, such as grid, linear or
+        clustered topologies, and to mobile nodes, multiple roots or
+        different traffic patterns.
+\end{itemize}
 
 \section{Future Work}
+
+\begin{itemize}
+    \item Evaluate MLOF with radio duty cycling, for example
+        ContikiMAC or TSCH, to quantify its effect on energy
+        consumption and network lifetime. In duty-cycled networks,
+        transmissions and processing make up a larger share of the
+        energy budget, so the gains in stability are expected to be
+        more pronounced.
+    \item Validate MLOF on a physical testbed, such as FIT IoT-LAB, to
+        assess whether a model trained in simulation transfers to
+        real radio conditions, and investigate retraining on
+        testbed data.
+    \item Extend the evaluation to a wider range of topologies and
+        traffic patterns, including different shares and placements of
+        overloading clients, and assess how well the model
+        generalises to scenarios that were not seen during training.
+    \item Improve the behaviour of MLOF under saturation, for example
+        by tuning the weight $\alpha$ between the predicted PDR and
+        ETX, by adding a stronger switching hysteresis, or by
+        combining
+        it with admission or rate control at the application layer.
+    \item Encode the shared metrics according to the RFC~6551 metric
+        container format to improve interoperability with standard
+        RPL implementations.
+\end{itemize}

@@ -54,6 +54,11 @@
 #                    1/0: build the firmware with MLOF_CONF_LOG_TRAINING_DATA
 #                    on/off, forwarded to simulate.py's --mlof-log-training-data
 #                    (default: simulate.py's own MLOF_LOG_TRAINING_DATA, 1)
+#   mlof_path_w_pdr_list
+#                    comma/space-separated MLOF_CONF_PATH_W_PDR values (0-16,
+#                    weight of predicted PDR vs ETX in MLOF's path cost) to
+#                    sweep for MLOF OFs, e.g. "0,2,4,6,8,10,12,14,16"
+#                    (default: simulate.py's own MLOF_PATH_W_PDR_LIST, [12])
 #   label            name folded into the run dir in place of the timestamp
 #                    (default: none -- use the timestamp)
 
@@ -183,6 +188,7 @@
           --bps-list="{{ bps_list | default('') }}" \
           --of-list="{{ of_list | default('') }}" \
           --overloading-client-seed-list="{{ overloading_client_seed_list | default('') }}" \
+          --mlof-path-w-pdr-list="{{ mlof_path_w_pdr_list | default('') }}" \
           {% if (topo_type | default('') | string).strip() %}--topo-type="{{ topo_type }}" {% endif %}\
           {% if (mlof_log_training_data | default('') | string).strip() %}--mlof-log-training-data={{ mlof_log_training_data }} {% endif %}\
           > {{ sim_log }} 2>&1

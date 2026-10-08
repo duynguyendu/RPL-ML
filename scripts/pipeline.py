@@ -18,7 +18,11 @@ def pipeline() -> None:
         if config.add_overloading_client
         else ""
     )
-    run_id = f"node{config.num_of_nodes}_bps{config.bps}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}_etx{etx_tag}_int_range{config.interference_range}_{config.topo_type}_{config.platform}_seed{config.seed}{overloading_tag}"
+    # only MLOF reads MLOF_PATH_W_PDR, so only its runs differ by it
+    w_pdr_tag = (
+        f"_wpdr{config.mlof_path_w_pdr}" if config.rpl_of.startswith("mlof") else ""
+    )
+    run_id = f"node{config.num_of_nodes}_bps{config.bps}_packet_size{config.packet_size}_buffer{config.buffer_size}_duration{config.duration}_{config.rpl_of}{w_pdr_tag}_etx{etx_tag}_int_range{config.interference_range}_{config.topo_type}_{config.platform}_seed{config.seed}{overloading_tag}"
     output_dir = config.base_output_dir / run_id
     topology_json_file_name = output_dir / "topology.json"
     csc_file_name = output_dir / "topology.csc"

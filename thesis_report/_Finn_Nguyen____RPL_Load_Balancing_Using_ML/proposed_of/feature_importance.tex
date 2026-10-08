@@ -75,14 +75,16 @@ is barely correlated with any other feature.
     \end{center}
 \end{fig}
 
-\subsection{Permutation Importance}
+\subsection{Feature Importance}
+In this section, we use permutation importance and SHAP to evaluate
+how importance each feature contribute to the predicted output.
+
+\subsubsection{Permutation Importance}
 Permutation importance \cite{altmannPermutationImportanceCorrected2010}
-inspects how importance each feature is by permutation the value of
-each feature in data rows.
-The idea is that if a feature is important, breaking its link with
-the output should make the model's predictions worse. The method
-first measures the model's baseline score $s$ on a dataset. Then, for
-each feature $j$, it randomly shuffles that feature's values across
+inspects how importance each feature is by swapping the value of
+each feature in data rows. The method first measures the model's
+baseline score $s$ on a dataset. Then, for each feature $j$, it
+randomly shuffles that feature's values across
 the rows, which keeps the feature's distribution but removes its
 relationship with the PDR. The model is scored on this corrupted
 dataset, and the shuffle is repeated $K$ times to reduce the effect
@@ -94,10 +96,13 @@ score:
 where $s_{k,j}$ is the score after the $k$-th shuffle of feature $j$.
 In this work, the score is the negative mean absolute error, so
 $i_j$ is the average increase in prediction error when feature $j$
-is shuffled. We use $K = 10$, and compute the importance on a
+is shuffled.
+% TODO: double check this claim
+We use $K = 10$, and compute the importance on a
 held-out test set of 20\% of the data, so that it reflects how the
 model generalises rather than what it memorised during training.
 
+% TODO: Do I need this paragraph
 Permutation importance avoids the main weaknesses of the mean
 decrease in impurity (MDI) described above. MDI is calculated from
 the training data and favours features with many distinct values,
@@ -105,7 +110,7 @@ such as ETX, over low-cardinality features such as the binary
 \texttt{is\_new}. Permutation importance does not depend on how the
 model splits the data, so it has no such bias, and it can be computed
 on unseen data.
-
+% TODO: Do I need this paragraph
 However, permutation importance has two limitations. First, it
 measures how much the model's \emph{error} depends on a feature does not show
 whether a feature pushes the predicted PDR up or down. Second, when
@@ -115,47 +120,14 @@ rely on the other. Both features may then appear less important than
 they really are. Shuffling can also create unrealistic inputs, such
 as a node with a high hop count but a very low ETX.
 
-\subsection{SHAP}
-SHapley Additive exPlanations (SHAP) is technique that measures the
-average magnitude of a feature's contribution to a model's
-predictions across a dataset based on cooperative game theory.
-Measure how each feature influence the outcome of the model.
-
-Explaining a generalized additive regression model
-% TODO: include a bit of math
-\cite{lundbergUnifiedApproachInterpreting2017}
-\cite{lundbergLocalExplanationsGlobal2020}
-
-We use Tree SHAP is a fast and exact method to estimate SHAP values
-for tree models and ensembles of trees
-
-\begin{equation}
-    \phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!\,(|F| -
-    |S| - 1)!}{|F|!} \left[ f_{S \cup \{i\}}\!\left(x_{S \cup
-    \{i\}}\right) - f_S\!\left(x_S\right) \right].
-\end{equation}
-The waterfall model shows the local Interpretability
-
-The Beeswarm works by aggregating local SHAP values from local mode
-to see the global trend.
-
-Figure ... shows the feature importance of the model trained on RF
-and LGBMTreeRegressor.sd
-
-Afterward, we did train the models on reduce number of features from
-1 to 11. From that we choose the ... features, to reduce the size of
-the tree significantly while trading the performance of the model minimally.
-
-SHapley Additive exPlanations (SHAP)
-\cite{lundbergUnifiedApproachInterpreting2017} is a technique  based
+\subsubsection{SHapley Additive exPlanations (SHAP)}
+SHAP \cite{lundbergUnifiedApproachInterpreting2017} is a technique  based
 on the Shapley value from cooperative game theory, which divides the
 total payout of a game fairly among the players according to each
-player's contribution. In SHAP, the ``game'' is a single prediction,
-the ``players'' are the input features, and the ``payout'' is the
-difference between the model's prediction and its average prediction.
-Unlike permutation importance, which measures how much a feature
-affects the model's \emph{error}, SHAP measures how much each feature
-moves the model's \emph{prediction}, and in which direction.
+player's contribution. Unlike permutation importance, which measures
+how much a feature affects the model's \emph{error}, SHAP measures
+how much each feature moves the model's \emph{prediction}, and in
+which direction.
 
 SHAP explains a prediction with an \emph{additive} model: the
 prediction for an input $\mathbf{x}$ is written as a base value plus
@@ -169,24 +141,8 @@ SHAP value of feature $i$ for this input. A positive $\phi_i$ means
 that feature $i$ raised the predicted PDR above the average, and a
 negative $\phi_i$ means it lowered it. Because the contributions add
 up exactly to the prediction, each prediction can be broken down into
-the share contributed by each feature.
-
-The SHAP value of feature $i$ is its Shapley value: its average
-contribution over every possible subset of the other features,
-\begin{equation}
-    \phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!\,(|F| -
-    |S| - 1)!}{|F|!} \left[ f_{S \cup \{i\}}\!\left(x_{S \cup
-    \{i\}}\right) - f_S\!\left(x_S\right) \right],
-\end{equation}
-where $F$ is the set of all features, $S$ is a subset of features
-that does not include $i$, and $f_S(x_S)$ is the model's expected
-prediction when only the features in $S$ are known. The term in
-brackets is the change in prediction when feature $i$ is added to
-the subset $S$, and the fraction weights each subset so that every
-order in which features could be added counts equally. This is the
-only attribution method that satisfies a set of fairness properties,
-including that the contributions add up to the prediction and that a
-feature that never changes the prediction receives a value of zero
+the share contributed by each feature
+% TODO: is this cite relevant
 \cite{lundbergUnifiedApproachInterpreting2017}.
 
 % TODO: probs don't need this paragraph
@@ -216,71 +172,75 @@ mean absolute SHAP value of each feature over $n$ predictions,
     I_i = \frac{1}{n} \sum_{k=1}^{n} \left| \phi_i^{(k)} \right|,
 \end{equation}
 which is the average amount by which feature $i$ moves the predicted
-PDR. As with permutation importance, we compute the SHAP values on
-the held-out test set, using a random sample of 2\,000 rows.
-Figure~\ref{fig:shap_beeswarm} shows the beeswarm plots for the
+PDR. Figure~\ref{fig:shap_beeswarm} shows the beeswarm plots for the
 decision tree and LightGBM models, and the mean absolute SHAP values
 are listed alongside the permutation importances in
 Tables~\ref{tab:fi_dtree} and~\ref{tab:fi_lgbm}.
 
+% TODO: the table is very hard to see
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{Feature importance of each model (MAEP points). Perm.\ is
+        the permutation importance and SHAP is the mean absolute SHAP
+    value.}
+    \label{tab:fi_all}
+    \begin{tabular}{l|cc|cc|cc|cc}
+        \hline
+        & \multicolumn{2}{c|}{LightGBM}
+        & \multicolumn{2}{c|}{Decision Tree}
+        & \multicolumn{2}{c|}{Linear SVR}
+        & \multicolumn{2}{c}{Linear regression} \\
+        \textbf{Feature}
+        & Perm. & SHAP & Perm. & SHAP & Perm. & SHAP & Perm. & SHAP \\
+        \hline
+        \texttt{hop\_count}       & 10.188   & 16.907 & 11.743 & 20.808 &
+        5.550 & 10.767 & 5.381 &  9.897 \\
+        \texttt{path\_cpu}        &  6.159   & 10.543 &  6.947 &  8.998 &
+        7.390 & 13.001 & 5.633 & 10.045 \\
+        \texttt{is\_new}          &  1.055   &  1.919 &  1.222 &  2.607 &
+        1.001 &  3.562 & 1.353 &  3.912 \\
+        \texttt{drop\_rate}       &  0.790   &  2.248 &  0.999 &  2.419 &
+        0.477 &  1.755 & 0.328 &  1.041 \\
+        \texttt{etx}              &  0.663   &  2.110 &  0.824 &  2.192 &
+        0.483 &  1.353 & 1.420 &  3.481 \\
+        \texttt{ppm}              &  0.342   &  1.038 &  0.744 &  1.238 &
+        0.025 &  0.378 & 0.119 &  0.656 \\
+        \texttt{path\_drop\_rate} &  0.910   &  1.810 &  0.722 &  0.731 &
+        0.989 &  3.426 & 0.264 &  0.985 \\
+        \texttt{cpu}              &  0.644   &  1.403 &  0.447 &  1.271 &
+        0.128 &  0.939 & 0.519 &  1.853 \\
+        \texttt{path\_ppm}        & $-0.004$ &  2.448 &  0.425 &  2.366 &
+        0.709 &  2.801 & 0.038 &  0.354 \\
+        \texttt{rssi}             &  0.147   &  1.000 &  0.280 &  1.015 &
+        0.883 &  2.616 & 1.347 &  3.140 \\
+        \texttt{nbr\_count}       &  0.058   &  0.588 &  0.080 &  0.460 &
+        0.001 &  0.086 & 0.124 &  1.271 \\
+        \hline
+    \end{tabular}
+\end{table}
+
 \subsection{Feature Analysis}
-Figure ... shows the correlation and the influence of the features to
-the result of the prediction.
+Figure~\ref{fig:feature_correlation} and Tables~\ref{tab:fi_dtree}
+and~\ref{tab:fi_lgbm} show how strongly
+each feature is correlated with PDR and how much it influences the
+predictions of the two tree models.
+Both views agree on the least useful features.
+The neighbour count and RSSI are almost uncorrelated with PDR
+($|\rho| \le 0.10$) and have the lowest permutation importance and
+mean absolute SHAP value in both models.
+ETX is only weakly correlated with PDR ($\rho = -0.28$), and
+shuffling it increases the error by less than one MAEP point in
+either model.
+We therefore first remove ETX, RSSI and the neighbour count, which
+increases the MAEP by \textbf{??} percentage points.
 
-From the Table, we remove ETX, RSSI,... out of the features for the model.
-Which resulted in reducing ... \% in the performance.
+In the end, we removed five features and kept six:
+\texttt{is\_new}, \texttt{cpu}, \texttt{path\_cpu}, \texttt{drop\_rate},
+\texttt{path\_ppm} and \texttt{hop\_count}.
 
-\begin{table}[htbp]
-    \centering
-    \caption{Feature importance for the decision tree model (MAEP points).}
-    \label{tab:fi_dtree}
-    \begin{tabular}{l|c|c}
-        \hline
-        \textbf{Feature} & Permutation & Mean $|\mathrm{SHAP}|$ \\
-        \hline
-        \texttt{hop\_count}         & 7.402 & 11.319 \\
-        \texttt{p\_cpu}             & 7.047 & 15.794 \\
-        \texttt{drop\_rate}         & 1.920 &  2.388 \\
-        \texttt{parent\_drop\_rate} & 1.242 &  2.827 \\
-        \texttt{etx}                & 0.815 &  2.107 \\
-        \texttt{is\_new}            & 0.758 &  2.159 \\
-        \texttt{rssi}               & 0.635 &  1.328 \\
-        \texttt{ppm}                & 0.580 &  1.484 \\
-        \texttt{cpu}                & 0.517 &  1.160 \\
-        \texttt{parent\_ppm}        & 0.512 &  2.314 \\
-        \texttt{nbr\_count}         & 0.099 &  0.434 \\
-        \hline
-    \end{tabular}
-\end{table}
-
-\begin{table}[htbp]
-    \centering
-    \caption{Feature importance for the LightGBM model (MAEP points).}
-    \label{tab:fi_lgbm}
-    \begin{tabular}{l|c|c}
-        \hline
-        \textbf{Feature} & Permutation & Mean $|\mathrm{SHAP}|$ \\
-        \hline
-        \texttt{p\_cpu}             &  8.661   & 12.868 \\
-        \texttt{hop\_count}         &  7.194   & 12.898 \\
-        \texttt{parent\_drop\_rate} &  1.465   &  2.569 \\
-        \texttt{drop\_rate}         &  1.256   &  1.641 \\
-        \texttt{cpu}                &  0.842   &  1.342 \\
-        \texttt{ppm}                &  0.776   &  1.472 \\
-        \texttt{is\_new}            &  0.716   &  1.595 \\
-        \texttt{etx}                &  0.695   &  1.824 \\
-        \texttt{rssi}               &  0.234   &  0.808 \\
-        \texttt{nbr\_count}         &  0.063   &  0.304 \\
-        \texttt{parent\_ppm}        & $-0.037$ &  2.203 \\
-        \hline
-    \end{tabular}
-\end{table}
-
-Afterward, we remove the lowest features subsequent and retrain the
-model to obtain new model performance on reduced training features
-until the MAEP is larger than 1\% of the best model.
-
-In the end, we removed ... features and keep ... features
-The performance of the new model is ..., resulting in ...
-This is a reasonable tradeoff between memory, computation and
-accuracy for constrained devices
+The reduced model has an MAEP of \textbf{??}\%, compared with
+\textbf{??}\% for the model trained on all 11 features, while its
+size falls from \textbf{??} to \textbf{??} bytes.
+This is a reasonable trade-off between memory, computation and
+accuracy on a constrained device.

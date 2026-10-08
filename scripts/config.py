@@ -33,6 +33,9 @@ rpl_of = "mhrof"
 metric_log_interval = 30
 # 1 = MLOF firmware logs training-data lines, 0 = compiled out
 mlof_log_training_data = 1
+# MLOF path-cost weight of the predicted-PDR term, out of 16 (the rest goes to
+# ETX): 0 = pure ETX, 16 = pure predicted PDR (MLOF_CONF_PATH_W_PDR)
+mlof_path_w_pdr = 12
 
 OTHER_LOG = "NONE"
 RPL_LOG = "NONE"

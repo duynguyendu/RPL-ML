@@ -3,7 +3,9 @@
 functions. Local replacement for simulate.sh's parallel-dispatch loop, with
 optional sharding across machines (see --shard-index/--num-shards).
 
-Every (num_nodes, bps, rpl_of, seed, overloading_client_seed) combination is one job. Up to
+Every (num_nodes, bps, rpl_of, seed, overloading_client_seed, mlof_path_w_pdr)
+combination is one job (non-MLOF OFs ignore mlof_path_w_pdr, so they run once
+per remaining combination). Up to
 --max-active-jobs run concurrently, each pinned to its own reusable
 --build_dir_name slot (named with this machine's hostname, since multiple
 machines may share this same filesystem -- see ansible/simulate_seeds.yml).
@@ -14,6 +16,7 @@ Usage:
 Override the swept grid (each defaults to the hardcoded *_LIST constant
 below; comma/space-separated):
     python3 simulate.py --node-list=30,60 --bps-list=128,256 --seed-list=111,222 --overloading-client-seed-list=999,998
+    python3 simulate.py --mlof-path-w-pdr-list=0,2,4,6,8,10,12,14,16
 
 Sharding across machines (they must share this filesystem -- job identities
 never collide across shards, so every machine can safely write into the
@@ -54,6 +57,8 @@ DURATION = 1800
 PACKET_SIZE = 64
 # 1 = MLOF firmware logs training-data lines (MLOF_CONF_LOG_TRAINING_DATA)
 MLOF_LOG_TRAINING_DATA = 1
+# MLOF path-cost weight of predicted PDR vs ETX, out of 16 (MLOF_CONF_PATH_W_PDR)
+MLOF_PATH_W_PDR_LIST = [12]
 
 
 def fmt_dur(seconds: float) -> str:
@@ -75,12 +80,17 @@ def build_jobs(
     of_list: list[str],
     seed_list: list[int],
     overloading_seed_list: list[int],
-) -> list[tuple[int, int, str, int, int]]:
-    return list(
-        itertools.product(
-            node_list, bps_list, of_list, seed_list, overloading_seed_list
-        )
-    )
+    w_pdr_list: list[int],
+) -> list[tuple[int, int, str, int, int, int]]:
+    jobs = []
+    for num_nodes, bps, rpl_of, seed, ol_seed in itertools.product(
+        node_list, bps_list, of_list, seed_list, overloading_seed_list
+    ):
+        # only MLOF reads the weight; sweeping it for other OFs would just
+        # rerun the identical simulation
+        ws = w_pdr_list if rpl_of.startswith("mlof") else w_pdr_list[:1]
+        jobs.extend((num_nodes, bps, rpl_of, seed, ol_seed, w) for w in ws)
+    return jobs
 
 
 def start_job(
@@ -94,6 +104,7 @@ def start_job(
     duration: int,
     topo_type: str,
     mlof_log_training_data: int,
+    w_pdr: int,
 ):
     log_dir = run_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -120,6 +131,7 @@ def start_job(
             f"--base_output_dir={run_dir}",
             f"--build_dir_name={slot}",
             f"--mlof_log_training_data={mlof_log_training_data}",
+            f"--mlof_path_w_pdr={w_pdr}",
         ],
         stdout=log_f,
         stderr=subprocess.STDOUT,
@@ -138,8 +150,10 @@ def job_desc(
     rpl_of: str,
     seed: int,
     overloading_seed: int,
+    w_pdr: int,
 ) -> str:
-    return f"({job_id}/{shard_total}) {slot} of={rpl_of} nodes={num_nodes} bps={bps} seed={seed} overloading_seed={overloading_seed}"
+    w_part = f" w_pdr={w_pdr}" if rpl_of.startswith("mlof") else ""
+    return f"({job_id}/{shard_total}) {slot} of={rpl_of}{w_part} nodes={num_nodes} bps={bps} seed={seed} overloading_seed={overloading_seed}"
 
 
 def terminate_all(active: dict) -> None:
@@ -213,6 +227,12 @@ def main() -> None:
         f"clients to sweep (default: {OVERLOADING_CLIENT_SEED_LIST})",
     )
     parser.add_argument(
+        "--mlof-path-w-pdr-list",
+        default=None,
+        help="Comma/space-separated MLOF_CONF_PATH_W_PDR values (0-16) to sweep "
+        f"for MLOF OFs (default: {MLOF_PATH_W_PDR_LIST})",
+    )
+    parser.add_argument(
         "--shard-index",
         type=int,
         default=0,
@@ -257,8 +277,12 @@ def main() -> None:
         args.overloading_client_seed_list, OVERLOADING_CLIENT_SEED_LIST, int
     )
 
+    w_pdr_list = parse_list(args.mlof_path_w_pdr_list, MLOF_PATH_W_PDR_LIST, int)
+    if not all(0 <= w <= 16 for w in w_pdr_list):
+        parser.error("--mlof-path-w-pdr-list values must be in [0, 16]")
+
     all_jobs = build_jobs(
-        node_list, bps_list, of_list, seed_list, overloading_seed_list
+        node_list, bps_list, of_list, seed_list, overloading_seed_list, w_pdr_list
     )
     total_global = len(all_jobs)
     my_jobs = all_jobs[args.shard_index :: args.num_shards]
@@ -279,13 +303,14 @@ def main() -> None:
     print(
         f"=== Writing runs to {run_dir} "
         f"(shard {args.shard_index}/{args.num_shards}, {len(my_jobs)}/{total_global} jobs, "
-        f"topo_type={args.topo_type}, mlof_log_training_data={args.mlof_log_training_data}) ==="
+        f"topo_type={args.topo_type}, mlof_log_training_data={args.mlof_log_training_data}, "
+        f"mlof_path_w_pdr={w_pdr_list}) ==="
     )
 
     if args.dry_run:
-        for i, (num_nodes, bps, rpl_of, seed, ol_seed) in enumerate(my_jobs, start=1):
+        for i, (num_nodes, bps, rpl_of, seed, ol_seed, w_pdr) in enumerate(my_jobs, start=1):
             print(
-                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, bps, rpl_of, seed, ol_seed)}"
+                f"  {job_desc(i, len(my_jobs), '(dry-run)', num_nodes, bps, rpl_of, seed, ol_seed, w_pdr)}"
             )
         return
 
@@ -312,29 +337,29 @@ def main() -> None:
 
     while pending or active:
         while pending and free_slots:
-            job_id, (num_nodes, bps, rpl_of, seed, ol_seed) = pending.pop(0)
+            job_id, (num_nodes, bps, rpl_of, seed, ol_seed, w_pdr) = pending.pop(0)
             slot = free_slots.pop()
             desc = job_desc(
-                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed
+                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed, w_pdr
             )
             print(f"=== [{time.strftime('%H:%M:%S')}] START {desc} ===", flush=True)
             proc = start_job(
                 slot, run_dir, num_nodes, bps, rpl_of, seed, ol_seed, args.duration,
-                args.topo_type, args.mlof_log_training_data,
+                args.topo_type, args.mlof_log_training_data, w_pdr,
             )
             active[slot] = (
                 proc,
                 time.monotonic(),
-                (job_id, num_nodes, bps, rpl_of, seed, ol_seed),
+                (job_id, num_nodes, bps, rpl_of, seed, ol_seed, w_pdr),
             )
 
         finished = [
             slot for slot, (proc, _, _) in active.items() if proc.poll() is not None
         ]
         for slot in finished:
-            proc, start, (job_id, num_nodes, bps, rpl_of, seed, ol_seed) = active.pop(slot)
+            proc, start, (job_id, num_nodes, bps, rpl_of, seed, ol_seed, w_pdr) = active.pop(slot)
             desc = job_desc(
-                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed
+                job_id, len(my_jobs), slot, num_nodes, bps, rpl_of, seed, ol_seed, w_pdr
             )
             status = (
                 "DONE" if proc.returncode == 0 else f"FAILED (rc={proc.returncode})"

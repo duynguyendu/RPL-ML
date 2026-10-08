@@ -224,8 +224,10 @@ const METRICS = [
   {key:'parent_switch', file:'parent_switch', label:'Parent switch', scale:1,   unit:'',   title:'Parent switches per node',   axis:'Parent switches per node'},
   {key:'latency',       file:'latency',       label:'Latency',       scale:1,   unit:' s', title:'End-to-end latency',         axis:'End-to-end latency (s)'},
   {key:'cpu_util',      file:'cpu',           label:'CPU usage',     scale:1,   unit:'%',  title:'CPU usage',                  axis:'CPU usage (%)'},
+  {key:'retransmissions', file:'retransmissions', label:'Retransmissions', scale:1, unit:'', title:'Link-layer retransmissions per node', axis:'Retransmissions per node (unACKed TX attempts)'},
   {key:'dio_per_min',   file:'dio_sent',      label:'DIO sent',      scale:1,   unit:'/min', title:'DIO transmission rate per node', axis:'DIO messages per node per minute'},
   {key:'hop_count',     file:'hop_count',     label:'Hop count',     scale:1,   unit:'',   title:'Average hop count',          axis:'Average hop count'},
+  {key:'etx',           file:'etx',           label:'ETX',           scale:1,   unit:'',   title:'Average link ETX to parent', axis:'Average link ETX'},
 ];
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
@@ -411,10 +413,9 @@ function tracesCandle(metric, m, fixedVal){
 const EXPORT_W = 880;
 const EXPORT_SCALE = 6.1 * 300 / EXPORT_W;
 
-// per-OF marker shape and line dash, so overlapping points stay distinguishable
-// without colour (and in greyscale print)
+// per-OF marker shape, so overlapping points stay distinguishable without
+// colour (and in greyscale print)
 const OF_SYMBOL = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star'];
-const OF_DASH = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot'];
 
 // pull a hex colour ~20% of the way towards its grey to soften the saturation
 function mute(hex, k = 0.2){
@@ -450,6 +451,8 @@ function renderFacets(){
   const bpsAll = uniqNums(RUNS.map(r => r.bps));
   const gap = 0.015, w = (1 - gap * (nodes.length - 1)) / nodes.length;
   const step = bpsAll.length > 1 ? Math.min(...bpsAll.slice(1).map((b, i) => b - bpsAll[i])) : 16;
+  // nudge each OF sideways around the true bps so its error bars don't stack
+  const dodge = j => (j - (RPL_OFS.length - 1) / 2) * step * 0.06;
   // drawn at the export size so the page shows exactly what the PNG will be
   const chartHeight = 520;
   METRICS.forEach((metric, i) => {
@@ -469,7 +472,7 @@ function renderFacets(){
         domain:[lo, lo + w], anchor:'y' + ax,
         tickmode:'array', tickvals:bpsAll, ticktext:bpsAll.map(String), tickfont:{size:16},
         range:[bpsAll[0] - step * 0.5, bpsAll[bpsAll.length - 1] + step * 0.5],
-        showgrid:true, gridcolor:'rgba(128,128,128,0.3)', zeroline:false,
+        showgrid:false, zeroline:false,
       };
       lay['yaxis' + ax] = {
         anchor:'x' + ax, tickfont:{size:16}, gridcolor:'rgba(128,128,128,0.3)',
@@ -490,10 +493,10 @@ function renderFacets(){
         traces.push({
           type:'scatter', mode:'lines+markers', xaxis:'x' + ax, yaxis:'y' + ax,
           name:ofLabel(of_), legendgroup:of_, showlegend:k === 0,
-          x:pts.map(([b]) => b), y:pts.map(([, c]) => c.mean),
+          x:pts.map(([b]) => b + dodge(j)), y:pts.map(([, c]) => c.mean),
           customdata:pts.map(([b, c]) => [b, c.ci, c.n]),
           error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1, width:3, color:color},
-          line:{color:color, width:1.25, dash:OF_DASH[j % OF_DASH.length]},
+          line:{color:color, width:1.25},
           marker:{color:color, size:8, symbol:OF_SYMBOL[j % OF_SYMBOL.length],
                   line:{color:'white', width:1}},
           hovertemplate:ofLabel(of_) + ', N = ' + n + ', %{customdata[0]} bps<br>' +

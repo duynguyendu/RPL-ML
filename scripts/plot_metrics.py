@@ -54,6 +54,20 @@ def compute_etx(data):
     )
 
 
+def compute_etx_by_node(data):
+    """Each node's link ETX to its preferred parent, averaged over its reports."""
+    return _query(
+        """
+        SELECT node_id, AVG(etx) AS etx
+        FROM df
+        WHERE etx <> 65535.0
+        GROUP BY node_id
+        """,
+        data["metrics"],
+        ["node_id", "etx"],
+    )
+
+
 def compute_latest(data):
     """State of every node at the end of the simulation (its last metrics row)."""
     return _query(
@@ -154,6 +168,7 @@ def compute_metrics(data):
     latency_known_hop = latency[latency["hop_count"] != INVALID]
     return {
         "etx": compute_etx(data),
+        "etx_by_node": compute_etx_by_node(data),
         "cpu": compute_cpu(latest),
         "pdr": compute_pdr(data),
         "dio_rate": compute_dio_rate(data),
@@ -490,6 +505,46 @@ def _parent_switches_by_node(df_dir):
     return (dodag.groupby("node_id").size() - 1).clip(lower=0)
 
 
+def _retransmissions_by_node(data, df_dir):
+    """Retransmissions per node as a Series indexed by node_id.
+
+    The firmware logs TX (every transmission attempt, retries included) and
+    ACKED (frames acknowledged) as cumulative counters of the link to the
+    current preferred parent, so TX - ACKED counts unacknowledged attempts.
+    Each report is matched to the parent the node had then (dodag.csv); per
+    (node, parent) link the growth over the run is its last value minus its
+    value at the node's first report (0 for links first used later), and a
+    node's total sums its links.
+    """
+    df = data.get("metrics")
+    path = os.path.join(df_dir, "dodag.csv")
+    if df is None or df.empty or "tx_packets" not in df or not os.path.exists(path):
+        return pd.Series(dtype=float)
+    dodag = pd.read_csv(path)
+    if dodag.empty:
+        return pd.Series(dtype=float)
+    # rows without a preferred parent log ETX=65535 and zero counters
+    m = df.loc[df["etx"] != INVALID, ["time_s", "node_id", "tx_packets", "acked_packets"]]
+    m = pd.merge_asof(
+        m.astype({"time_s": float}).sort_values("time_s"),
+        dodag[["time_s", "node_id", "parent_id"]].sort_values("time_s"),
+        on="time_s",
+        by="node_id",
+    ).dropna(subset=["parent_id"])
+    if m.empty:
+        return pd.Series(dtype=float)
+    m["unacked"] = m["tx_packets"] - m["acked_packets"]
+    m = m.sort_values("time_s")
+    first_t = m.groupby("node_id")["time_s"].transform("min")
+    links = m.groupby(["node_id", "parent_id"])
+    last = links["unacked"].last()
+    base = (
+        m[m["time_s"] == first_t].groupby(["node_id", "parent_id"])["unacked"].first()
+    )
+    growth = (last - base.reindex(last.index, fill_value=0)).clip(lower=0)
+    return growth.groupby(level="node_id").sum().astype(float)
+
+
 LOAD_INTERVAL_S = 60  # simulated seconds between load-model snapshots
 
 
@@ -714,6 +769,194 @@ def plot_load(load):
     return figs
 
 
+def _tree_layout(kids, roots):
+    """{node: (x, depth)} for a tidy top-down forest: leaves get consecutive x
+    slots in DFS order, each parent sits centred over its children and every
+    root after the first starts one slot to the right of the previous tree."""
+    pos, next_x = {}, [0]
+
+    def place(u, depth):
+        cs = kids.get(u, [])
+        if not cs:
+            pos[u] = (next_x[0], depth)
+            next_x[0] += 1
+            return
+        for c in cs:
+            place(c, depth + 1)
+        pos[u] = ((pos[cs[0]][0] + pos[cs[-1]][0]) / 2, depth)
+
+    for i, r in enumerate(roots):
+        if i:
+            next_x[0] += 1
+        place(r, 0)
+    return pos
+
+
+def _forest(parent, node_ids, server_id):
+    """(kids, roots) drawing every node: the server's DODAG first, then one
+    sub-tree per detached group. A detached group is rooted at a node without
+    a parent or, for a parent loop, at the loop's lowest id (its parent edge
+    is dropped so the loop becomes a tree)."""
+    roots, cut = [server_id], set()
+    for nid in node_ids:
+        if nid == server_id:
+            continue
+        path, u = [], nid
+        while u in parent and u != server_id and u not in path:
+            path.append(u)
+            u = parent[u]
+        if u == server_id:
+            continue
+        if u in path:  # loop: cut it at its lowest id
+            r = min(path[path.index(u):])
+            cut.add(r)
+        else:  # chain ends at a node with no parent
+            r = u
+        if r not in roots:
+            roots.append(r)
+    kids = {}
+    for nid in sorted(node_ids):
+        if nid != server_id and nid in parent and nid not in cut:
+            kids.setdefault(parent[nid], []).append(nid)
+    return kids, [roots[0], *sorted(roots[1:])]
+
+
+def _avg_children(kids, nodes):
+    """Mean child count over the parent (non-leaf) nodes among ``nodes``,
+    NaN if none has a child."""
+    counts = [len(kids[n]) for n in nodes if kids.get(n)]
+    return sum(counts) / len(counts) if counts else float("nan")
+
+
+def plot_dodag_tree(load):
+    """The DODAG drawn as a tree (server on top, one row per hop) at every
+    load snapshot, with a slider over time; the title reports the average
+    number of children per parent (non-leaf) node of the server's DODAG.
+
+    Nodes whose parent chain never reaches the server (no parent yet, or a
+    parent loop -- dodag.csv logs only switches to a new parent, so a lost
+    parent leaves a stale pointer) are drawn faded as separate sub-trees."""
+    if load.empty:
+        return []
+    server_ids = load.loc[load["role"] == "server", "node_id"].unique()
+    if len(server_ids) == 0:
+        return []
+    server_id = int(server_ids[0])
+
+    snaps, traces, max_depth = [], [], 0
+    for t, g in load.groupby("time_s"):
+        # only nodes whose parent chain reaches the server are in the DODAG;
+        # the rest are drawn as detached sub-trees to its right
+        attached = g[g["hop"].notna()]
+        parent = {
+            int(r.node_id): int(r.parent_id)
+            for r in g.itertuples()
+            if not _isnan(r.parent_id)
+        }
+        kids, roots = _forest(parent, g["node_id"].astype(int).tolist(), server_id)
+        pos = _tree_layout(kids, roots)
+        in_dodag = set(attached["node_id"].astype(int))
+        info = g.set_index("node_id")
+        ex, ey = [], []
+        for p, cs in kids.items():
+            for c in cs:
+                ex += [pos[p][0], pos[c][0], None]
+                ey += [pos[p][1], pos[c][1], None]
+        ids = sorted(pos)
+        traces.append(
+            go.Scatter(
+                x=ex, y=ey, mode="lines", hoverinfo="skip", showlegend=False,
+                line=dict(color="rgba(60,60,60,0.5)", width=1), visible=False,
+            )
+        )
+        traces.append(
+            go.Scatter(
+                x=[pos[n][0] for n in ids],
+                y=[pos[n][1] for n in ids],
+                mode="markers+text",
+                text=[str(n) for n in ids],
+                textposition="top center",
+                textfont=dict(size=9),
+                marker=dict(
+                    symbol=[
+                        "star" if n == server_id
+                        else OVERLOADING_SYMBOL
+                        if info.at[n, "role"] == "overloading_client"
+                        else "circle"
+                        for n in ids
+                    ],
+                    size=[22 if n == server_id else 16 for n in ids],
+                    color=[len(kids.get(n, [])) for n in ids],
+                    colorscale="Viridis",
+                    cmin=0,
+                    cmax=max(1, int(load["children"].max())),
+                    opacity=[1.0 if n in in_dodag else 0.45 for n in ids],
+                    line=dict(width=1, color="black"),
+                    showscale=True,
+                    colorbar=dict(title=dict(text="Children", side="right"), thickness=14),
+                ),
+                customdata=[
+                    [n, info.at[n, "role"], len(kids.get(n, [])),
+                     pos[n][1] if n in in_dodag else "detached", info.at[n, "load"]]
+                    for n in ids
+                ],
+                hovertemplate=(
+                    "Node %{customdata[0]} (%{customdata[1]})<br>"
+                    "Hop: %{customdata[3]}<br>Children: %{customdata[2]}<br>"
+                    "Load: %{customdata[4]:.0f} bps<extra></extra>"
+                ),
+                showlegend=False,
+                visible=False,
+            )
+        )
+        snaps.append((t, _avg_children(kids, in_dodag), len(g) - len(in_dodag)))
+        max_depth = max(max_depth, max(d for _, d in pos.values()))
+
+    # mean over the snapshots (skipping ones where the DODAG has no edge yet)
+    run_avg = float(pd.Series([a for _, a, _ in snaps]).mean())
+
+    def _snap_title(t, avg, detached):
+        avg_txt = "n/a" if math.isnan(avg) else f"{avg:.2f}"
+        run_txt = "n/a" if math.isnan(run_avg) else f"{run_avg:.2f}"
+        extra = f"<br>{detached} node(s) detached (faded, right)" if detached else ""
+        return _title(
+            f"DODAG tree at t = {t} s — avg children per parent node: {avg_txt} "
+            f"(run avg {run_txt}){extra}"
+        )
+
+    n = len(traces)
+    last = len(snaps) - 1
+    traces[2 * last].visible = traces[2 * last + 1].visible = True
+    steps = []
+    for i, (t, avg, detached) in enumerate(snaps):
+        vis = [False] * n
+        vis[2 * i] = vis[2 * i + 1] = True
+        steps.append(
+            dict(
+                label=str(t),
+                method="update",
+                args=[{"visible": vis}, {"title": _snap_title(t, avg, detached)}],
+            )
+        )
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        title=_snap_title(*snaps[last]),
+        xaxis=dict(visible=False),
+        yaxis=_axis("Depth (hop in DODAG)", autorange="reversed", dtick=1, zeroline=False),
+        height=max(500, 70 * (max_depth + 1) + 220),
+        sliders=[
+            dict(
+                active=last,
+                currentvalue=dict(prefix="Snapshot t (s) = "),
+                pad=dict(t=30),
+                steps=steps,
+            )
+        ],
+    )
+    print("  Add dodag_tree")
+    return [fig]
+
+
 def _isnan(v):
     return isinstance(v, float) and math.isnan(v)
 
@@ -780,8 +1023,13 @@ _SUMMARY_METRICS = {
         lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
     ),
     "dio_per_min": ("DIO/min", lambda v: f"{v:.2f}"),
+    "retransmissions": (
+        "retransmissions",
+        lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
+    ),
     "load": ("load", lambda v: f"{v:.0f} bps"),
     "hop_count": ("hop count", lambda v: f"{v:.2f}"),
+    "etx": ("ETX", lambda v: f"{v:.2f}"),
 }
 
 # aggregation name -> reducer over a per-node Series. avg/max/min/p95 are shown
@@ -795,13 +1043,23 @@ _AGGREGATIONS = {
     "q3": lambda s: s.quantile(0.75),
     "p95": lambda s: s.quantile(0.95),
     "max": lambda s: s.max(),
+    "jain": lambda s: _jain_index(s),
 }
 
 # subset of _AGGREGATIONS rendered as dashboard header strips, in display order
 _STRIP_AGGREGATIONS = ["avg", "max", "min", "p95"]
 
 
-def _summary_node_series(metrics, df_dir):
+def _jain_index(s):
+    """Jain's fairness index (sum x)^2 / (n * sum x^2) over nodes, in [1/n, 1].
+
+    1 means every node has the same value; all-zero values count as equal.
+    """
+    sq = (s**2).sum()
+    return 1.0 if sq == 0 else s.sum() ** 2 / (len(s) * sq)
+
+
+def _summary_node_series(metrics, data, df_dir):
     """Per-node Series for each summary metric, keyed as in ``_SUMMARY_METRICS``."""
 
     def _col(df, col):
@@ -818,8 +1076,10 @@ def _summary_node_series(metrics, df_dir):
         "cpu_util": _col(metrics.get("cpu"), "cpu_usage"),
         "parent_switch": _parent_switches_by_node(df_dir),
         "dio_per_min": _col(metrics.get("dio_rate"), "dio_per_min"),
+        "retransmissions": _retransmissions_by_node(data, df_dir),
         "load": metrics.get("load_by_node", pd.Series(dtype=float)),
         "hop_count": metrics.get("hop_by_node", pd.Series(dtype=float)),
+        "etx": _col(metrics.get("etx_by_node"), "etx"),
     }
 
 
@@ -827,15 +1087,17 @@ def compute_aggregate(metrics, data, df_dir):
     """Per-run summary as a plain (JSON-able) dict.
 
     ``total`` holds packet / parent-switch counts; the remaining keys
-    (min, q1, median, avg, q3, p95, max) each map every summary metric to that
-    statistic taken across nodes. Metric values are raw numbers -- pdr as a 0..1
-    fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
-    dio_per_min in DIOs per minute, load in bps (each client's offered load
+    (min, q1, median, avg, q3, p95, max, jain) each map every summary metric to
+    that statistic taken across nodes (jain = Jain's fairness index). Metric
+    values are raw numbers -- pdr as a 0..1 fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
+    dio_per_min in DIOs per minute, retransmissions as a count of
+    unacknowledged link-layer TX attempts to the preferred parent, load in bps (each client's offered load
     averaged over the 60 s snapshots), hop_count in hops to the root (each
-    client's depth averaged over the snapshots it was attached) -- and missing
+    client's depth averaged over the snapshots it was attached), etx as each client's link ETX
+    to its preferred parent averaged over its reports -- and missing
     values are ``None``.
     """
-    series_map = _summary_node_series(metrics, df_dir)
+    series_map = _summary_node_series(metrics, data, df_dir)
 
     def _agg(agg_fn):
         out = {}
@@ -845,11 +1107,13 @@ def compute_aggregate(metrics, data, df_dir):
         return out
 
     switch = series_map["parent_switch"]
+    retx = series_map["retransmissions"]
     sent, recv, not_joined, unreachable, in_network = _packet_totals(data)
     predict_us, predict_count = _predict_totals(data)
     result = {
         "total": {
             "parent_switch": int(switch.sum()) if len(switch) else None,
+            "retransmissions": int(retx.sum()) if len(retx) else None,
             "packets_sent": None if _isnan(sent) else int(sent),
             "packets_received_by_root": None if _isnan(recv) else int(recv),
             "packets_lost_not_joined": None if _isnan(not_joined) else int(not_joined),
@@ -870,7 +1134,7 @@ def compute_aggregate(metrics, data, df_dir):
 
 
 def render_summary_html(aggregate):
-    """Render Total / Avg / Max / Min / P95 header strips from ``compute_aggregate``."""
+    """Render Total / Avg / Max / Min / P95 / Jain fairness header strips from ``compute_aggregate``."""
 
     def _fmt_row(prefix, values):
         items = []
@@ -887,6 +1151,7 @@ def render_summary_html(aggregate):
 
     total_items = [
         ("Total parent switches", _n("parent_switch")),
+        ("Total retransmissions", _n("retransmissions")),
         ("Packets sent", _n("packets_sent")),
         ("Packets received by root", _n("packets_received_by_root")),
         ("Packets lost (not joined)", _n("packets_lost_not_joined")),
@@ -898,6 +1163,17 @@ def render_summary_html(aggregate):
     for name in _STRIP_AGGREGATIONS:
         title = name.capitalize()
         strips.append(_render_strip(title, _fmt_row(title, aggregate.get(name, {}))))
+    # unitless 0..1, so not the metric's own formatter
+    jain = aggregate.get("jain", {})
+    strips.append(
+        _render_strip(
+            "Jain fairness",
+            [
+                (label, "n/a" if jain.get(key) is None else f"{jain[key]:.3f}")
+                for key, (label, _) in _SUMMARY_METRICS.items()
+            ],
+        )
+    )
     return "".join(strips)
 
 
@@ -1465,6 +1741,7 @@ def plot_metrics(df_dir: str, output_dir: str, runs_dir: str | None = None):
     figs = [
         *plot_topology(df_dir, metrics, load),
         *plot_load(load),
+        *plot_dodag_tree(load),
         # *plot_etx(metrics),
         *plot_cpu_usage(metrics),
         *plot_by_hop(metrics),

@@ -16,6 +16,7 @@ metrics and whole path metrics, and one flag \texttt{is\_new} due to
 the way we gather the metrics as explained in later section. Each
 node measures three metrics of its own and smooths the value
 using EWMA to avoid sudden changes in value:
+% TODO: include how each feature is calculated
 \begin{itemize}
     \item \textbf{CPU usage} (\texttt{cpu}): the fraction of time the
         CPU is active, measured with Energest.
