@@ -22,6 +22,9 @@ RE_METRICS_LOG = re.compile(
     # cumulative MLOF predict_pdr() run time (us) and call count since boot;
     # optional so older logs still parse (always 0 for non-MLOF OFs)
     r"(?: PREDICT_US=(\d+) PREDICT_COUNT=(\d+))?"
+    # cumulative rpl_dag_update_state() run time (us) and call count since boot;
+    # optional so older logs still parse
+    r"(?: DAG_UPDATE_US=(\d+) DAG_UPDATE_COUNT=(\d+))?"
 )
 
 # LATENCY
@@ -108,6 +111,16 @@ def process_log(log_path):
                         "predict_count": (
                             int(metrics.group(16))
                             if metrics.group(16) is not None
+                            else None
+                        ),
+                        "dag_update_us": (
+                            int(metrics.group(17))
+                            if metrics.group(17) is not None
+                            else None
+                        ),
+                        "dag_update_count": (
+                            int(metrics.group(18))
+                            if metrics.group(18) is not None
                             else None
                         ),
                     }

@@ -1,37 +1,24 @@
 \section{Proposed Objective Function MLOF}
-
-Most existing OFs rely on a single routing metric. As a result, they
-behave greedily: a node selects the neighbour with the best link
+Most existing OFs rely on a few immediate routing metrics, which make them
+selects the neighbour with the best link
 quality without considering the performance of the route as a whole.
 Among the ML-based OFs reviewed in Section~\ref{sec:related-work},
 most are based on reinforcement learning, and the only supervised
 approach predicts the probability that a single packet is
 transmitted successfully, which does not capture the longer-term
-behaviour of the link. MLOF instead uses a regression model to predict
-the PDR that a node would achieve through a candidate parent, based on
-the six load and path metrics selected in Section~\ref{...}. This
-allows nodes to avoid heavily loaded paths before they degrade.
+behaviour of the link. Thus we propose MLOF, which uses a regression
+model embedded into the OF to predict the PDR that a node would
+achieve through a candidate parent. We include several load related
+metrics alongside with link and node metrics so the model can learn
+to avoid the congested paths as discussed in Section~\ref{sec:data-collection}.
 
-link to compute the rank increase:
+Overall, we compute the $\mathit{Rank\_Increase}$ as
 \begin{equation}
-    \mathit{RankIncrease} = \alpha \cdot PDR
+    \mathit{Rank\_Increase} = \alpha \cdot PDR
     + (1 - \alpha) \cdot \mathit{ETX},
 \end{equation}
-where $\beta$ scales the predicted loss to the ETX range, such that a
-predicted loss of 100\% corresponds to an ETX of 16, and $\alpha =
-0.75$. ETX is retained as a safeguard against erroneous predictions of
+ETX is retained as a safeguard against the predictions of
 the model, which would otherwise lead to an unstable DODAG and degrade
-the network performance. To further stabilise the topology, a node
-switches to a new parent only if its path cost is lower than that of
-the current parent by more than a threshold of 64, or if it has
-remained the better candidate for more than 10 minutes.
+the network performance. To further stabilise the topology, we
+include rank hysteresis of 64 and a time hysteresi of 10 minutes.
 
-\subsection{Model Selection for Deployment}
-
-Since MLOF runs on constrained devices, the model must be small enough
-to fit in the node's memory alongside the RPL stack and the
-application. We therefore select the model that, once compiled to C
-code, does not exceed 10~kB and whose error is within 1 percentage
-point of the most accurate model, regardless of size.
-Table~\ref{...} lists the accuracy, size and input features of the
-selected DTree and LGBM models.

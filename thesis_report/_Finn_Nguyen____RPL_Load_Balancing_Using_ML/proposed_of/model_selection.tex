@@ -1,35 +1,28 @@
 \section{Regression Machine Learning Model Selection}
-The model must be lightweight and fast at inference due to the
-constrained computation power and memory of the devices in LLN.
-Moreover, the model must avoid floating-point arithmetic, as most
-microcontrollers used in LLNs lack a floating-point unit. On these
+Since we embed the model into the OF, the model must be lightweight,
+fast at inference and fit in tight memory of the devices in LLN.
+As most microcontrollers used in LLNs lack a floating-point unit,
+the model must avoid floating-point arithmetic. On these
 devices, floating-point operations are emulated in software, which is
 slow and increases code size. A common workaround is
 \emph{quantisation}, which represents the model's parameters and
 inputs as fixed-point integers
 \cite{hasanpourSurveyQuantizationTechniques2025}. As such, the
 chosen model must either need no floating-point arithmetic at all, or
-remain accurate once quantised.
-
-% TODO: talk about this normalising somewhere else
-In this work, every input feature is kept in integer type
-as Z1 mote type does not support floating-point arithmetic. The predicted
-PDR is scaled to an unsigned 16-bit integer in the range
-$[0, 65535]$. Specifically, the model ported to C code must:
+remain accurate once quantised. Specifically, the model ported to C code must:
 \begin{itemize}
-    \item Compile to C code of less than 5\,KB so the size of the RPL
-        is not significant, and
-    \item Use no floating-point operations during inference to speed
-        up for constrained microcontrollers
-        % TODO: add this point as well
-    \item Not computational heavy
+    \item Compile to C code of less than 5\,KB, so that the model
+        adds little to the size of the RPL firmware,
+    \item Use no floating-point operations during inference, and
+    \item Run inference in a short time to avoid delay parent
+        selection and consume CPU for other tasks.
 \end{itemize}
 
-With these requirements in mind, we considered eight regression
+With these requirements in mind, we considered seven regression
 models: K-nearest neighbour regression, linear regression, support
-vector regression, Gaussian process regression, decision tree, random
-forest, gradient-boosted trees (LightGBM) and the multilayer
-perceptron. Each is described below, along with whether it meets
+vector regression, Gaussian process regression, decision tree and
+ensemble trees (LightGBM). Each is described below, along
+with whether it meets
 the requirement of size constrained. In model evaluation, we analyse
 how the models perform after quantisation.
 
@@ -126,13 +119,12 @@ The most common choice is the radial basis function (RBF) kernel
     \exp\left( -\gamma \lVert \mathbf{x}_i - \mathbf{x} \rVert_2^2 \right)
 \end{equation}
 where $\gamma$ controls how far the influence of each support vector
-reaches. As
-with KNNR, the features are often required standardisation and
+reaches. As with KNNR, the features are often required standardisation and
 scaling, since both the margin and the kernel depend on distances
 between points.
 
 Kernel SVR shares the main weakness of KNNR as it must store
-every support vector for kernel calculation, which is likely to
+every support vector for kernel calculation. Thus kernel SVR is likely to
 exceed the memory limit of constrained devices. Each prediction also
 evaluates the kernel against
 every support vector, which costs $O(|\mathcal{S}|\,m)$ operations,
@@ -145,101 +137,34 @@ linear regression. We therefore evaluate linear SVR for quantisation.
 % TODO: probably too much math
 Gaussian process regression is a probabilistic model that predicts a
 continuous numerical value along with a confidence interval
-\cite{wangIntuitiveTutorialGaussian2023}, and is built with the
-assumption that any set of inputs follow a multivariate Gaussian
-$\mathbf{f} \sim \mathcal{N}(\boldsymbol{\mu},
-\boldsymbol{\Sigma})$.
+\cite{wangIntuitiveTutorialGaussian2023}. It assumes that the outputs
+at any set of inputs follow a multivariate Gaussian distribution
+$\mathbf{f} \sim \mathcal{N}(\boldsymbol{\mu}, \mathbf{K})$, whose
+covariance is given by a kernel function. The GPR gives two outputs:
+the predicted mean and the confidence interval.
 
-% TODO: include a bit of the kernel
-% TODO: include how the model predict
-To predict, GPR conditions this prior on the training data. Let
-$\mathbf{K}$ be the $n \times n$ matrix with entries
-$K(\mathbf{x}_i, \mathbf{x}_j)$ over the training points, $\mathbf{y}$
-the vector of training outputs, and $\mathbf{k}_*$ the vector of
-kernel values between a new input $\mathbf{x}$ and each training
-point. Assuming the observed outputs contain Gaussian noise with
-variance $\sigma_n^2$, the prediction at $\mathbf{x}$ is again
-Gaussian, with mean and variance
-\begin{equation}
-    \hat{y}(\mathbf{x}) = \mathbf{k}_*^{\top}
-    \left( \mathbf{K} + \sigma_n^2 \mathbf{I} \right)^{-1} \mathbf{y},
-    \qquad
-    \sigma^2(\mathbf{x}) = K(\mathbf{x}, \mathbf{x})
-    - \mathbf{k}_*^{\top}
-    \left( \mathbf{K} + \sigma_n^2 \mathbf{I} \right)^{-1}
-    \mathbf{k}_*.
-\end{equation}
-The mean $\hat{y}(\mathbf{x})$ is used as the predicted value, and the
-variance $\sigma^2(\mathbf{x})$ gives its uncertainty. The kernel
-parameters $\ell$, $\sigma_f$ and $\sigma_n$ are learned during
-training by maximising the likelihood of the training data. As with
-KNNR and SVR, the features must be standardised first, since the
-kernel depends on distances between points.
+Since GPR uses kernel function, it has similar disadvantages as
+kernel SVR in which the prediction depends on all training points,
+exceeding the 5\,KB limit. Each prediction also evaluates the
+kernel against every training point, at a cost of $O(nm)$ for the
+mean and $O(n^2)$ for the variance, and each kernel evaluation needs
+an exponential that requires floating-point arithmetic. Furthermore,
+we do not use uncertainty estimate in the objective function, thus
+making the confidence interval output of GPR redundant.
+We therefore exclude GPR from further evaluation.
 
-GPR does not suit our devices. Like KNNR, it is non-parametric: every
-prediction depends on all $n$ training points, so they must all be
-stored on the device, together with the precomputed weights
-$(\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1}\mathbf{y}$, which far
-exceeds the 10\,KB limit. Training is also expensive, since inverting
-the $n \times n$ matrix costs $O(n^3)$ operations and $O(n^2)$ memory
-\cite{wangIntuitiveTutorialGaussian2023}. Training could be done
-offline, but each prediction still evaluates the kernel against every
-training point, at a cost of $O(nm)$ for the mean and $O(n^2)$ for
-the variance, and each kernel evaluation needs an exponential that
-requires floating-point arithmetic. Finally, the uncertainty estimate,
-which is GPR's main advantage, is not used by our objective function,
-which only needs a point estimate of PDR. We therefore exclude GPR
-from further evaluation.
-
-\subsubsection{Multilayer Perceptron (MLP)}
-The multilayer perceptron is the basic form of a neural network,
-consisting of layers of \emph{neurons} \cite{goodfellow2016deep}.
-Each neuron computes a weighted sum of its inputs and
-passes it through a non-linear \emph{activation function}. For a
-hidden layer $h$ that receives the input $\mathbf{x}$ with
-$m$ features, the output is
-\begin{equation}
-    \mathbf{z} = \sigma\left( \mathbf{W}\mathbf{x} + \mathbf{B} \right),
-\end{equation}
-where $\mathbf{W}$ is the weights of the layer $h$, $\mathbf{B}$ is
-the biases, and $\sigma$ is the
-activation function. The output of one
-layer becomes the input of the next, and the final layer combines the
-outputs of the last hidden layer into the predicted value. The weights
-and biases are learned by gradient descent, using backpropagation to
-compute how much each one contributes to the prediction error.
-An MLP can in theory approximate any continuous function, given enough neurons.
-
-% TODO: include computation cost
-Despite that, the MLP's size remains a concern for memory-constrained
-devices. Each hidden layer stores $(m+1)h$ parameters, and each
-prediction costs one multiply-add per weight, far more than a linear
-model. % TODO: need a stronger argument for this
-While a very small network could fit within the 5\,KB limit,
-MLPs are hard to run without floating-point arithmetic: quantising
-them requires rescaling the values between every layer, and smooth
-activation functions such as the sigmoid or $\tanh$ need either
-floating point or lookup tables. MLPs also need much more training
-data and tuning than the other models, such as choosing the number of
-layers and neurons and the learning rate. Like linear regression,
-they depend on feature scaling, so the sentinel values for unknown
-features distort their inputs. Finally, on small tabular datasets
-such as ours, tree-based models usually match or beat neural networks
-in accuracy \cite{grinsztajn2022treebasedmodelsoutperformdeep}.
-We therefore exclude the MLP from further evaluation.
-
-\subsubsection{Decision Tree}
+\subsubsection{Decision Tree Regression}
 % TODO: insert citation for this (e.g. Breiman et al., CART)
 A decision tree predicts by asking a series of yes/no questions about
-the input. Each internal node tests one feature against a threshold,
-such as ``is the hop count at most 3?'', and sends the input to its
-left or right child depending on the answer. The input follows this
+the input. Each internal node tests one feature against a threshold
+and sends the input to its left or right child depending on the
+answer. The input follows this
 path from the root until it reaches a leaf, and the value stored in
-that leaf is the prediction. In a regression tree, the leaf value is
-the mean output of the training points that reached that leaf.
+that leaf is the prediction, which in regression is the mean output
+of the training points that reach that leaf.
 
 The tree is built top-down. At each node, picks the feature to split that most
-reduces the error of the prediction. For regression this error is
+reduces the error of the prediction. For regression, this error is
 the squared error, so the chosen split of the node's training points
 $S$ into a left part $S_L$ and a right part $S_R$ maximises
 \begin{equation}
@@ -250,13 +175,12 @@ $S$ into a left part $S_L$ and a right part $S_R$ maximises
     \mathrm{MSE}(S) = \frac{1}{|S|} \sum_{i \in S}
     \left( y_i - \bar{y}_S \right)^2,
 \end{equation}
-where $\bar{y}_S$ is the mean output of the points in $S$. Splitting
-stops when the tree
-reaches a maximum depth or when a split would leave fewer than a
-minimum number of points in a leaf. Both limits are chosen by a
-hyperparameter search, and they also control the size of the tree,
-since a tree of depth $d$ has at most $2^d$ leaves.
+where $\bar{y}_S$ is the mean output of the points in $S$. This process
+stops when the tree reaches a maximum depth or when a split would
+leave fewer than a minimum number of points in a leaf. Both controls
+the size of the tree and are chosen by a hyperparameter search.
 
+% TODO: review this
 The decision tree fits our requirements well. A trained tree converts
 directly into nested \texttt{if}--\texttt{else} statements in C, and
 each prediction makes at most $d$ comparisons, regardless of the

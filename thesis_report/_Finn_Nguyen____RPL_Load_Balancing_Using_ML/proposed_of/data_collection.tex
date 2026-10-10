@@ -1,4 +1,5 @@
 \section{Data Collection for Model Training}
+\label{sec:data-collection}
 The features are chosen to describe the load on a node and on the
 whole chain from a candidate parent to the root. Nodes closer to the root
 forward the traffic of all their children, so they process more
@@ -11,29 +12,46 @@ so the energy
 consumption of every node is similar regardless of its load where as
 the CPU usage increases with the number of packets the node processes.
 
-In total, we have 10 features ranging from node metrics, link
-metrics and whole path metrics, and one flag \texttt{is\_new} due to
-the way we gather the metrics as explained in later section. Each
-node measures three metrics of its own and smooths the value
+As for the metric, each node measures three metrics of
+its own and smooths the value
 using EWMA to avoid sudden changes in value:
 % TODO: include how each feature is calculated
 \begin{itemize}
     \item \textbf{CPU usage} (\texttt{cpu}): the fraction of time the
         CPU is active, measured with Energest.
+        \begin{equation}
+            \text{CPU usage (\%)} = \frac{\text{CPU active ticks}}{\text{Total
+            ticks}} \times 100
+        \end{equation}
     \item \textbf{Transmission rate} (\texttt{ppm}): the number of
         MAC-layer transmissions, including retransmissions, per unit
         of time. This counts the node's own packets and those it
         forwards for its descendants.
+        \begin{equation}
+            \text{PPM} = \frac{\text{Number of transmissions}}{\Delta
+            \text{Time}}
+        \end{equation}
     \item \textbf{Drop rate} (\texttt{drop\_rate}): the number of
         transmissions per packet dropped because the MAC queue was
         full.
+        \begin{equation}
+            \text{Drop rate} = \frac{\text{Number of
+            transmissions}}{\text{Number of dropped packets}}
+        \end{equation}
 \end{itemize}
 
-Each node also measures the link metrics from the received packets:
+To reduce the fluctuation in CPU usage, transmission rate and drop
+rate, each node smooths its own measurements with an
+exponentially weighted moving average (EWMA):
+\begin{equation}
+    \bar{m}_t = \frac{11}{16}\,\bar{m}_{t-1} + \frac{5}{16}\,m_t,
+\end{equation}
+where $m_t$ is the latest measurement and $\bar{m}_t$ the smoothed
+value. The weights are multiples of $1/16$ so that the division is a
+bit shift, which is cheap on the microcontroller.
+
+Each node also measures RSSI from the received packets:
 \begin{itemize}
-    \item \textbf{ETX} (\texttt{etx}): the expected number of
-        transmissions needed for a packet to be received and
-        acknowledged on the parent's link towards the root.
     \item \textbf{RSSI} (\texttt{rssi}): the received signal strength
         on that link.
 \end{itemize}
@@ -53,17 +71,6 @@ candidate in their DIOs:
         ancestors as described below.
 \end{itemize}
 
-CPU usage, transmission rate and drop rate are measured over windows
-of at least 30\,s and fluctuate from one window to the next. To reduce
-this noise, each node smooths its own measurements with an
-exponentially weighted moving average (EWMA):
-\begin{equation}
-    \bar{m}_t = \frac{11}{16}\,\bar{m}_{t-1} + \frac{5}{16}\,m_t,
-\end{equation}
-where $m_t$ is the latest measurement and $\bar{m}_t$ the smoothed
-value. The weights are multiples of $1/16$ so that the division is a
-bit shift, which is cheap on the microcontroller.
-
 We include the path metrics in a decayed fashion so that node high
 above would affect the current node decision weakly.
 which blends its own smoothed value with the path
@@ -72,8 +79,7 @@ value advertised by its parent:
     w_v = \frac{5}{16}\,\bar{m}_v + \frac{11}{16}\,w_{p(v)},
 \end{equation}
 where $w_v$ is the path value of node $v$, $p(v)$ is its parent, and
-the root advertises $w = 0$. Expanding this recursion, an ancestor $k$
-hops above $v$ contributes with weight.
+the root advertises $w = 0$.
 
 RPL re-evaluates a node's preferred parent whenever the node processes
 a DIO so we log a row of features in two situations: when a
@@ -86,21 +92,23 @@ To let the model tell the two situations apart, each row includes the
 \texttt{is\_new} flag, which is 1 after a parent switch and 0
 otherwise.
 
-The model should predict the PDR a node would achieve if it selected
+In total, we have 10 features in the training set. The model then
+learn to predict the PDR a node would achieve if it selected
 a given parent. The label of each row is the PDR the node
 achieved with that parent, measured over the period until
 its next row. For a row logged at time $t_i$, with the node's next
 row at time $t_{i+1}$, the label is
 \begin{equation}
     \mathrm{PDR}_i = \frac{\text{Number of received packets at
-    root}}{\text{number of transmitted packets}}
+    root}}{\text{Number of transmitted packets}}
 \end{equation}
 
 We use the parameters in
 Table~\ref{tab:data-gathering-sim-parameters} to gather the training
-data. We discard the timeslot less than 30 seconds.
-We have around 388331 logs, and randomly select 80000 logs for
-training purposes. And one final random seed with 77339 rows is used for evaluation.
+data. We then discard the timeslot less than 30 seconds to avoid
+noisy data. In the end, we select 80000 rows randomly from collected
+388331 rows from the first four topologies, and leave the last
+topology with 77339 rows for model evaluation.
 
 \begin{table}[ht]
     \caption{Simulation parameters for data gathering.}

@@ -1,0 +1,5 @@
+- Bar chart and no offset.
+- Retransmission in MAC
+- Why does more overhead in the model (higher inference time) results in lower PDR?
+    - Maybe packets loss during interference, queue loss
+- How often the packet is taken the correct route.

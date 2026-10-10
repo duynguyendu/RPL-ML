@@ -5,6 +5,18 @@ against the Contiki-NG objective functions OF0 and MRHOF. We compare
 their QoS in random topologies of 60 to 100 nodes under increasing
 traffic load, and then quantify the overhead introduced by MLOF.
 
+\section{Pilot Test of MLOF}
+In this section, we run four models on a fast simulation using random
+topologies to test the feasibility of each model. We run the test on
+60 nodes with varying traffic rate from 64 to 128 for 600 seconds.
+Figure~\ref{fig:} shows the PDR of the pilot test.
+
+The results shows that linear regressoin and SVR model suffers in terms of PDR.
+Because of this, we remove linear regression and SVR from subsequent
+simulations and explain the possible reason for such degraded
+performance in the MLOF overhead.
+
+% TODO: include prerun
 \section{Simulation Settings}
 Table~\ref{tab:sim-parameters} shows the simulation parameters
 with the total of 3000 simulations across 25 random topologies and
@@ -54,14 +66,16 @@ ratio (PDR) across all random
 topologies and overloaded-client positions, with 95\% confidence
 intervals over 50 runs for each pair of traffic rate and number of
 nodes. Under light load, all OFs reach almost 100\% delivery ratio.
-As the load increases, \dtree{} sustains a high PDR for
+As the load increases, \dtree{} achieves a high PDR for
 longer than the other OFs, whereas MRHOF yields the lowest PDR in most
-configurations.
-At 60 nodes, \dtree{}
-is the only OF that maintains a PDR above 94\% across all loads,
+configurations. In all cases, the performance of \lgbm{} is worse
+compared to \dtree{}.
+
+At 60 nodes, \dtree{} is the only OF that maintains a PDR above 94\%
+across all loads,
 which is 11.0 and 17.3 percentage points higher than OF0 and MRHOF at
 128~bps, respectively.
-\lgbm{} closely follows \dtree{} up to 112~bps (96.5\%), ut its PDR
+\lgbm{} closely follows \dtree{} up to 112~bps (96.5\%), but its PDR
 then drops sharply by 14.7 percentage points to 81.8\% at 128~bps,
 falling to the level of OF0.
 
@@ -76,24 +90,22 @@ falling to the level of OF0.
 The PDR of \dtree{} plummets as the load increases and the network
 grows. At 80 nodes, \dtree{} achieves 87.4\% at 96~bps, which is
 12.4 percentage points higher than that of OF0 at 75.0\%. However,
-the figure drops rapidly to
+the figure falls to
 65.6\% at 112~bps, where its confidence interval overlaps with that
 of OF0 at 64.6\%. Likewise, at 100 nodes the largest gap occurs at
 64~bps, where \dtree{}
 achieves 97.6\% against 81.5\% for OF0, and from 96~bps onward all OFs
 except MRHOF perform similarly.
 \lgbm{} follows a similar pattern to \dtree{}, outperforming the
-standard OFs at light load, but its PDR degrades sooner. At 80
-nodes it falls from 94.1\% to 73.8\% between 80 and 96~bps, and at 100
+standard OFs at light load but degrading rapidly as the load
+increases. At 80 nodes it falls from 94.1\% to 73.8\% between 80 and
+96~bps, and at 100
 nodes from 90.8\% to 63.9\% between 64 and 80~bps, after which it
 performs at the level of OF0 or slightly below.
-
-% TODO: wording for the difference in CPU
-These results suggest that \dtree{}
-mainly extends the load range over which the network remains
-operational, but cannot prevent degradation once the network is
-saturated. One possible problem is that the overhead of \dtree{} and
-\lgbm{} are more pronounced as the load increase.
+% TODO: elaborate more
+One possible reason
+for the sharp decrease in PDR is the overhead of \dtree{} and
+\lgbm{} becomes more pronounced as the load increases.
 
 \subsection{Latency and Hop Count}
 The end-to-end latency is calculated as the difference between the
@@ -108,7 +120,7 @@ Figure~\ref{fig:hop_count_all_nodes} depicts the average hop count.
 As shown in these two figures, the average end-to-end latency
 closely follows the same trend as the average hop count.
 \dtree{} produces the lowest hop count in all configurations, which
-correspondingly the lowest latency. For example, at 60 nodes and
+corresponds to the lowest latency. For example, at 60 nodes and
 128~bps, \dtree{} forms paths of 3.12 hops on average,
 compared with 3.89 for OF0 and 4.19 for
 MRHOF, resulting in latency of 0.192~s, 0.303~s
@@ -146,21 +158,21 @@ backoff to avoid collisions.
     \end{center}
 \end{fig}
 
-A likely explanation for the low average hop count in OF0 and MLOF of
+The explanation for the low average hop count in OF0 and MLOF of
 both models is that both OF0 and MLOF include hop
 count in their rank calculation. OF0 does so implicitly by deriving
 per-hop step from the link ETX in its rank
 increases, whereas MLOF
 includes the hop count explicitly as an input feature of the model.
-MRHOF considers only the cumulative path ETX and may therefore select
-longer detours when links become congested.
+MRHOF considers only the path ETX and may select longer routes when
+links become congested.
 % TODO: why is hop count of dtree is lower than lgbm
 
-However, the latency results must be interpreted together with the
-PDR. Latency is only measured for successfully delivered packets. When
+On the other hand, the latency results should be interpreted together with the
+PDR as latency is only measured for successfully delivered packets. When
 the delivery ratio is low, packets from nodes far from the root, which
-would otherwise have the highest latency, are more likely to be
-dropped and are thus excluded from the measurement. Thus a reduction
+would have the highest latency, are more likely to be
+dropped and are excluded from the measurement. Thus a reduction
 in latency reflects a genuine improvement only when the PDR is maintained or
 improved. From this perspective, the lower latency of \lgbm{}
 compared with OF0 at high loads should be
@@ -181,7 +193,7 @@ and in low-power modes.
 For stability, we use the number of parent switches per node and the
 average number of DIOs sent per minute per node to measure how stable
 the OFs are.
-The CPU usage must be interpreted together with the routing control traffic
+The CPU usage is interpreted together with the routing control traffic
 and the forwarding load, since processing DIOs, recomputing ranks and
 relaying packets all contribute to it.
 
@@ -192,18 +204,36 @@ messages sent per node per minute and
 the average number of parent switches per node, respectively.
 
 At light load, OF0 has the highest CPU usage, e.g.\ 2.73\% at
-60 nodes and 64~bps compared with 1.99\% for MRHOF. This coincides
-with
-its unstable parent selection: OF0 performs about 102 parent switches
-per node and sends 5.1 DIOs per minute, against 2.6 and 1.6 for MRHOF,
-and each switch resets the Trickle timer. As the load increases, the
-CPU usage of MRHOF grows faster and surpasses that of OF0 at 112, 80
-and 64~bps for 60, 80 and 100 nodes, respectively. These are the same
-load levels at which the hop count and DIO rate of MRHOF overtake
-those
-of OF0, which indicates that the additional overhead stems from
-longer paths and more frequent topology changes.
+60 nodes and 64~bps compared with 1.99\% for MRHOF. This aligns
+with its unstable parent selection at 102 parent switches
+per node and higher DIO transmissions at 5.1 DIOs per minute, against
+2.6 parent switches and 1.6 DIOs per minute per node for MRHOF.
+The high number of parent switches of OF0 in low traffic can be
+attributed to the
+fact that OF0 does not employ rank hysteresis, thus minor
+fluctuations cause frequent switching. MRHOF and MLOF avoid this by
+switching parent only
+when the rank improvement exceeds a threshold.
 
+However, the switching rate of MRHOF surges as the load increases, and
+reaches or surpasses that of OF0 at 128\,bps for 60, 96\,bps for 80
+and 80\,bps for 100 nodes.
+Under such heavy load, ETX degrades rapidly because more
+retransmissions are needed. The higher number of parent switches
+also increases DIO transmissions, since each switch resets the
+Trickle timer so the node can quickly propagate the updated
+routing information. Together, these effects raise MRHOF's CPU
+usage under these conditions.
+
+The switching rate of MLOF
+grows considerably more slowly and remains less than half that of both
+baselines in all configurations. \dtree{} has the most stable topology up
+to moderate loads, e.g.\ 26.2 switches per node at 60 nodes and 128~bps
+compared with 55.0 for \lgbm{}. Once the network saturates, at 80 nodes
+from 112~bps and at 100 nodes from 80~bps, \lgbm{} switches less often
+than \dtree{}. This suggests that the predictions of the single decision tree
+become less stable than those of the ensemble when all paths are
+congested.
 \begin{fig}[tbh]
     \begin{center}
         \includegraphics[width=1\textwidth]{assets/cpu_all_nodes.png}
@@ -229,26 +259,26 @@ longer paths and more frequent topology changes.
         \label{fig:dio_sent_all_nodes}
     \end{center}
 \end{fig}
+% TODO: should I include more number for 80 and 100 nodes
 
 Despite the additional computation required for model inference, both
-MLOF variants use less CPU than the baseline OFs, and \dtree{} achieves
-the lowest CPU usage in every configuration, 20\% and 42\% below
-MRHOF and OF0 at 60 nodes and 64~bps. This can be attributed to the
-more stable topology, with fewer parent switches and DIO
-transmissions, and to shorter paths over better links, which reduce
-the number of transmissions needed to deliver a packet. The difference between
+MLOF variants use less CPU than the baseline OFs thanks to
+more stable topology, fewer parent switches and DIO
+transmissions, and lower average hop count.
+\dtree{} achieves the lowest CPU usage in every configuration, 20\%
+and 42\% below
+MRHOF and OF0 at 60 nodes and 64~bps. The difference between
 \dtree{} and \lgbm{} is most clearly attributable to the inference cost at
 60 nodes and 64~bps, where both produce practically identical PDR, hop
 count and DIO rates, yet \lgbm{} requires 1.78\% CPU compared with 1.59\%
-for \dtree{}, about 12\% more. This is consistent with the higher
+for \dtree{}. This is consistent with the higher
 computational complexity of the gradient-boosted ensemble discussed in
 Section~\ref{sec:overhead}. At higher loads the gap widens, e.g.\ to
 33\% at 128~bps, but here it also reflects the longer paths and more
 frequent parent switches of \lgbm{}.
 
 Since the evaluated topology does not use radio duty cycling, the
-radio
-remains in receive mode and dominates the energy consumption of
+radio remains in receive mode and dominates the energy consumption of
 each node. The reduction in CPU usage therefore translates to only a
 modest saving in total energy. However, it indicates that the
 inference overhead of MLOF is outweighed by the processing it saves,
@@ -256,88 +286,51 @@ and the benefit is expected to be more pronounced in duty-cycled
 networks, where processing and transmissions account for a larger
 share of the energy budget
 
-The low number of parent switches is low traffic can be attributed to This is because OF0 applies no hysteresis: any
-candidate that advertises a slightly lower rank immediately replaces
-the current preferred parent, so minor fluctuations in link quality
-cause frequent switching. MRHOF and MLOF avoid this by switching only
-when the rank improvement exceeds a threshold. As the load increases,
-however, the switching rate of MRHOF grows rapidly as ETX degrades
-faster under heavy node due to more retransmissions required. It reaches that of
-OF0 at 60 and 80 nodes and clearly exceeds it at 100 nodes from
-112~bps
-onward (210 versus 169 switches per node). The switching rate of MLOF
-grows considerably more slowly and remains less than half that of both
-baselines in all configurations. \dtree{} has the most stable topology up
-to
-moderate loads, e.g.\ 26.2 switches per node at 60 nodes and 128~bps
-compared with 55.0 for \lgbm{}. Once the network saturates, at 80 nodes
-from 112~bps and at 100 nodes from 80~bps, \lgbm{} switches less often
-than
-\dtree{}. This suggests that the predictions of the single decision tree
-become less stable than those of the ensemble when all paths are
-congested.
-
-The topology stability is also reflected in the number of sent DIOs
-shown in Figure~\ref{fig:dio_sent_all_nodes}. A change of
-preferred parent or rank resets the Trickle timer and causes the node
-to advertise its new rank, which in turn may trigger updates
-throughout
-its sub-DODAG. Consequently, OF0 sends 5.1 DIOs per node per minute at
-60 nodes and 64~bps, against 1.4 for both MLOF variants. Under heavy
-load, MRHOF produces the highest DIO rate, up to 8.4 per node per
-minute
-at 100 nodes and 128~bps compared with 5.2 for OF0 and about 3.1 for
-MLOF. MRHOF sends more DIOs than OF0 even where both switch parents at
-a similar rate, which indicates that its DIOs are also driven by rank
-changes caused by ETX fluctuations on congested links, even when the
-parent stays the same. Likewise, the higher switching rate of DTree
-at saturation does not translate into more DIOs than LGBM, as both
-remain
-at about 3.0--3.2 DIOs per node per minute.
-
 \section{Overhead of MLOF}\label{sec:overhead}
-MLOF introduces three kinds of overhead: the computation required for
-model inference and the additional bytes required to share load
-metrics between neighbours. 
-\subsubsection{Computational Overhead}
-On the Z1 platform, a single inference
-takes on average 13.0~$\mu$s for DTree and 118.8~$\mu$s for LGBM,
-i.e.\ the gradient-boosted ensemble is about nine times more expensive
-than the single decision tree. % TODO: state how measured (N calls,
-clock). This might account for the reason that \lgbm{} performs worse
-than \dtree{} despite the two models perform relatively similar in
-the model evaluation.
+\subsubsection{Model Inference Overhead}
+On the Z1 platform, a single inference takes on average 13.0~$\mu$s
+for \dtree{} and 118.8~$\mu$s for \lgbm{}. This may partly explain
+why \lgbm{} performs worse than
+\dtree{} in the network, even though the two models achieve similar
+accuracy in the offline evaluation. Moreover, the inference overhead
+grows with more frequent DIO messages and parent changes, which could
+consume more share of the CPU compared. This may contribute to the
+sharper degradation in the PDR as the load increases in both \dtree{}
+and \lgbm{}.
+% TODO: maybe packet loss during inference
 
 \subsubsection{Memory Overhead}
+As for the memory overhead, Table~\ref{tab:memory-overhead} shows the
+ROM and RAM footprint of each OF. Compared with MRHOF, \dtree{}
+requires about 4.3~kB more ROM on the server and 3.9~kB more on the
+client, as well as 224 and 96 bytes more RAM, respectively. \lgbm{}
+requires the same amount of RAM as \dtree{}, since both models are
+stored as constants in ROM and the additional RAM is used only for the
+shared metrics. However, \lgbm{} requires a further 2.9~kB of ROM
+compared with \dtree{}, due to the larger gradient-boosted ensemble.
+In all cases, the footprint remains well within the 92~kB of flash and
+8~kB of RAM available on the Z1.
+
 \begin{table}[h]
-\caption{Memory footprint of each objective function on the Z1 mote (in
-bytes), with \texttt{BUFFER\_SIZE}=8 and \texttt{NETWORK\_SIZE}=60.}
-\label{tab:memory-overhead}
-\begin{center}
-    \begin{tabular}{lrrrr}
-        \hline
-        \textbf{OF} & \textbf{Server ROM} & \textbf{Server RAM} &
-        \textbf{Client ROM} & \textbf{Client RAM} \\
-        \hline
-        OF0         & 42692 & 5752 & 44805 & 4886 \\
-        MRHOF       & 42712 & 5752 & 44825 & 4886 \\
-        MLOF-Linear & 45612 & 5976 & 47379 & 4982 \\
-        MLOF-SVM    & 45594 & 5976 & 47361 & 4982 \\
-        \dtree{}  & 46978 & 5976 & 48745 & 4982 \\
-        \lgbm{}   & 49858 & 5976 & 51625 & 4982 \\
-        \hline
-    \end{tabular}
-\end{center}
+    \caption{Memory footprint of each objective function on the Z1 mote (in
+    bytes), with \texttt{BUFFER\_SIZE}=8 and \texttt{NETWORK\_SIZE}=60.}
+    \label{tab:memory-overhead}
+    \begin{center}
+        \begin{tabular}{lrrrr}
+            \hline
+            \textbf{OF} & \textbf{Server ROM} & \textbf{Server RAM} &
+            \textbf{Client ROM} & \textbf{Client RAM} \\
+            \hline
+            OF0         & 42692 & 5752 & 44805 & 4886 \\
+            MRHOF       & 42712 & 5752 & 44825 & 4886 \\
+            \dtree{}  & 46978 & 5976 & 48745 & 4982 \\
+            \lgbm{}   & 49858 & 5976 & 51625 & 4982 \\
+            \hline
+        \end{tabular}
+    \end{center}
 \end{table}
 
-As for the memory overhead, Table~\ref{tab:memory-overhead} shows the
-compiled memory and RAM. Overall, \dtree{} required around 4.3~KB
-more ROM for server, 4~KB more ROM for client and 224 bytes RAM for
-server and 96 bytes RAM for client. The needed RAM for \lgbm{} is the
-same, however, the size of ROM is needed more around 3~KB compare to
-\dtree{} due to the heavier gradient-boosted model of LGBMRegressor than
-Decision Tree.
-
+\subsubsection{DIO Overhead}
 To share the load metrics between neighbours, MLOF appends a DAG
 Metric Container option to every DIO message. The option consists of a
 1-byte option type (\texttt{DAG\_METRIC\_CONTAINER}), a 1-byte option
@@ -345,23 +338,19 @@ length and a 1-byte container tag (\texttt{RPL\_DAG\_MC\_MLOF}),
 followed by three metrics: the path CPU usage \texttt{path\_cpu}
 (1~byte), the path packet rate \texttt{path\_ppm} (2~bytes) and the
 hop count (1~byte). In total, each DIO carries 7 additional bytes
-compared with OF0 and MRHOF, which do not include a metric container
-in the evaluated configuration.
+compared with OF0 and MRHOF.
 
-Over a one-hour simulation of 60 nodes at 64~bps, DTree sends about
-4\,900 DIOs in total, adding 34~kB of metric data, while the nodes
-generate 27\,000 data packets (1.73~MB). Across all evaluated
-configurations, the additional bytes amount to 1.4--3.2\% of the
-generated application traffic. However, because MLOF maintains a more
-stable topology, it sends considerably fewer DIOs than the baseline
-OFs (Section~\ref{...}), so that its total routing control traffic
-remains lower despite the larger messages. At 60 nodes and 64~bps,
-OF0 sends 3.7 times as many DIOs as MLOF, and MRHOF sends 19\% more,
-% TODO: what does this means, give the total number of bytes instead
-which outweighs the 7-byte extension for any DIO of at least
-38~bytes. Combined with the lower CPU usage and higher PDR
-reported above, this indicates that the overhead introduced by MLOF is
-more than compensated by the gains in routing stability.
+MLOF of both models send fewer DIOs than the baseline OFs
+thanks to a more stable topology, so that the share of the added
+metrics remains lower. Over a one-hour simulation
+of 60 nodes at 64~bps, \dtree{} sends about 4\,900 DIOs, totalling
+408~kB (83~bytes each), compared with 443~kB for MRHOF and 1\,395~kB
+for OF0 (76~bytes each).
+At 100 nodes and 128~bps, \dtree{} sends 1\,550~kB of DIOs,
+compared with 2\,363~kB for OF0 and 3\,824~kB for MRHOF. Combined
+with the lower CPU usage and higher PDR reported above, this indicates
+that the overhead introduced by MLOF is compensated by the
+gains in routing stability.
 
 \section{Routing Topology}
 % TODO: probably can say that the model consider both hop count, path

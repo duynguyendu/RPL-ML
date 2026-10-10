@@ -333,6 +333,29 @@ def _stratified_samples(df: pd.DataFrame, train_config) -> dict:
     }
 
 
+def _training_samples(df: pd.DataFrame, train_config) -> dict:
+    """Training rows per data seed: stratified, plain random, or all rows (key None)."""
+    if train_config.near_overloading_fraction > 0.0 and "overloading_hops" not in df:
+        print(
+            "Warning: train.csv has no overloading_hops column (re-run process_data) "
+            "-- falling back to plain random sampling"
+        )
+    if 0.0 < train_config.near_overloading_fraction <= 1.0 and "overloading_hops" in df:
+        return _stratified_samples(df, train_config)
+    if len(df) > train_config.max_train_rows:
+        print(
+            f"Training on {train_config.max_train_rows} of {len(df)} rows per data seed "
+            f"(seeds={train_config.training_data_seeds})"
+        )
+        return {
+            data_seed: df.sample(n=train_config.max_train_rows, random_state=data_seed)
+            for data_seed in train_config.training_data_seeds
+        }
+    # everything fits under the cap -- no sampling, so data seeds are moot
+    print(f"Training on all {len(df)} rows (no data-seed sampling)")
+    return {None: df}
+
+
 def _hold_out_last_topo_seed(df: pd.DataFrame, train_config) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split into (train+validation, test) rows, testing on the highest topo_seed.
 
@@ -366,26 +389,7 @@ def grid_search() -> list[dict]:
 
     df = _load_training_data(train_config)
     df, test_df = _hold_out_last_topo_seed(df, train_config)
-    if train_config.near_overloading_fraction > 0.0 and "overloading_hops" not in df:
-        print(
-            "Warning: train.csv has no overloading_hops column (re-run process_data) "
-            "-- falling back to plain random sampling"
-        )
-    if 0.0 < train_config.near_overloading_fraction <= 1.0 and "overloading_hops" in df:
-        data_by_seed = _stratified_samples(df, train_config)
-    elif len(df) > train_config.max_train_rows:
-        data_by_seed = {
-            data_seed: df.sample(n=train_config.max_train_rows, random_state=data_seed)
-            for data_seed in train_config.training_data_seeds
-        }
-        print(
-            f"Training on {train_config.max_train_rows} of {len(df)} rows per data seed "
-            f"(seeds={train_config.training_data_seeds})"
-        )
-    else:
-        # everything fits under the cap -- no sampling, so data seeds are moot
-        data_by_seed = {None: df}
-        print(f"Training on all {len(df)} rows (no data-seed sampling)")
+    data_by_seed = _training_samples(df, train_config)
 
     all_features = train_config.FEATURE_COLUMNS
     arrays_by_seed = {

@@ -43,12 +43,17 @@
   "ENERGEST: CPU=%lu LPM=%lu LISTEN=%lu "                                      \
   "TRANSMIT=%lu OFF=%lu TOTAL=%lu HOP_COUNT=%u "                               \
   "ETX=%u.%02u RSSI=%d TX=%d RX=%d ACKED=%d DROPPED=%d "                       \
-  "DIO_SENT=%lu PREDICT_US=%lu PREDICT_COUNT=%lu\n"
+  "DIO_SENT=%lu PREDICT_US=%lu PREDICT_COUNT=%lu "                            \
+  "DAG_UPDATE_US=%lu DAG_UPDATE_COUNT=%lu\n"
 
 #define LATENCY_LOG "LATENCY: seqno=%" PRIu32 " rtt_ticks=%" PRIu32 "\n"
 /// -------------------- METRICS LOG END -------------------------------
 
 extern int hop_count;
+
+/* Defined in rpl-dag.c */
+extern uint32_t rpl_dag_update_ticks;
+extern uint32_t rpl_dag_update_count;
 
 #if RPL_MULTIPLE_METRICS
 /* Defined in rpl-mlof.c */
@@ -126,7 +131,8 @@ PROCESS_THREAD(metrics_process, ev, data) {
     printf(METRICS_LOG, cpu, lpm, listen, transmit, off, total, hop_count,
            etx_int, etx_frac, rssi, tx_packets, rx_packets, ack_packets,
            dropped_packets, (unsigned long)rpl_dio_sent_count, predict_us,
-           predict_count);
+           predict_count, (unsigned long)RTIMERTICKS_TO_US_64(rpl_dag_update_ticks),
+           (unsigned long)rpl_dag_update_count);
 
     etimer_reset(&metrics_timer);
   }

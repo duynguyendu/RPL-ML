@@ -1,67 +1,50 @@
 \section{Model Performance Evaluation}
-% TODO: include the result of the model
 % TODO: include hyperparameters selection
-In this section, we evaluate the performance of four models: Linear
-regression, Linear Support Vector Regression (SVR), Decision Tree and
-LightGBM and the effect of quantisation on the performance of the model
-
-First we train the model then quantise the models to see how
-quantisation affect the model performance
-The Linear regression and Linear SVR have min-max scaling and
+In this section, we evaluate the performance of four models: linear
+regression, linear SVR, decision tree and
+LightGBM, and measure the effect of quantisation on the performance of the
+model. Linear regression, linear SVR and decision tree are
+implemented with \texttt{scikit-learn} \cite{scikit-learn} and
+LightGBM is from \texttt{lightgbm} package.
+% TODO: cite lightgbm
+We first train the model on default hyperparameter then quantise the
+models to see how quantisation affect the model performance. For
+linear regression and linear SVR have min-max scaling and
 standardisation before fitting the model to improve the accuracy.
 
-For the decision tree and LightGBM, we quantise by converting each
-tree into nested \texttt{if}/\texttt{else} statements in C and
-rounding only its constants.
-Because every input feature is already an integer, a split threshold
-$t$ can be replaced by $\lfloor t \rfloor$ without changing any
-decision: for integer $x$, $x \le t$ and $x \le \lfloor t \rfloor$
-give the same result.
-Leaf values are rounded to the nearest integer on the output scale
-$[0, 65535]$.
-For LightGBM, each tree returns its rounded leaf value, and the trees
-are summed in an \texttt{int32\_t} that is clamped to $[0, 65535]$
-once at the end.
-Each rounded leaf adds at most $0.5$ of error, so the worst-case
-rounding error is $0.5$ for the decision tree and $0.5T$ for LightGBM
-with $T$ trees.
-Neither model needs any multiplication or division on the mote.
+For the decision tree and LightGBM, quantisation is simple: every
+split threshold $t$ is rounded down to $\lfloor t \rfloor$, and every
+leaf value is rounded to the nearest integer. Since the features are
+integers, $x \le t$ holds exactly when $x \le \lfloor t \rfloor$, so
+rounding the thresholds does not change any split.
 
-For linear regression and linear SVR, we quantise using fixed-point
-arithmetic, since both the feature scaling and the coefficients are
-fractional.
-First, the two preprocessing steps, min--max scaling followed by
-standardisation, are folded into a single affine transform
-$(x_i - \mu_i)/d_i$ per feature.
-This transform is then computed with integers only,
+Linear regression and linear SVR need fixed-point arithmetic, since
+both the feature scaling and the coefficients are fractional.
+To eliminate floating-point arithmetic, each fractional value is
+multiplied by a large constant and rounded to an integer. The final
+result is then divided by the same constant to recover the actual
+value. The constant is choosen as power of two so that the division can be
+reduced to bitshift
 \begin{equation}
-    z_i = (x_i - \mu_i) \cdot s_i,
-    \qquad s_i = \operatorname{round}\!\left(\frac{S_z}{d_i}\right),
+    \hat{y}(\mathbf{x}) =
+    \left( c_0' + \sum_{j=1}^{m} c_j' x_j \right) \gg b,
 \end{equation}
-where $\mu_i$ is rounded to an integer and $s_i$ is an integer
-multiplier, so the mote never divides at this step.
-The coefficients and intercept are scaled to integers as
-$c_j' = \operatorname{round}(c_j S_c)$ and
-$c_0' = \operatorname{round}(c_0 S_z S_c)$, and the prediction uses a
-single division at the end:
-\begin{equation}
-    \hat{y}(\mathbf{x}) = \operatorname{clamp}\!\left(
-        \frac{c_0' + \sum_{j=1}^{m} c_j' z_j}{S_z S_c},\; 0,\; 65535
-    \right).
-\end{equation}
-The scale factors $S_z$ and $S_c$ are powers of ten, chosen so that
-every intermediate value fits in 32 bits, because the MSP430F2617
-performs 64-bit multiplication and division in software.
-Let $K$ be the worst-case accumulator magnitude with both scales set
-to 1.
-We require $S_z S_c < 0.9 \cdot 2^{31} / K$, which leaves 10\%
-headroom.
-$S_z$ takes as much of this budget as possible, and $S_c$ takes the
-rest
+where $c_0'$ and $c_j'$ are the coefficients multiplied by $2^b$. The
+exponent $b$ is chosen as large as possible such that every
+intermediate value fits in 32 bits.
 
-Table ... gives the traininig performance of the four models on full
-11 features in the training data set and the testing result on the
-random topology 6.
+% TODO: reivew this part
+Table~\ref{tab:model_results} gives the performance of the
+four models training 11 features against the validation set extracted
+from the training data and one the final reserved topology for
+testing. Quantisation has a negligible effect on accuracy of all four
+models. The test MAE of LightGBM and the decision tree is unchanged,
+and the test MAEP of the linear models shifts by less than 0.2
+percentage points, well below
+the gap between the model families. Since the integer-only versions
+predict as accurately as their floating-point counterparts, they can
+run directly on the motes, and we carry them forward to evaluation in
+simulation.
 
 \begin{table}[htbp]
     \centering
@@ -73,6 +56,7 @@ random topology 6.
         & \multicolumn{2}{c|}{Train}
         & \multicolumn{2}{c|}{Test}
         & \multicolumn{2}{c}{Test (quantised)} \\
+        \cline{2-7}
         \textbf{Model}
         & MAE & MAEP (\%) & MAE & MAEP (\%) & MAE & MAEP (\%) \\
         \hline
@@ -87,10 +71,3 @@ random topology 6.
         \hline
     \end{tabular}
 \end{table}
-
-Quantisation reduces the performance of linear regression and
-support vector regression significantly. This is probably due to the
-fact that these models rely heavily on floating point for
-coefficients and the different in range of the features and predicted value.
-Thus we conclude that linear regression and linear SVR are not fit
-for our purposes

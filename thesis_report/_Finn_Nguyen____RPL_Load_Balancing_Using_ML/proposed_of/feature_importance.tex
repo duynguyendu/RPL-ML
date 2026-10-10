@@ -1,29 +1,25 @@
 \section{Feature Selection}
-% TODO: review this section
 Feature selection is the process of choosing a subset of the available
 input features that are most relevant to the prediction target, and
 discarding those that are redundant or uninformative. Using fewer
-features reduces the risk of overfitting, makes the model easier to
-interpret and, most importantly for this work, reduces the size of the
-model and the cost of inference on a constrained device. It also
+features reduces the size of the model and the cost of inference on a
+constrained device. It also
 reduces the number of metrics each node must measure and share with
-its neighbours.
+its neighbours in the DIOs.
 
-% TODO: have to specify how feature correlation and feature
-% importance are different
-In this section, we combine filter method: Spearman correlations
-which measures the correlation between
-features prior to training the model and identify weakly related
-features to the output label.
-Two widely used examples are permutation importance
-\cite{altmannPermutationImportanceCorrected2010} and SHapley Additive
-exPlanations (SHAP) \cite{lundbergUnifiedApproachInterpreting2017},
-both described below.
-And permutation importance and SHAP after training on a full feature
-set to identify the subset of feature.
-Decision tree and LGBMTreeRegressor have embedded feature importance
-during the training. However, these are not comparable to each other
-as the method used to calculate that differ from model to model.
+In this section, we perform feature correlation analysis and two
+feature importance analysis on trained model to select
+features. As for feature correlation, we compute the
+Spearman rank correlation to find the weakly correlated features to the
+output label. After training each model on the full feature set, we then apply
+permutation importance \cite{altmannPermutationImportanceCorrected2010}
+and SHapley Additive exPlanations (SHAP)
+\cite{lundbergUnifiedApproachInterpreting2017} to identify the subset
+of features the model relies on.
+Although decision trees and LightGBM provide built-in feature
+importance scores, each computes them differently, so we use
+permutation importance and SHAP instead, which apply the same
+procedure to every model and can therefore be compared directly.
 
 \subsection{Feature Correlation}
 Spearman's rank correlation coefficient by measuring how well the
@@ -47,9 +43,7 @@ the Pearson coefficient between the ranks:
 where $R(X)$ and $R(Y)$ are the ranks of $X$ and $Y$. Because the
 ranks of a monotonic relationship always lie on a straight line,
 Pearson's coefficient on the ranks reaches $\pm 1$ for any perfectly
-monotonic relationship, linear or not. For example, if PDR falls
-whenever the parent's drop rate rises, $\rho = -1$ even if PDR falls
-slowly at first and then sharply
+monotonic relationship, linear or not.
 
 Figure~\ref{fig:feature_correlation} shows the Spearman correlation
 between each pair of the 11 collected features and the PDR. Three
@@ -76,13 +70,12 @@ is barely correlated with any other feature.
 \end{fig}
 
 \subsection{Feature Importance}
-In this section, we use permutation importance and SHAP to evaluate
-how importance each feature contribute to the predicted output.
-
 \subsubsection{Permutation Importance}
-Permutation importance \cite{altmannPermutationImportanceCorrected2010}
-inspects how importance each feature is by swapping the value of
-each feature in data rows. The method first measures the model's
+Permutation importance inspects how importance each feature is by
+swapping the value of
+each feature in data rows
+\cite{altmannPermutationImportanceCorrected2010}. The method first
+measures the model's
 baseline score $s$ on a dataset. Then, for each feature $j$, it
 randomly shuffles that feature's values across
 the rows, which keeps the feature's distribution but removes its
@@ -94,41 +87,20 @@ score:
     i_j = s - \frac{1}{K} \sum_{k=1}^{K} s_{k,j},
 \end{equation}
 where $s_{k,j}$ is the score after the $k$-th shuffle of feature $j$.
-In this work, the score is the negative mean absolute error, so
-$i_j$ is the average increase in prediction error when feature $j$
-is shuffled.
-% TODO: double check this claim
+% TODO: double check this running parameters
 We use $K = 10$, and compute the importance on a
 held-out test set of 20\% of the data, so that it reflects how the
 model generalises rather than what it memorised during training.
-
-% TODO: Do I need this paragraph
-Permutation importance avoids the main weaknesses of the mean
-decrease in impurity (MDI) described above. MDI is calculated from
-the training data and favours features with many distinct values,
-such as ETX, over low-cardinality features such as the binary
-\texttt{is\_new}. Permutation importance does not depend on how the
-model splits the data, so it has no such bias, and it can be computed
-on unseen data.
-% TODO: Do I need this paragraph
-However, permutation importance has two limitations. First, it
-measures how much the model's \emph{error} depends on a feature does not show
-whether a feature pushes the predicted PDR up or down. Second, when
-two features are strongly correlated, such as ETX and hop count,
-shuffling one of them has little effect because the model can still
-rely on the other. Both features may then appear less important than
-they really are. Shuffling can also create unrealistic inputs, such
-as a node with a high hop count but a very low ETX.
 
 \subsubsection{SHapley Additive exPlanations (SHAP)}
 SHAP \cite{lundbergUnifiedApproachInterpreting2017} is a technique  based
 on the Shapley value from cooperative game theory, which divides the
 total payout of a game fairly among the players according to each
-player's contribution. Unlike permutation importance, which measures
-how much a feature affects the model's \emph{error}, SHAP measures
+player's contribution. SHAP measures
 how much each feature moves the model's \emph{prediction}, and in
 which direction.
 
+% TODO: writing
 SHAP explains a prediction with an \emph{additive} model: the
 prediction for an input $\mathbf{x}$ is written as a base value plus
 one contribution per feature,
@@ -139,43 +111,7 @@ where $M$ is the number of features, $\phi_0 = \mathbb{E}[f(\mathbf{X})]$
 is the model's average prediction over the data, and $\phi_i$ is the
 SHAP value of feature $i$ for this input. A positive $\phi_i$ means
 that feature $i$ raised the predicted PDR above the average, and a
-negative $\phi_i$ means it lowered it. Because the contributions add
-up exactly to the prediction, each prediction can be broken down into
-the share contributed by each feature
-% TODO: is this cite relevant
-\cite{lundbergUnifiedApproachInterpreting2017}.
-
-% TODO: probs don't need this paragraph
-Computing this sum directly requires evaluating the model on all
-$2^{M}$ subsets of features, which quickly becomes impractical. For
-tree-based models, we use Tree SHAP
-\cite{lundbergLocalExplanationsGlobal2020}, which exploits the
-structure of the trees to compute the exact SHAP values in polynomial
-time, $O(TLD^2)$ for an ensemble of $T$ trees with at most $L$ leaves
-and depth $D$. It does this by tracking, as it follows every path
-through each tree, what fraction of the possible feature subsets
-would reach each leaf. This makes it fast enough to explain thousands
-of predictions from both the decision tree and LightGBM models.
-
-SHAP values can be viewed at two levels. Locally, a \emph{waterfall
-plot} explains a single prediction: it starts from the base value
-$\phi_0$ and adds the contribution of each feature in turn, showing
-which features pushed the predicted PDR up or down for that node.
-Globally, a \emph{beeswarm plot} combines the SHAP values of many
-predictions to show the overall trend. Each point is one prediction,
-placed horizontally by the feature's SHAP value and coloured by the
-feature's value, so the plot shows both how much a feature matters
-and whether high or low values of the feature raise or lower the
-prediction. To rank the features with a single number, we use the
-mean absolute SHAP value of each feature over $n$ predictions,
-\begin{equation}
-    I_i = \frac{1}{n} \sum_{k=1}^{n} \left| \phi_i^{(k)} \right|,
-\end{equation}
-which is the average amount by which feature $i$ moves the predicted
-PDR. Figure~\ref{fig:shap_beeswarm} shows the beeswarm plots for the
-decision tree and LightGBM models, and the mean absolute SHAP values
-are listed alongside the permutation importances in
-Tables~\ref{tab:fi_dtree} and~\ref{tab:fi_lgbm}.
+negative $\phi_i$ means it lowered it.
 
 % TODO: the table is very hard to see
 \begin{table}[htbp]
@@ -220,22 +156,65 @@ Tables~\ref{tab:fi_dtree} and~\ref{tab:fi_lgbm}.
     \end{tabular}
 \end{table}
 
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{Feature importance rank of each model (1 = most
+        important). Perm.\ is the permutation importance and SHAP is
+        the mean absolute SHAP value. The top three features of each
+    column are in bold. Rows are sorted by mean rank.}
+    \label{tab:fi_all}
+    \begin{tabular}{l|cc|cc|cc|cc|c}
+        \hline
+        & \multicolumn{2}{c|}{LightGBM}
+        & \multicolumn{2}{c|}{Decision Tree}
+        & \multicolumn{2}{c|}{Linear SVR}
+        & \multicolumn{2}{c|}{Linear regression}
+        & \\
+        \cline{2-9}
+        \textbf{Feature}
+        & Perm. & SHAP & Perm. & SHAP & Perm. & SHAP & Perm. & SHAP
+        & Mean \\
+        \hline
+        \texttt{hop\_count}       & \textbf{1} & \textbf{1} & \textbf{1} &
+        \textbf{1} & \textbf{2} & \textbf{2} & \textbf{2} & \textbf{2} & 1.50 \\
+        \texttt{path\_cpu}        & \textbf{2} & \textbf{2} & \textbf{2} &
+        \textbf{2} & \textbf{1} & \textbf{1} & \textbf{1} & \textbf{1} & 1.50 \\
+        \texttt{is\_new}          & \textbf{3} & 6 & \textbf{3} &
+        \textbf{3} & \textbf{3} & \textbf{3} & 4 & \textbf{3} & 3.50 \\
+        \texttt{etx}              & 6 & 5 & 5 & 6 & 7 & 8 & \textbf{3} & 4
+        & 5.50 \\
+        \texttt{drop\_rate}       & 5 & 4 & 4 & 4 & 8 & 7 & 7 & 8 & 5.88 \\
+        \texttt{path\_drop\_rate} & 4 & 7 & 7 & 10 & 4 & 4 & 8 & 9 & 6.63
+        \\
+        \texttt{rssi}             & 9 & 10 & 10 & 9 & 5 & 6 & 5 & 5 & 7.38
+        \\
+        \texttt{cpu}              & 7 & 8 & 8 & 7 & 9 & 9 & 6 & 6 & 7.50 \\
+        \texttt{path\_ppm}        & 11 & \textbf{3} & 9 & 5 & 6 & 5 & 11 &
+        11 & 7.63 \\
+        \texttt{ppm}              & 8 & 9 & 6 & 8 & 10 & 10 & 10 & 10 &
+        8.88 \\
+        \texttt{nbr\_count}       & 10 & 11 & 11 & 11 & 11 & 11 & 9 & 7 &
+        10.13 \\
+        \hline
+    \end{tabular}
+\end{table}
+
 \subsection{Feature Analysis}
-Figure~\ref{fig:feature_correlation} and Tables~\ref{tab:fi_dtree}
-and~\ref{tab:fi_lgbm} show how strongly
-each feature is correlated with PDR and how much it influences the
-predictions of the two tree models.
+Figure~\ref{fig:feature_correlation} and Tables~\ref{tab:fi_all} show
+how strongly each feature is correlated with PDR and how much it influences the
+predictions of the models.
 Both views agree on the least useful features.
 The neighbour count and RSSI are almost uncorrelated with PDR
 ($|\rho| \le 0.10$) and have the lowest permutation importance and
 mean absolute SHAP value in both models.
-ETX is only weakly correlated with PDR ($\rho = -0.28$), and
-shuffling it increases the error by less than one MAEP point in
-either model.
-We therefore first remove ETX, RSSI and the neighbour count, which
-increases the MAEP by \textbf{??} percentage points.
 
-In the end, we removed five features and kept six:
+In the end, we removed five
+- RSSI
+- nbr_count
+- path_drop_rate
+- ppm
+features and kept six:
 \texttt{is\_new}, \texttt{cpu}, \texttt{path\_cpu}, \texttt{drop\_rate},
 \texttt{path\_ppm} and \texttt{hop\_count}.
 
@@ -244,3 +223,12 @@ The reduced model has an MAEP of \textbf{??}\%, compared with
 size falls from \textbf{??} to \textbf{??} bytes.
 This is a reasonable trade-off between memory, computation and
 accuracy on a constrained device.
+
+\subsection{Model Selection for Deployment}
+Since MLOF runs on constrained devices, the model must be small enough
+to fit in the node's memory alongside the RPL stack and the
+application. We therefore select the model that, once compiled to C
+code, does not exceed 10~kB and whose error is within 1 percentage
+point of the most accurate model, regardless of size.
+Table~\ref{...} lists the accuracy, size and input features of the
+selected DTree and LGBM models.

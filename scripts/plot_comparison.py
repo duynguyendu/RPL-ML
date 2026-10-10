@@ -7,7 +7,9 @@ a self-contained ``comparison.html`` dashboard, styled like ``dashboard.html``.
 
 Per metric (PDR / latency / CPU usage / parent switch / DIO sent per minute) the page offers two
 views -- fix #nodes (x = bps per node) or fix bps per node (x = #nodes) --
-each a box-and-whisker candle per objective function. The load axis is the
+each a box-and-whisker candle per objective function. When runs differ in
+the MLOF PDR weight (config ``mlof_path_w_pdr``), a third view fixes #nodes and
+bps and puts that weight on x. The load axis is the
 config's ``bps`` (bps per node); runs from before ``bps`` existed
 fall back to their PPM restated as ppm * packet_size * 8 / 60.
 """
@@ -72,9 +74,12 @@ def collect_runs(runs_dir: Path) -> list[dict]:
                 "duration": cfg.get("duration"),
                 "interference_range": cfg.get("interference_range"),
                 "etx": etx,
+                "w_pdr": cfg.get("mlof_path_w_pdr"),
                 "agg": {k: agg.get(k, {}) for k in AGGREGATIONS},
                 "predict_us": agg.get("total", {}).get("predict_us"),
                 "predict_count": agg.get("total", {}).get("predict_count"),
+                "dag_update_us": agg.get("total", {}).get("dag_update_us"),
+                "dag_update_count": agg.get("total", {}).get("dag_update_count"),
             }
         )
     return runs
@@ -109,16 +114,20 @@ def compute_fixed_config(runs: list[dict]) -> list[tuple[str, object]]:
 OF_ORDER = ["mhrof", "of0", "mlof_lgbm", "mlof_dtree"]
 
 
-def compute_predict_time(runs: list[dict]) -> list[tuple[str, object]]:
-    """Average MLOF predict_pdr() run time per rpl_of, over all its runs' calls."""
+def compute_avg_time(
+    runs: list[dict], us_key: str = "predict_us", count_key: str = "predict_count"
+) -> list[tuple[str, object]]:
+    """Average run time of one firmware timer (MLOF predict_pdr() by default)
+    per rpl_of, over all its runs' calls. Runs without the timer are skipped,
+    so the result is empty for logs that predate it."""
     items = []
     ofs = {r["rpl_of"] for r in runs if r.get("rpl_of") is not None}
     for of in sorted(ofs, key=lambda o: (OF_ORDER.index(o) if o in OF_ORDER else len(OF_ORDER), o)):
-        of_runs = [r for r in runs if r.get("rpl_of") == of and r.get("predict_count")]
+        of_runs = [r for r in runs if r.get("rpl_of") == of and r.get(count_key)]
         if not of_runs:
             continue
-        us = sum(r["predict_us"] for r in of_runs)
-        count = sum(r["predict_count"] for r in of_runs)
+        us = sum(r[us_key] for r in of_runs)
+        count = sum(r[count_key] for r in of_runs)
         label = "MRHOF" if of == "mhrof" else of.upper()
         items.append((label, f"{us / count:.1f} us ({len(of_runs)} runs)"))
     return items
@@ -188,6 +197,8 @@ __FIXED_CONFIG_HTML__
     <label><input type="radio" name="mode" value="fix_nodes" checked> Fix #nodes</label>
     <label><input type="radio" name="mode" value="fix_bps"> Fix bps per node</label>
     <label><input type="radio" name="mode" value="facet_nodes"> Mean &plusmn; 95% CI by #nodes</label>
+    <label><input type="radio" name="mode" value="facet_nodes_bar"> Mean &plusmn; 95% CI by #nodes (bars)</label>
+    <label id="wpdrMode" hidden><input type="radio" name="mode" value="sweep_wpdr"> Sweep PDR weight</label>
     <label><input type="radio" name="mode" value="dashboard"> Run dashboard</label>
   </fieldset>
   <fieldset id="fixedWrap">
@@ -220,15 +231,24 @@ __FIXED_CONFIG_HTML__
 <script>
 const RUNS = __RUNS_JSON__;
 const METRICS = [
-  {key:'pdr',           file:'pdr',           label:'PDR',           scale:100, unit:'%',  title:'PDR',                        axis:'PDR (%)'},
+  {key:'pdr',           file:'pdr',           label:'PDR',           scale:100, unit:'%',  title:'PDR',                        axis:'PDR (%)', ymin:30},
   {key:'parent_switch', file:'parent_switch', label:'Parent switch', scale:1,   unit:'',   title:'Parent switches per node',   axis:'Parent switches per node'},
   {key:'latency',       file:'latency',       label:'Latency',       scale:1,   unit:' s', title:'End-to-end latency',         axis:'End-to-end latency (s)'},
   {key:'cpu_util',      file:'cpu',           label:'CPU usage',     scale:1,   unit:'%',  title:'CPU usage',                  axis:'CPU usage (%)'},
   {key:'retransmissions', file:'retransmissions', label:'Retransmissions', scale:1, unit:'', title:'Link-layer retransmissions per node', axis:'Retransmissions per node (unACKed TX attempts)'},
+  {key:'queue_drops',   file:'queue_drops',   label:'Queue drops',   scale:1,   unit:'',   title:'Queue drops per node',       axis:'Queue drops per node (MAC queue full)'},
+  {key:'packet_loss',   file:'packet_loss',   label:'Packet loss',   scale:100, unit:'%',  title:'Packet loss ratio',          axis:'Packet loss ratio (%)'},
   {key:'dio_per_min',   file:'dio_sent',      label:'DIO sent',      scale:1,   unit:'/min', title:'DIO transmission rate per node', axis:'DIO messages per node per minute'},
   {key:'hop_count',     file:'hop_count',     label:'Hop count',     scale:1,   unit:'',   title:'Average hop count',          axis:'Average hop count'},
   {key:'etx',           file:'etx',           label:'ETX',           scale:1,   unit:'',   title:'Average link ETX to parent', axis:'Average link ETX'},
 ];
+// ymin (optional): fixed lower end of the y axis, the top still autoscales;
+// without it the axis starts at zero. Ticks are anchored on ymin so it is
+// labelled too.
+const yFloor = metric => (metric.ymin != null)
+  ? {range:[metric.ymin, null], autorange:'max', tickmode:'linear', tick0:metric.ymin, dtick:10}
+  : {rangemode:'tozero'};
+
 // Cycled by index rather than keyed by name, so any number of distinct
 // rpl_of values present in RUNS (not just of0/mhrof) gets its own color.
 const OF_PALETTE = [
@@ -259,6 +279,9 @@ function init(){
     RUNS.length + ' runs · #nodes: ' + uniqNums(RUNS.map(r => r.num_of_nodes)).join(', ')
     + ' · bps per node: ' + uniqNums(RUNS.map(r => r.bps)).join(', ')
     + ' · seeds: ' + uniqNums(RUNS.map(r => r.seed)).join(', ');
+
+  // the PDR-weight view only makes sense once runs differ in mlof_path_w_pdr
+  $('#wpdrMode').hidden = uniqNums(RUNS.map(r => r.w_pdr)).length < 2;
 
   METRICS.forEach((m, i) => {
     const card = document.createElement('div');
@@ -347,8 +370,21 @@ function mode(){ return document.querySelector('input[name=mode]:checked').value
 function syncFixed(){
   const m = mode();
   const wrap = $('#fixedWrap');
-  if(m === 'dashboard' || m === 'facet_nodes'){ wrap.style.display = 'none'; return; }
+  if(m === 'dashboard' || m.startsWith('facet_nodes')){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
+  if(m === 'sweep_wpdr'){
+    // fixed value is a (#nodes, bps) pair, encoded as "nodes|bps"
+    $('#fixedLabel').textContent = '#nodes, bps per node';
+    const pairs = [...new Set(RUNS.filter(r => r.w_pdr != null)
+      .map(r => r.num_of_nodes + '|' + r.bps))]
+      .map(k => k.split('|').map(Number))
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const prev = $('#fixed').value;
+    $('#fixed').innerHTML = pairs.map(([n, b]) =>
+      '<option value="' + n + '|' + b + '">N = ' + n + ', ' + b + ' bps</option>').join('');
+    if(pairs.some(([n, b]) => n + '|' + b === prev)) $('#fixed').value = prev;
+    return;
+  }
   const key = (m === 'fix_nodes') ? 'num_of_nodes' : 'bps';
   $('#fixedLabel').textContent = (m === 'fix_nodes') ? '# nodes' : 'bps per node';
   const vals = uniqNums(RUNS.map(r => r[key]));
@@ -357,26 +393,43 @@ function syncFixed(){
   if(vals.map(String).includes(prev)) $('#fixed').value = prev;
 }
 
+// packet loss ratio per node is 1 - PDR, so each of its statistics is the
+// complement of PDR's mirrored one (min loss = 1 - max PDR, q1 = 1 - q3, ...)
+const LOSS_FROM_PDR = {min:'max', q1:'q3', median:'median', avg:'avg', q3:'q1', max:'min'};
+
 function valueOf(r, agg, key, scale){
+  if(key === 'packet_loss'){
+    const pdr = valueOf(r, LOSS_FROM_PDR[agg], 'pdr', 1);
+    return pdr == null ? null : (1 - pdr) * scale;
+  }
   const raw = (r.agg && r.agg[agg]) ? r.agg[agg][key] : null;
   return (raw == null || Number.isNaN(raw)) ? null : raw * scale;
 }
 
 // free-axis values (bps per node, or node counts) present for the current fixed view
+function freeKeyOf(m){
+  return {fix_nodes:'bps', fix_bps:'num_of_nodes', sweep_wpdr:'w_pdr'}[m];
+}
+
+// runs belonging to the current fixed view; in sweep_wpdr fixedVal is "nodes|bps"
+function scopeOf(m, fixedVal){
+  if(m === 'fix_nodes') return r => r.num_of_nodes === fixedVal;
+  if(m === 'fix_bps') return r => r.bps === fixedVal;
+  const [n, b] = String(fixedVal).split('|').map(Number);
+  return r => r.num_of_nodes === n && r.bps === b;
+}
+
 function fixedXs(m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'bps' : 'num_of_nodes';
-  const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.bps === fixedVal;
-  return uniqNums(RUNS.filter(inScope).map(r => r[freeKey]));
+  const freeKey = freeKeyOf(m);
+  return uniqNums(RUNS.filter(scopeOf(m, fixedVal)).map(r => r[freeKey]));
 }
 
 // one box-and-whisker candle per objective function, grouped per-x-value.
 // Box = Q1..Q3, line = median, whiskers = min/max, dashed = mean. Runs that
 // share the same (fixed value, free value, OF) are averaged stat-by-stat.
 function tracesCandle(metric, m, fixedVal){
-  const freeKey = (m === 'fix_nodes') ? 'bps' : 'num_of_nodes';
-  const inScope = r => (m === 'fix_nodes') ? r.num_of_nodes === fixedVal
-                                           : r.bps === fixedVal;
+  const freeKey = freeKeyOf(m);
+  const inScope = scopeOf(m, fixedVal);
   const xs = fixedXs(m, fixedVal);
   const out = [];
   for(const of_ of RPL_OFS){
@@ -445,8 +498,9 @@ function meanCI(rows, metric){
 }
 
 // one chart per metric with a panel per node count: x = bps, one line per OF
-// through the mean of the per-run averages, error bars = 95% CI over runs
-function renderFacets(){
+// through the mean of the per-run averages, error bars = 95% CI over runs.
+// With bars = true each OF is a grouped bar at the mean instead of a line.
+function renderFacets(bars = false){
   const nodes = uniqNums(RUNS.map(r => r.num_of_nodes));
   const bpsAll = uniqNums(RUNS.map(r => r.bps));
   const gap = 0.015, w = (1 - gap * (nodes.length - 1)) / nodes.length;
@@ -464,11 +518,16 @@ function renderFacets(){
       legend:{orientation:'h', x:0.5, xanchor:'center', y:1.09, yanchor:'bottom', font:{size:16}},
       paper_bgcolor:'white', plot_bgcolor:'#FBFCFE',
       annotations:[],
+      barmode:'group', bargap:0.25, bargroupgap:0.05,
     };
     nodes.forEach((n, k) => {
       const ax = k ? String(k + 1) : '';
       const lo = k * (w + gap);
-      lay['xaxis' + ax] = {
+      lay['xaxis' + ax] = bars ? {
+        domain:[lo, lo + w], anchor:'y' + ax, type:'category',
+        categoryorder:'array', categoryarray:bpsAll.map(String), tickfont:{size:16},
+        showgrid:false, zeroline:false,
+      } : {
         domain:[lo, lo + w], anchor:'y' + ax,
         tickmode:'array', tickvals:bpsAll, ticktext:bpsAll.map(String), tickfont:{size:16},
         range:[bpsAll[0] - step * 0.5, bpsAll[bpsAll.length - 1] + step * 0.5],
@@ -476,7 +535,7 @@ function renderFacets(){
       };
       lay['yaxis' + ax] = {
         anchor:'x' + ax, tickfont:{size:16}, gridcolor:'rgba(128,128,128,0.3)',
-        rangemode:'tozero', nticks:12,
+        ...yFloor(metric), nticks:12,
       };
       if(k){ lay['yaxis' + ax].matches = 'y'; lay['yaxis' + ax].showticklabels = false; }
       lay.annotations.push({
@@ -490,11 +549,21 @@ function renderFacets(){
         if(!pts.length) continue;
         const color = mute(ofStyle(of_).color);
         const j = RPL_OFS.indexOf(of_);
-        traces.push({
-          type:'scatter', mode:'lines+markers', xaxis:'x' + ax, yaxis:'y' + ax,
+        const common = {
+          xaxis:'x' + ax, yaxis:'y' + ax,
           name:ofLabel(of_), legendgroup:of_, showlegend:k === 0,
-          x:pts.map(([b]) => b + dodge(j)), y:pts.map(([, c]) => c.mean),
+          y:pts.map(([, c]) => c.mean),
           customdata:pts.map(([b, c]) => [b, c.ci, c.n]),
+        };
+        traces.push(bars ? {
+          ...common, type:'bar', x:pts.map(([b]) => String(b)),
+          error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1.25, width:4, color:'#2a3f5f'},
+          marker:{color:ofStyle(of_).fill, line:{color:color, width:1.25}},
+          hovertemplate:ofLabel(of_) + ', N = ' + n + ', %{customdata[0]} bps<br>' +
+            'mean: %{y:.3f} &plusmn; %{customdata[1]:.3f} (%{customdata[2]} runs)<extra></extra>',
+        } : {
+          ...common, type:'scatter', mode:'lines+markers',
+          x:pts.map(([b]) => b + dodge(j)),
           error_y:{type:'data', array:pts.map(([, c]) => c.ci), thickness:1, width:3, color:color},
           line:{color:color, width:1.25},
           marker:{color:color, size:8, symbol:OF_SYMBOL[j % OF_SYMBOL.length],
@@ -517,7 +586,7 @@ function renderFacets(){
       metric.title + ' versus traffic rate per node (mean ± 95% CI over runs)';
     Plotly.react(div, traces, lay,
       {responsive:false, displaylogo:false,
-       toImageButtonOptions:{format:'png', filename:metric.file + '_all_nodes',
+       toImageButtonOptions:{format:'png', filename:metric.file + '_all_nodes' + (bars ? '_bar' : ''),
                              width:EXPORT_W, height:chartHeight, scale:EXPORT_SCALE}});
   });
 }
@@ -531,10 +600,14 @@ function layout(metric, m, fixedVal, chartHeight){
     legend:{orientation:'h', x:0.5, xanchor:'center', y:1.02, yanchor:'bottom', font:{size:14}},
     paper_bgcolor:'white', plot_bgcolor:'#FBFCFE',
   };
-  const xtitle = (m === 'fix_nodes') ? 'Traffic rate per node (bps)' : 'Number of nodes';
-  const xname = (m === 'fix_nodes') ? 'traffic rate per node' : 'number of nodes';
-  const fixtxt = (m === 'fix_nodes')
-    ? ('N = ' + fixedVal + ' nodes') : (fixedVal + ' bps per node');
+  const xtitle = {fix_nodes:'Traffic rate per node (bps)', fix_bps:'Number of nodes',
+                  sweep_wpdr:'PDR weight (mlof_path_w_pdr)'}[m];
+  const xname = {fix_nodes:'traffic rate per node', fix_bps:'number of nodes',
+                 sweep_wpdr:'PDR weight'}[m];
+  let fixtxt;
+  if(m === 'fix_nodes') fixtxt = 'N = ' + fixedVal + ' nodes';
+  else if(m === 'fix_bps') fixtxt = fixedVal + ' bps per node';
+  else { const [n, b] = String(fixedVal).split('|'); fixtxt = 'N = ' + n + ', ' + b + ' bps per node'; }
   const cats = fixedXs(m, fixedVal).map(String);
   base.chartTitle = metric.title + ' versus ' + xname + ' (' + fixtxt + ')';
   base.boxmode = 'group';
@@ -548,7 +621,7 @@ function layout(metric, m, fixedVal, chartHeight){
   base.yaxis = {
     title:{text:metric.axis, font:{size:19, weight:'bold'}}, tickfont:{size:17},
     gridcolor:'rgba(128,128,128,0.3)',
-    rangemode:'tozero', nticks:12,
+    ...yFloor(metric), nticks:12,
   };
   return base;
 }
@@ -559,10 +632,10 @@ function render(){
   $('#charts').style.display = (m === 'dashboard') ? 'none' : '';
   $('#dashboardArea').hidden = (m !== 'dashboard');
   if(m === 'dashboard'){ updateDashboardFrame(); return; }
-  document.querySelectorAll('.card').forEach(c => c.classList.toggle('wide', m === 'facet_nodes'));
-  if(m === 'facet_nodes'){ renderFacets(); return; }
-  const chartHeight = 736;
-  const fixedVal = Number($('#fixed').value);
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('wide', m.startsWith('facet_nodes')));
+  if(m.startsWith('facet_nodes')){ renderFacets(m === 'facet_nodes_bar'); return; }
+  const chartHeight = 520;
+  const fixedVal = (m === 'sweep_wpdr') ? $('#fixed').value : Number($('#fixed').value);
   METRICS.forEach((metric, i) => {
     const div = document.getElementById('chart' + i);
     div.style.height = chartHeight + 'px';
@@ -573,7 +646,9 @@ function render(){
     delete lay.chartTitle;
     // "Download plot as PNG" file name: <metric>_<#nodes>, or <metric>_<bps>bps
     // in the fixed-bps view so the two views never share a name
-    const filename = metric.file + '_' + fixedVal + (m === 'fix_nodes' ? '' : 'bps');
+    const filename = (m === 'sweep_wpdr')
+      ? metric.file + '_wpdr_' + fixedVal.replace('|', '_') + 'bps'
+      : metric.file + '_' + fixedVal + (m === 'fix_nodes' ? '' : 'bps');
     Plotly.react(div, tracesCandle(metric, m, fixedVal), lay,
       {responsive:true, displaylogo:false,
        toImageButtonOptions:{format:'png', filename:filename,
@@ -591,7 +666,12 @@ init();
 def build_html(runs: list[dict], plotly_js_src: str) -> str:
     fixed_config_html = _render_strip(
         "Fixed config", compute_fixed_config(runs)
-    ) + _render_strip("Avg predict_pdr() time", compute_predict_time(runs))
+    ) + _render_strip("Avg predict_pdr() time", compute_avg_time(runs))
+    # empty (no strip) when no run logged DODAG update timing
+    fixed_config_html += _render_strip(
+        "Avg DODAG update time",
+        compute_avg_time(runs, "dag_update_us", "dag_update_count"),
+    )
     return (
         HTML_TEMPLATE.replace("__TITLE__", "Metric comparison across runs")
         .replace("__PLOTLY_SRC__", plotly_js_src)

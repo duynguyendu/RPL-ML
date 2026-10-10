@@ -511,6 +511,29 @@ def _retransmissions_by_node(data, df_dir):
     The firmware logs TX (every transmission attempt, retries included) and
     ACKED (frames acknowledged) as cumulative counters of the link to the
     current preferred parent, so TX - ACKED counts unacknowledged attempts.
+    """
+    return _parent_link_growth_by_node(
+        data, df_dir, ["tx_packets", "acked_packets"],
+        lambda m: m["tx_packets"] - m["acked_packets"],
+    )
+
+
+def _queue_drops_by_node(data, df_dir):
+    """Queue drops per node as a Series indexed by node_id.
+
+    The firmware logs DROPPED, the link's num_queue_drops: frames to the
+    current preferred parent discarded because the MAC queue was full
+    (MAC_TX_QUEUE_FULL), as a cumulative counter like TX / ACKED.
+    """
+    return _parent_link_growth_by_node(
+        data, df_dir, ["dropped_packets"], lambda m: m["dropped_packets"]
+    )
+
+
+def _parent_link_growth_by_node(data, df_dir, columns, counter):
+    """Per-node growth of a cumulative preferred-parent link counter.
+
+    ``counter(frame)`` derives the counter from ``columns`` of metrics.csv.
     Each report is matched to the parent the node had then (dodag.csv); per
     (node, parent) link the growth over the run is its last value minus its
     value at the node's first report (0 for links first used later), and a
@@ -518,13 +541,18 @@ def _retransmissions_by_node(data, df_dir):
     """
     df = data.get("metrics")
     path = os.path.join(df_dir, "dodag.csv")
-    if df is None or df.empty or "tx_packets" not in df or not os.path.exists(path):
+    if (
+        df is None
+        or df.empty
+        or any(c not in df for c in columns)
+        or not os.path.exists(path)
+    ):
         return pd.Series(dtype=float)
     dodag = pd.read_csv(path)
     if dodag.empty:
         return pd.Series(dtype=float)
     # rows without a preferred parent log ETX=65535 and zero counters
-    m = df.loc[df["etx"] != INVALID, ["time_s", "node_id", "tx_packets", "acked_packets"]]
+    m = df.loc[df["etx"] != INVALID, ["time_s", "node_id", *columns]]
     m = pd.merge_asof(
         m.astype({"time_s": float}).sort_values("time_s"),
         dodag[["time_s", "node_id", "parent_id"]].sort_values("time_s"),
@@ -533,13 +561,13 @@ def _retransmissions_by_node(data, df_dir):
     ).dropna(subset=["parent_id"])
     if m.empty:
         return pd.Series(dtype=float)
-    m["unacked"] = m["tx_packets"] - m["acked_packets"]
+    m["count"] = counter(m)
     m = m.sort_values("time_s")
     first_t = m.groupby("node_id")["time_s"].transform("min")
     links = m.groupby(["node_id", "parent_id"])
-    last = links["unacked"].last()
+    last = links["count"].last()
     base = (
-        m[m["time_s"] == first_t].groupby(["node_id", "parent_id"])["unacked"].first()
+        m[m["time_s"] == first_t].groupby(["node_id", "parent_id"])["count"].first()
     )
     growth = (last - base.reindex(last.index, fill_value=0)).clip(lower=0)
     return growth.groupby(level="node_id").sum().astype(float)
@@ -984,30 +1012,31 @@ def _packet_totals(data):
     return sent, recv, not_joined, unreachable, in_network
 
 
-def _predict_totals(data):
-    """(total predict_pdr() time in us, total calls) summed over nodes.
+def _timer_totals(data, us_col, count_col):
+    """(total run time in us, total calls) summed over nodes for one firmware
+    timer, e.g. predict_us / predict_count for MLOF predict_pdr().
 
     The firmware logs both as cumulative counters since boot, so each node's
     last metrics row holds its totals. Returns (None, None) for logs without
-    the PREDICT_US / PREDICT_COUNT fields.
+    those fields.
     """
     df = data.get("metrics")
-    if df is None or df.empty or "predict_count" not in df:
+    if df is None or df.empty or count_col not in df:
         return None, None
     totals = _query(
-        """
-        SELECT SUM(predict_us) AS predict_us, SUM(predict_count) AS predict_count
+        f"""
+        SELECT SUM({us_col}) AS us, SUM({count_col}) AS count
         FROM (
-            SELECT predict_us, predict_count
+            SELECT {us_col}, {count_col}
             FROM df
-            WHERE predict_count IS NOT NULL
+            WHERE {count_col} IS NOT NULL
             QUALIFY row_number() OVER (PARTITION BY node_id ORDER BY time_s DESC) = 1
         )
         """,
         df,
-        ["predict_us", "predict_count"],
+        ["us", "count"],
     )
-    us, count = totals["predict_us"].iloc[0], totals["predict_count"].iloc[0]
+    us, count = totals["us"].iloc[0], totals["count"].iloc[0]
     if pd.isna(count):
         return None, None
     return int(us), int(count)
@@ -1025,6 +1054,10 @@ _SUMMARY_METRICS = {
     "dio_per_min": ("DIO/min", lambda v: f"{v:.2f}"),
     "retransmissions": (
         "retransmissions",
+        lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
+    ),
+    "queue_drops": (
+        "queue drops",
         lambda v: f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}",
     ),
     "load": ("load", lambda v: f"{v:.0f} bps"),
@@ -1077,6 +1110,7 @@ def _summary_node_series(metrics, data, df_dir):
         "parent_switch": _parent_switches_by_node(df_dir),
         "dio_per_min": _col(metrics.get("dio_rate"), "dio_per_min"),
         "retransmissions": _retransmissions_by_node(data, df_dir),
+        "queue_drops": _queue_drops_by_node(data, df_dir),
         "load": metrics.get("load_by_node", pd.Series(dtype=float)),
         "hop_count": metrics.get("hop_by_node", pd.Series(dtype=float)),
         "etx": _col(metrics.get("etx_by_node"), "etx"),
@@ -1091,7 +1125,9 @@ def compute_aggregate(metrics, data, df_dir):
     that statistic taken across nodes (jain = Jain's fairness index). Metric
     values are raw numbers -- pdr as a 0..1 fraction, latency in seconds, cpu_util in percent, parent_switch as a count,
     dio_per_min in DIOs per minute, retransmissions as a count of
-    unacknowledged link-layer TX attempts to the preferred parent, load in bps (each client's offered load
+    unacknowledged link-layer TX attempts to the preferred parent,
+    queue_drops as a count of frames to the preferred parent dropped on a
+    full MAC queue, load in bps (each client's offered load
     averaged over the 60 s snapshots), hop_count in hops to the root (each
     client's depth averaged over the snapshots it was attached), etx as each client's link ETX
     to its preferred parent averaged over its reports -- and missing
@@ -1108,12 +1144,17 @@ def compute_aggregate(metrics, data, df_dir):
 
     switch = series_map["parent_switch"]
     retx = series_map["retransmissions"]
+    drops = series_map["queue_drops"]
     sent, recv, not_joined, unreachable, in_network = _packet_totals(data)
-    predict_us, predict_count = _predict_totals(data)
+    predict_us, predict_count = _timer_totals(data, "predict_us", "predict_count")
+    dag_update_us, dag_update_count = _timer_totals(
+        data, "dag_update_us", "dag_update_count"
+    )
     result = {
         "total": {
             "parent_switch": int(switch.sum()) if len(switch) else None,
             "retransmissions": int(retx.sum()) if len(retx) else None,
+            "queue_drops": int(drops.sum()) if len(drops) else None,
             "packets_sent": None if _isnan(sent) else int(sent),
             "packets_received_by_root": None if _isnan(recv) else int(recv),
             "packets_lost_not_joined": None if _isnan(not_joined) else int(not_joined),
@@ -1125,6 +1166,11 @@ def compute_aggregate(metrics, data, df_dir):
             "predict_count": predict_count,
             "avg_predict_us": (
                 predict_us / predict_count if predict_count else None
+            ),
+            "dag_update_us": dag_update_us,
+            "dag_update_count": dag_update_count,
+            "avg_dag_update_us": (
+                dag_update_us / dag_update_count if dag_update_count else None
             ),
         }
     }
@@ -1152,6 +1198,7 @@ def render_summary_html(aggregate):
     total_items = [
         ("Total parent switches", _n("parent_switch")),
         ("Total retransmissions", _n("retransmissions")),
+        ("Total queue drops", _n("queue_drops")),
         ("Packets sent", _n("packets_sent")),
         ("Packets received by root", _n("packets_received_by_root")),
         ("Packets lost (not joined)", _n("packets_lost_not_joined")),
@@ -1178,17 +1225,24 @@ def render_summary_html(aggregate):
 
 
 def render_predict_time_html(aggregate):
-    """Render the average MLOF predict_pdr() run time as a header strip."""
+    """Render the average MLOF predict_pdr() and DODAG update run times as a
+    header strip."""
     total = aggregate.get("total", {})
     avg = total.get("avg_predict_us")
     count = total.get("predict_count")
-    return _render_strip(
-        "Computation time",
-        [
-            ("Avg predict_pdr() time", "n/a" if avg is None else f"{avg:.1f} us"),
-            ("predict_pdr() calls", "n/a" if count is None else str(count)),
-        ],
-    )
+    dag_avg = total.get("avg_dag_update_us")
+    dag_count = total.get("dag_update_count")
+    items = [
+        ("Avg predict_pdr() time", "n/a" if avg is None else f"{avg:.1f} us"),
+        ("predict_pdr() calls", "n/a" if count is None else str(count)),
+    ]
+    # DODAG update timing is only in newer logs; leave it out when missing
+    if dag_count:
+        items += [
+            ("Avg DODAG update time", f"{dag_avg:.1f} us"),
+            ("DODAG update calls", str(dag_count)),
+        ]
+    return _render_strip("Computation time", items)
 
 
 def plot_topology(df_dir, metrics, load=None):

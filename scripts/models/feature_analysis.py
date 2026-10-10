@@ -8,7 +8,10 @@ correlation and mutual information with PDR. Clustering uses Spearman.
 
 For analyse_features(), for each model type, the best hyperparameters from grid_search.csv are refit
 on ALL of train_config.FEATURE_COLUMNS (not just the feature set the grid
-search picked), then analysed on a held-out split:
+search picked) on the grid search's training sample for the best row's data
+seed, then analysed on the unseen-topology test set (the highest topo_seed,
+held out of training, CV and model selection; a random 20% split if
+hold_out_last_topo_seed is off):
 
 - permutation importance: how much the held-out MAE grows when one feature's
   values are shuffled -- model-agnostic, so comparable across model types
@@ -42,7 +45,14 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from models.data import LABEL_COLUMN, MAXUINT16, display_name
-from models.train import _load_training_data, _with_params, get_model_configs, mae_to_maep as _to_maep
+from models.train import (
+    _hold_out_last_topo_seed,
+    _load_training_data,
+    _training_samples,
+    _with_params,
+    get_model_configs,
+    mae_to_maep as _to_maep,
+)
 from plotly_utils import plotly_src
 
 # features with more distinct values than this are binned by quantile for the
@@ -306,25 +316,33 @@ def analyse_features() -> pd.DataFrame:
     grid_search_df = pd.read_csv(models_dir / "grid_search.csv")
     features = train_config.FEATURE_COLUMNS
 
-    df = _load_training_data(train_config)
+    df, test_df = _hold_out_last_topo_seed(_load_training_data(train_config), train_config)
+    data_by_seed = _training_samples(df, train_config)
+    test_label = "unseen-topology"
+    if test_df is None:
+        test_label = "held-out 20%"
+        print("Warning: no unseen-topology test set -- analysing on a random 20% split instead")
     rows = []
     for model_name, is_pipeline, estimator, param_grid in get_model_configs(train_config):
         params, data_seed = _best_params(grid_search_df, model_name, param_grid)
 
-        # same row cap as the grid search, sampled with the best row's data seed
-        sample = df
-        if len(df) > train_config.max_train_rows:
-            sample = df.sample(n=train_config.max_train_rows, random_state=data_seed or 0)
-        X_train, X_test, y_train, y_test = train_test_split(
-            sample[features], sample[LABEL_COLUMN], test_size=0.2, random_state=0
-        )
+        # train on the grid search's sample for the best row's data seed;
+        # analyse on the held-out (unseen) topology
+        sample = data_by_seed.get(data_seed, next(iter(data_by_seed.values())))
+        if test_df is not None:
+            X_train, y_train = sample[features], sample[LABEL_COLUMN]
+            X_test, y_test = test_df[features], test_df[LABEL_COLUMN]
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                sample[features], sample[LABEL_COLUMN], test_size=0.2, random_state=0
+            )
 
         model = _with_params(estimator, is_pipeline, params)
         model.fit(X_train, y_train)
         test_mae = mean_absolute_error(y_test, model.predict(X_test))
         print(
             f"\n=== {model_name} on all {len(features)} features, params={params}, "
-            f"data_seed={data_seed}: held-out MAE={test_mae:.1f} (MAEP={_to_maep(test_mae):.3f}%) ==="
+            f"data_seed={data_seed}: {test_label} MAE={test_mae:.1f} (MAEP={_to_maep(test_mae):.3f}%) ==="
         )
 
         perm = permutation_importance(
